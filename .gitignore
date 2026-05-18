@@ -1,3 +1,6 @@
+# Essentia model cache — downloaded at runtime, never committed
+model_cache/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
