@@ -8,3 +8,4 @@ asyncpg>=0.29.0
 psycopg2-binary>=2.9.9
 essentia-tensorflow>=2.1b6.dev1110
 numpy>=1.26.0
+mutagen>=1.47.0
