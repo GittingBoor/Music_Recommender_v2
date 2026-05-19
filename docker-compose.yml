@@ -17,6 +17,9 @@ services:
     env_file: ./backend/.env
     depends_on:
       - db
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
       - ./backend/test_audio:/app/test_audio
       - ./backend/test_output:/app/test_output
