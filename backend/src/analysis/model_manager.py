@@ -130,6 +130,16 @@ class ModelManager:
     def is_cached(self, key: str) -> bool:
         return self.get_path(key).exists()
 
+    def ensure_key(self, key: str) -> None:
+        """Download a single model if not already cached."""
+        if self.is_cached(key):
+            return
+        spec = _MODEL_INDEX[key]
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("[Model] Downloading %s — %s", spec.key, spec.description)
+        self._download(spec.download_url, self._cache_dir / spec.filename)
+        logger.info("[Model] Saved %s", spec.key)
+
     def ensure_all(self) -> None:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         missing = [m for m in MODELS if not self.is_cached(m.key)]
