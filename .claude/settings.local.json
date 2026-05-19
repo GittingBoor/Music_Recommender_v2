@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Test-Path D:\\\\GitHub\\\\Uni\\\\Music_Recommender_v2\\\\frontend\\\\node_modules *)",
+      "WebFetch(domain:essentia.upf.edu)"
+    ]
+  }
+}
