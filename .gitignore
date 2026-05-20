@@ -1,3 +1,12 @@
+# Essentia model cache — downloaded at runtime, never committed
+model_cache/
+
+# Analysis debug output — local test results, never committed
+backend/test_output/
+
+# Test audio files — local only, never committed
+backend/test_audio/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
