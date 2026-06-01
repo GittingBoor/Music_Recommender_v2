@@ -226,6 +226,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# AI-Agents
+# AI-Agent
 .claude
 CLAUDE.md
