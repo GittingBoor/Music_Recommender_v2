@@ -22,3 +22,17 @@ npm run dev   # starts dev server at http://localhost:5173
 ```
 
 > `node_modules/` is gitignored. Run `npm install` once after cloning.
+
+
+### Datenbank
+wenn man noch gar keine hat, den befehl ausführen:
+```bash
+docker exec -it music_recommender_v2-backend-1 alembic upgrade head
+```
+
+#### pg admin
+
+username:
+admin@admin.com 
+pw:
+admin
