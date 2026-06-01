@@ -21,9 +21,17 @@ services:
       - 8.8.8.8
       - 1.1.1.1
     volumes:
-      - ./backend/test_audio:/app/test_audio
-      - ./backend/test_output:/app/test_output
-      - ./backend/model_cache:/app/model_cache
+      - ./backend:/app
+
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
 
   frontend:
     build: ./frontend
