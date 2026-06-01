@@ -11,9 +11,8 @@ _TF1_INPUT = "model/Placeholder"
 _TF2_INPUT = "serving_default_model_Placeholder"
 _TF2_OUTPUT = "PartitionedCall"
 
-# Only models that deviate from TF1 defaults
 _LAYER_OVERRIDES: dict[str, tuple[str, str]] = {
-    "genre_discogs400": (_TF2_INPUT, _TF2_OUTPUT),  # confirmed TF2
+    "genre_discogs400": (_TF2_INPUT, _TF2_OUTPUT),
 }
 
 _GENRE_LABELS: list[str] = [
@@ -170,8 +169,8 @@ _INSTRUMENT_LABELS: list[str] = [
 ]
 
 
-def _run_classifier(model_key: str, embedding: np.ndarray, output_layer: str) -> np.ndarray:
-    """Run a TensorflowPredict2D model and return mean predictions across patches."""
+def _run_classifier_raw(model_key: str, embedding: np.ndarray, output_layer: str) -> np.ndarray:
+    """Run a TensorflowPredict2D model and return per-patch predictions (shape: n_patches x n_classes)."""
     path = get_manager().get_path(model_key)
     input_layer, out = _LAYER_OVERRIDES.get(model_key, (_TF1_INPUT, output_layer))
     model = es.TensorflowPredict2D(
@@ -179,80 +178,93 @@ def _run_classifier(model_key: str, embedding: np.ndarray, output_layer: str) ->
         input=input_layer,
         output=out,
     )
-    predictions: np.ndarray = model(embedding)
-    return np.mean(predictions, axis=0)
+    return model(embedding)
+
+
+def _run_classifier(model_key: str, embedding: np.ndarray, output_layer: str) -> np.ndarray:
+    """Run a classifier and return mean predictions across patches."""
+    return np.mean(_run_classifier_raw(model_key, embedding, output_layer), axis=0)
 
 
 def _log(model_key: str, value: object) -> None:
     logger.debug("[Classifier] %s = %s", model_key, value)
 
 
-def predict_mood_happy(embedding: np.ndarray) -> float:
-    """Return probability of happy mood (0–1)."""
-    result = _run_classifier("mood_happy", embedding, "model/Softmax")
-    prob = round(float(result[1]), 4)
-    _log("mood_happy", prob)
-    return prob
+def _binary_with_timeseries(model_key: str, embedding: np.ndarray, output_layer: str, positive_index: int = 1) -> dict[str, object]:
+    """Run a binary classifier and return mean + per-patch timeseries for the positive class."""
+    raw = _run_classifier_raw(model_key, embedding, output_layer)
+    timeseries = [round(float(p[positive_index]), 4) for p in raw]
+    mean_val = round(float(np.mean(raw, axis=0)[positive_index]), 4)
+    return {"mean": mean_val, "timeseries": timeseries}
 
 
-def predict_mood_sad(embedding: np.ndarray) -> float:
-    """Return probability of sad mood (0–1)."""
-    result = _run_classifier("mood_sad", embedding, "model/Softmax")
-    prob = round(float(result[1]), 4)
-    _log("mood_sad", prob)
-    return prob
+def _two_class_with_timeseries(
+    model_key: str,
+    embedding: np.ndarray,
+    output_layer: str,
+    label_0: str,
+    label_1: str,
+) -> dict[str, object]:
+    """Run a 2-class classifier and return mean + per-patch timeseries as named dicts."""
+    raw = _run_classifier_raw(model_key, embedding, output_layer)
+    mean_arr = np.mean(raw, axis=0)
+    mean_val = {label_0: round(float(mean_arr[0]), 4), label_1: round(float(mean_arr[1]), 4)}
+    timeseries = [{label_0: round(float(p[0]), 4), label_1: round(float(p[1]), 4)} for p in raw]
+    return {"mean": mean_val, "timeseries": timeseries}
 
 
-def predict_mood_aggressive(embedding: np.ndarray) -> float:
-    """Return probability of aggressive mood (0–1)."""
-    result = _run_classifier("mood_aggressive", embedding, "model/Softmax")
-    prob = round(float(result[1]), 4)
-    _log("mood_aggressive", prob)
-    return prob
+def predict_mood_happy(embedding: np.ndarray) -> dict[str, object]:
+    result = _binary_with_timeseries("mood_happy", embedding, "model/Softmax")
+    _log("mood_happy", result["mean"])
+    return result
 
 
-def predict_mood_party(embedding: np.ndarray) -> float:
-    """Return probability of party mood (0–1)."""
-    result = _run_classifier("mood_party", embedding, "model/Softmax")
-    prob = round(float(result[1]), 4)
-    _log("mood_party", prob)
-    return prob
+def predict_mood_sad(embedding: np.ndarray) -> dict[str, object]:
+    result = _binary_with_timeseries("mood_sad", embedding, "model/Softmax")
+    _log("mood_sad", result["mean"])
+    return result
 
 
-def predict_mood_relaxed(embedding: np.ndarray) -> float:
-    """Return probability of relaxed mood (0–1)."""
-    result = _run_classifier("mood_relaxed", embedding, "model/Softmax")
-    prob = round(float(result[1]), 4)
-    _log("mood_relaxed", prob)
-    return prob
+def predict_mood_aggressive(embedding: np.ndarray) -> dict[str, object]:
+    result = _binary_with_timeseries("mood_aggressive", embedding, "model/Softmax")
+    _log("mood_aggressive", result["mean"])
+    return result
 
 
-def predict_mood_acoustic(embedding: np.ndarray) -> float:
-    """Return probability of acoustic character (0–1)."""
-    result = _run_classifier("mood_acoustic", embedding, "model/Softmax")
-    prob = round(float(result[1]), 4)
-    _log("mood_acoustic", prob)
-    return prob
+def predict_mood_party(embedding: np.ndarray) -> dict[str, object]:
+    result = _binary_with_timeseries("mood_party", embedding, "model/Softmax")
+    _log("mood_party", result["mean"])
+    return result
 
 
-def predict_mood_electronic(embedding: np.ndarray) -> float:
-    """Return probability of electronic character (0–1)."""
-    result = _run_classifier("mood_electronic", embedding, "model/Softmax")
-    prob = round(float(result[1]), 4)
-    _log("mood_electronic", prob)
-    return prob
+def predict_mood_relaxed(embedding: np.ndarray) -> dict[str, object]:
+    result = _binary_with_timeseries("mood_relaxed", embedding, "model/Softmax")
+    _log("mood_relaxed", result["mean"])
+    return result
 
 
-def predict_arousal_valence(embedding: np.ndarray) -> dict[str, float]:
-    """Return arousal and valence on a 1–9 scale from MusiCNN embedding."""
-    result = _run_classifier("arousal_valence", embedding, "model/Identity")
-    av = {"arousal": round(float(result[0]), 4), "valence": round(float(result[1]), 4)}
-    _log("arousal_valence", av)
-    return av
+def predict_mood_acoustic(embedding: np.ndarray) -> dict[str, object]:
+    result = _binary_with_timeseries("mood_acoustic", embedding, "model/Softmax")
+    _log("mood_acoustic", result["mean"])
+    return result
+
+
+def predict_mood_electronic(embedding: np.ndarray) -> dict[str, object]:
+    result = _binary_with_timeseries("mood_electronic", embedding, "model/Softmax")
+    _log("mood_electronic", result["mean"])
+    return result
+
+
+def predict_arousal_valence(embedding: np.ndarray) -> dict[str, object]:
+    raw = _run_classifier_raw("arousal_valence", embedding, "model/Identity")
+    mean_arr = np.mean(raw, axis=0)
+    mean_val = {"arousal": round(float(mean_arr[0]), 4), "valence": round(float(mean_arr[1]), 4)}
+    timeseries = [{"arousal": round(float(p[0]), 4), "valence": round(float(p[1]), 4)} for p in raw]
+    _log("arousal_valence", mean_val)
+    return {"mean": mean_val, "timeseries": timeseries}
 
 
 def predict_genre_discogs400(embedding: np.ndarray) -> dict[str, object]:
-    """Return top-10 genres with names, and parent genre distribution as percentages."""
     result = _run_classifier("genre_discogs400", embedding, "model/Sigmoid")
 
     top_indices = np.argsort(result)[::-1][:10].tolist()
@@ -268,33 +280,28 @@ def predict_genre_discogs400(embedding: np.ndarray) -> dict[str, object]:
 
     total = sum(parent_scores.values())
     parent_distribution = [
-        {"genre": parent, "percentage": round(score / total * 100, 1)}
+        {"genre": parent, "share": round(score / total, 4)}
         for parent, score in sorted(parent_scores.items(), key=lambda x: x[1], reverse=True)
-        if score / total * 100 >= 1.0
+        if score / total >= 0.01
     ]
 
     _log("genre_discogs400", f"top={top_genres[0]['genre']}")
     return {"parent_genre_distribution": parent_distribution, "top_10_genres": top_genres}
 
 
-def predict_approachability(embedding: np.ndarray) -> dict[str, float]:
-    """Return niche vs mainstream probabilities."""
-    result = _run_classifier("approachability", embedding, "model/Softmax")
-    av = {"niche": round(float(result[0]), 4), "mainstream": round(float(result[1]), 4)}
-    _log("approachability", av)
-    return av
+def predict_approachability(embedding: np.ndarray) -> dict[str, object]:
+    result = _two_class_with_timeseries("approachability", embedding, "model/Softmax", "niche", "mainstream")
+    _log("approachability", result["mean"])
+    return result
 
 
-def predict_engagement(embedding: np.ndarray) -> dict[str, float]:
-    """Return background vs active listening probabilities."""
-    result = _run_classifier("engagement", embedding, "model/Softmax")
-    av = {"background": round(float(result[0]), 4), "active": round(float(result[1]), 4)}
-    _log("engagement", av)
-    return av
+def predict_engagement(embedding: np.ndarray) -> dict[str, object]:
+    result = _two_class_with_timeseries("engagement", embedding, "model/Softmax", "background", "active")
+    _log("engagement", result["mean"])
+    return result
 
 
 def predict_instrument(embedding: np.ndarray) -> dict[str, object]:
-    """Return top-10 detected instruments with names."""
     result = _run_classifier("instrument", embedding, "model/Sigmoid")
     top_indices = np.argsort(result)[::-1][:10].tolist()
     top = [
@@ -305,17 +312,13 @@ def predict_instrument(embedding: np.ndarray) -> dict[str, object]:
     return {"top_10": top}
 
 
-def predict_voice_instrumental(embedding: np.ndarray) -> dict[str, float]:
-    """Return instrumental vs vocal probabilities."""
-    result = _run_classifier("voice_instrumental", embedding, "model/Softmax")
-    av = {"instrumental": round(float(result[0]), 4), "vocal": round(float(result[1]), 4)}
-    _log("voice_instrumental", av)
-    return av
+def predict_voice_instrumental(embedding: np.ndarray) -> dict[str, object]:
+    result = _two_class_with_timeseries("voice_instrumental", embedding, "model/Softmax", "instrumental", "vocal")
+    _log("voice_instrumental", result["mean"])
+    return result
 
 
-def predict_gender(embedding: np.ndarray) -> dict[str, float]:
-    """Return female vs male voice probabilities."""
-    result = _run_classifier("gender", embedding, "model/Softmax")
-    av = {"female": round(float(result[0]), 4), "male": round(float(result[1]), 4)}
-    _log("gender", av)
-    return av
+def predict_gender(embedding: np.ndarray) -> dict[str, object]:
+    result = _two_class_with_timeseries("gender", embedding, "model/Softmax", "female", "male")
+    _log("gender", result["mean"])
+    return result
