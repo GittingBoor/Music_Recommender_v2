@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     model_cache_dir: Path = Path("model_cache")
     lastfm_api_key: str = ""
     acoustid_api_key: str = ""
+    spotify_client_id: str = ""
+    spotify_client_secret: str = ""
 
     class Config:
         env_file = ".env"

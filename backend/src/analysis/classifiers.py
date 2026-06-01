@@ -205,12 +205,14 @@ def _two_class_with_timeseries(
     label_0: str,
     label_1: str,
 ) -> dict[str, object]:
-    """Run a 2-class classifier and return mean + per-patch timeseries as named dicts."""
+    """Run a 2-class classifier. Timeseries contains only the dominant class's values."""
     raw = _run_classifier_raw(model_key, embedding, output_layer)
     mean_arr = np.mean(raw, axis=0)
     mean_val = {label_0: round(float(mean_arr[0]), 4), label_1: round(float(mean_arr[1]), 4)}
-    timeseries = [{label_0: round(float(p[0]), 4), label_1: round(float(p[1]), 4)} for p in raw]
-    return {"mean": mean_val, "timeseries": timeseries}
+    dominant_idx = int(np.argmax(mean_arr))
+    dominant_label = label_0 if dominant_idx == 0 else label_1
+    timeseries = [round(float(p[dominant_idx]), 4) for p in raw]
+    return {"mean": mean_val, "dominant": dominant_label, "timeseries": timeseries}
 
 
 def predict_mood_happy(embedding: np.ndarray) -> dict[str, object]:
