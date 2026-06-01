@@ -59,7 +59,7 @@ def extract_bpm_and_beats(audio: np.ndarray) -> dict[str, object]:
 
 def extract_danceability(audio: np.ndarray) -> float:
     danceability, _ = es.Danceability()(audio)
-    return round(float(danceability), 4)
+    return round(float(danceability) / 3.0, 4)
 
 
 def extract_beat_loudness(audio: np.ndarray, beats: np.ndarray) -> float:
@@ -105,7 +105,11 @@ def extract_loudness_ebur128(audio: np.ndarray) -> dict[str, object]:
         "integrated_lufs": round(float(integrated), 4),
         "loudness_range_lu": round(float(loudness_range), 4),
         # short_term is measured every ~3s — good resolution for loudness graphs
-        "loudness_short_term_timeseries": [round(float(v), 4) for v in short_term],
+        # EBU R128 short_term runs at 10 Hz (100ms hop); downsample to 1 value/sec
+        "loudness_short_term_timeseries": [
+            round(float(np.mean(short_term[i:i + 10])), 4)
+            for i in range(0, len(short_term), 10)
+        ],
     }
 
 

@@ -48,7 +48,7 @@ _EFFNET_CLASSIFIERS: dict[str, Callable[[np.ndarray], object]] = {
     "engagement": predict_engagement,
     "voice_instrumental": predict_voice_instrumental,
     "gender": predict_gender,
-    "instrument": predict_instrument,  # last — will appear at end of JSON
+    "instrument": predict_instrument,
 }
 
 _MUSICNN_CLASSIFIERS: dict[str, Callable[[np.ndarray], object]] = {
@@ -128,7 +128,13 @@ def run_full_pipeline(audio_path: Path) -> dict[str, object]:
     logger.info("[Pipeline] Starting full pipeline — %s", audio_path.name)
     ensure_models()
 
-    metadata = extract_all_metadata(audio_path, lastfm_api_key=settings.lastfm_api_key)
+    metadata = extract_all_metadata(
+        audio_path,
+        lastfm_api_key=settings.lastfm_api_key,
+        acoustid_api_key=settings.acoustid_api_key,
+        spotify_client_id=settings.spotify_client_id,
+        spotify_client_secret=settings.spotify_client_secret,
+    )
     logger.info("[Pipeline] Metadata complete")
 
     dsp = extract_all_dsp_features(audio_path)
@@ -140,7 +146,6 @@ def run_full_pipeline(audio_path: Path) -> dict[str, object]:
 
     logger.info("[Pipeline] Full pipeline complete")
 
-    # TODO: replace save_debug_output with _save_to_database once DB layer is ready
     return {
         "metadata": metadata,
         "dsp": dsp,
@@ -179,27 +184,230 @@ def save_debug_output(result: dict[str, object], audio_path: Path) -> Path:
     return output_path
 
 
+def _mood_mean(moods: dict, key: str) -> float | None:
+    m = moods.get(key)
+    return m.get("mean") if isinstance(m, dict) else None
+
+
+def _mood_ts(moods: dict, key: str) -> list[float] | None:
+    m = moods.get(key)
+    return m.get("timeseries") if isinstance(m, dict) else None
+
+
+def _two_class_score(block: dict | None) -> float | None:
+    if not block:
+        return None
+    dominant = block.get("dominant")
+    mean = block.get("mean") or {}
+    return mean.get(dominant) if dominant else None
+
+
 def _save_to_database(result: dict[str, object], audio_path: Path) -> None:
-    """Persist analysis results to the database. Not yet implemented."""
-    # TODO: create Track + AnalysisResult ORM records via SQLAlchemy session
-    logger.debug("[Pipeline] _save_to_database not yet implemented — skipping")
+    """Persist analysis results to the database."""
+    from src.db.session import get_session
+    from src.db.models import (
+        Song, generate_song_id,
+        FileMetadata, TrackMetadata, Artist,
+        DSPFeatures, MLProfileFeatures, MLMoodFeatures, MLGMBIFeatures,
+        ParentGenre, DetailedGenre, Instrument,
+    )
+
+    meta: dict = result.get("metadata") or {}
+    dsp: dict = result.get("dsp") or {}
+    ml: dict = result.get("ml") or {}
+
+    title = str(meta.get("title") or "")
+    artist = str(meta.get("artist") or "")
+
+    if not title or not artist:
+        logger.warning("[DB] Skipping %r — metadata extraction returned no %s",
+                       audio_path.name, "title" if not title else "artist")
+        return
+
+    song_id = generate_song_id(title, artist)
+    logger.info("[DB] song_id=%s  title=%r  artist=%r", song_id, title, artist)
+
+    session = get_session()
+    try:
+        if session.get(Song, song_id):
+            logger.warning("[DB] Skipping %r — already in database (id=%s)", title, song_id)
+            return
+
+        session.add(Song(id=song_id, title=title, artist=artist))
+
+        session.add(FileMetadata(
+            id=song_id,
+            file_format=meta.get("file_format"),
+            duration_seconds=meta.get("duration_seconds"),
+            sample_rate_hz=meta.get("sample_rate_hz"),
+            bitrate_kbps=meta.get("bitrate_kbps"),
+            channels=meta.get("channels"),
+        ))
+
+        lastfm: dict = meta.get("lastfm") or {}
+        session.add(TrackMetadata(
+            id=song_id,
+            release_date=meta.get("release_date"),
+            playcount=lastfm.get("playcount"),
+            listeners=lastfm.get("listeners"),
+            mbid=lastfm.get("mbid"),
+            url=lastfm.get("url"),
+            album_mbid=meta.get("album_mbid"),
+            mb_genres=meta.get("genres") or [],
+            featured_artists=meta.get("featured_artists") or [],
+            similar_tracks=lastfm.get("similar_tracks"),
+        ))
+
+        if not session.query(Artist).filter_by(name=artist).first():
+            session.add(Artist(
+                name=artist,
+                artist_playcount=lastfm.get("artist_playcount"),
+                artist_listeners=lastfm.get("artist_listeners"),
+                artist_bio=lastfm.get("artist_bio"),
+                similar_artists=lastfm.get("similar_artists") or [],
+            ))
+
+        session.add(DSPFeatures(
+            id=song_id,
+            bpm=dsp.get("bpm"),
+            beat_count=dsp.get("beat_count"),
+            beat_confidence=dsp.get("beat_confidence"),
+            danceability=dsp.get("danceability"),
+            beat_loudness_mean=dsp.get("beat_loudness_mean"),
+            onset_rate=dsp.get("onset_rate"),
+            key=dsp.get("key"),
+            scale=dsp.get("scale"),
+            key_strength=dsp.get("key_strength"),
+            tuning_frequency_hz=dsp.get("tuning_frequency_hz"),
+            tuning_cents_deviation=dsp.get("tuning_cents_deviation"),
+            most_common_chord=dsp.get("most_common_chord"),
+            chord_strength_mean=dsp.get("chord_strength_mean"),
+            chord_change_rate=dsp.get("chord_change_rate"),
+            integrated_lufs=dsp.get("integrated_lufs"),
+            loudness_range_lu=dsp.get("loudness_range_lu"),
+            dynamic_complexity=dsp.get("dynamic_complexity"),
+            loudness_db=dsp.get("loudness_db"),
+            spectral_centroid_mean=dsp.get("spectral_centroid_mean"),
+            spectral_rolloff_mean=dsp.get("spectral_rolloff_mean"),
+            spectral_flux_mean=dsp.get("spectral_flux_mean"),
+            mfcc_mean=dsp.get("mfcc_mean"),
+            zero_crossing_rate=dsp.get("zero_crossing_rate"),
+            dissonance=dsp.get("dissonance"),
+            loudness_short_term_timeseries=dsp.get("loudness_short_term_timeseries"),
+            spectral_centroid_timeseries=dsp.get("spectral_centroid_timeseries"),
+            spectral_rolloff_timeseries=dsp.get("spectral_rolloff_timeseries"),
+            spectral_flux_timeseries=dsp.get("spectral_flux_timeseries"),
+            zero_crossing_rate_timeseries=dsp.get("zero_crossing_rate_timeseries"),
+            dissonance_timeseries=dsp.get("dissonance_timeseries"),
+        ))
+
+        profile: dict = ml.get("profile") or {}
+        approachability: dict = profile.get("approachability") or {}
+        engagement: dict = profile.get("engagement") or {}
+        voice: dict = profile.get("voice_instrumental") or {}
+        gender: dict = profile.get("gender") or {}
+        av: dict = profile.get("arousal_valence") or {}
+        av_mean: dict = av.get("mean") or {}
+        av_ts: list[dict] = av.get("timeseries") or []
+
+        session.add(MLProfileFeatures(
+            id=song_id,
+            approachability_label=approachability.get("dominant"),
+            approachability_score=_two_class_score(approachability),
+            approachability_timeseries=approachability.get("timeseries"),
+            engagement_label=engagement.get("dominant"),
+            engagement_score=_two_class_score(engagement),
+            engagement_timeseries=engagement.get("timeseries"),
+            voice_label=voice.get("dominant"),
+            voice_score=_two_class_score(voice),
+            voice_timeseries=voice.get("timeseries"),
+            gender_label=gender.get("dominant"),
+            gender_score=_two_class_score(gender),
+            gender_timeseries=gender.get("timeseries"),
+            arousal=av_mean.get("arousal"),
+            arousal_timeseries=[p["arousal"] for p in av_ts] if av_ts else None,
+            valence=av_mean.get("valence"),
+            valence_timeseries=[p["valence"] for p in av_ts] if av_ts else None,
+        ))
+
+        moods: dict = ml.get("moods") or {}
+        session.add(MLMoodFeatures(
+            id=song_id,
+            happy=_mood_mean(moods, "happy"),
+            happy_timeseries=_mood_ts(moods, "happy"),
+            sad=_mood_mean(moods, "sad"),
+            sad_timeseries=_mood_ts(moods, "sad"),
+            aggressive=_mood_mean(moods, "aggressive"),
+            aggressive_timeseries=_mood_ts(moods, "aggressive"),
+            party=_mood_mean(moods, "party"),
+            party_timeseries=_mood_ts(moods, "party"),
+            relaxed=_mood_mean(moods, "relaxed"),
+            relaxed_timeseries=_mood_ts(moods, "relaxed"),
+            acoustic=_mood_mean(moods, "acoustic"),
+            acoustic_timeseries=_mood_ts(moods, "acoustic"),
+            electronic=_mood_mean(moods, "electronic"),
+            electronic_timeseries=_mood_ts(moods, "electronic"),
+        ))
+
+        session.add(MLGMBIFeatures(id=song_id))
+
+        genre_discogs: dict = ml.get("genre_discogs400") or {}
+        for g in genre_discogs.get("parent_genre_distribution") or []:
+            session.add(ParentGenre(
+                id=song_id,
+                genre=g["genre"],
+                percentage=g["share"],
+            ))
+        for g in genre_discogs.get("top_10_genres") or []:
+            session.add(DetailedGenre(
+                id=song_id,
+                genre=g["genre"],
+                probability=g["probability"],
+            ))
+
+        for inst in (ml.get("instrument") or {}).get("top_10") or []:
+            session.add(Instrument(
+                id=song_id,
+                instrument=inst["instrument"],
+                probability=inst["probability"],
+            ))
+
+        session.commit()
+        logger.info("[DB] Saved: %r by %r (%s)", title, artist, song_id)
+
+    except Exception as exc:
+        session.rollback()
+        logger.error("[DB] Failed to save %r: %s", title, exc)
+        raise
+    finally:
+        session.close()
+
+
+def _collect_audio_files(path: Path) -> list[Path]:
+    if path.is_file():
+        return [path]
+    return sorted(
+        f for f in path.iterdir()
+        if f.is_file() and f.suffix.lower() in _SUPPORTED_EXTENSIONS
+    )
 
 
 def _build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Music Recommender — analysis pipeline")
     parser.add_argument(
-        "audio_file",
+        "audio_path",
         type=Path,
-        help=f"Path to audio file. Supported formats: {', '.join(_SUPPORTED_EXTENSIONS)}",
+        help=f"Audio file or directory. Supported formats: {', '.join(_SUPPORTED_EXTENSIONS)}",
     )
     parser.add_argument(
         "--model",
         type=str,
         default=None,
         metavar="KEY",
-        help=f"Run only this model. Available keys: {ALL_MODEL_KEYS}",
+        help=f"Run only this model (single file only). Available keys: {ALL_MODEL_KEYS}",
     )
-    parser.add_argument("--save", action="store_true", help="Save results to test_output/")
+    parser.add_argument("--save", action="store_true", help="Save results as JSON to test_output/")
+    parser.add_argument("--db", action="store_true", help="Save results to the database")
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG log level")
     return parser
 
@@ -217,15 +425,24 @@ if __name__ == "__main__":
     if not args.debug:
         essentia.log.warningActive = False
 
-    audio_path: Path = args.audio_file.resolve()
-    if not audio_path.exists():
-        raise FileNotFoundError(f"Audio file not found: {audio_path}")
-    if audio_path.suffix.lower() not in _SUPPORTED_EXTENSIONS:
-        raise ValueError(f"Unsupported format '{audio_path.suffix}'. Supported: {_SUPPORTED_EXTENSIONS}")
+    input_path: Path = args.audio_path.resolve()
+    if not input_path.exists():
+        raise FileNotFoundError(f"Path not found: {input_path}")
 
-    results = run_single_model(audio_path, args.model) if args.model else run_full_pipeline(audio_path)
+    audio_files = _collect_audio_files(input_path)
+    if not audio_files:
+        raise ValueError(f"No supported audio files found in: {input_path}")
 
-    if args.save:
-        save_debug_output(results, audio_path)
-    else:
-        print(json.dumps(results, indent=2))
+    for audio_file in audio_files:
+        if audio_file.suffix.lower() not in _SUPPORTED_EXTENSIONS:
+            raise ValueError(f"Unsupported format '{audio_file.suffix}'. Supported: {_SUPPORTED_EXTENSIONS}")
+
+        logger.info("[CLI] Processing: %s", audio_file.name)
+        results = run_single_model(audio_file, args.model) if args.model else run_full_pipeline(audio_file)
+
+        if args.db:
+            _save_to_database(results, audio_file)
+        elif args.save:
+            save_debug_output(results, audio_file)
+        else:
+            print(json.dumps(results, indent=2))

@@ -8,14 +8,13 @@ from src.db.models.base import Base
 class DSPFeatures(Base):
     __tablename__ = "dsp_features"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    song_id: Mapped[int] = mapped_column(ForeignKey("songs.id"), nullable=False, unique=True)
+    id: Mapped[str] = mapped_column(String(22), ForeignKey("songs.id"), primary_key=True)
 
     # Rhythm
     bpm: Mapped[float | None] = mapped_column(Float)
     beat_count: Mapped[int | None] = mapped_column(Integer)
     beat_confidence: Mapped[float | None] = mapped_column(Float)
-    danceability: Mapped[float | None] = mapped_column(Float)          # 0–3
+    danceability: Mapped[float | None] = mapped_column(Float)          # 0–1
     beat_loudness_mean: Mapped[float | None] = mapped_column(Float)
     onset_rate: Mapped[float | None] = mapped_column(Float)
 
@@ -42,5 +41,13 @@ class DSPFeatures(Base):
     mfcc_mean: Mapped[list[float] | None] = mapped_column(ARRAY(Float))  # 13 coefficients
     zero_crossing_rate: Mapped[float | None] = mapped_column(Float)
     dissonance: Mapped[float | None] = mapped_column(Float)
+
+    # Timeseries (1 value/second)
+    loudness_short_term_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    spectral_centroid_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    spectral_rolloff_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    spectral_flux_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    zero_crossing_rate_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    dissonance_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
 
     song: Mapped["Song"] = relationship(back_populates="dsp_features")
