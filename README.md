@@ -25,10 +25,9 @@ docker exec -it music_recommender_v2-backend-1 alembic upgrade head
 
 #### pgAdmin
 
-Username:
-admin@admin.com 
-Password:
-admin
+Username: admin@admin.com
+
+Password: admin
 
 ## How to use
 
@@ -57,11 +56,8 @@ python -m src.analysis.pipeline /app/test_audio/"filename.mp3" --db
 
 ## Local Addresses
 
-### Frontend
-http://localhost:5173
-
-### Backend
-http://localhost:8000
-
-### Database
-localhost:5432    
+| Service  | Address               |
+|----------|-----------------------|
+| Frontend | http://localhost:5173 |
+| Backend  | http://localhost:8000 |
+| Database | localhost:5432        |
