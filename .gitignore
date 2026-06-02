@@ -229,3 +229,9 @@ __marimo__/
 # AI-Agent
 .claude
 CLAUDE.md
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/package-lock.json
