@@ -6,10 +6,10 @@ Through the frontend, you can then search for songs with certain characteristics
 ## Setup
 
 ### Prerequisites
-- [Python 3.10+](https://www.python.org/downloads/)
-- [Node.js 18+](https://nodejs.org/)
-- [PostgreSQL](https://www.postgresql.org/download/)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- <a href="https://www.python.org/downloads/" target="_blank">Python 3.10+</a>
+- <a href="https://nodejs.org/" target="_blank">Node.js 18+</a>
+- <a href="https://www.postgresql.org/download/" target="_blank">PostgreSQL</a>
+- <a href="https://www.docker.com/products/docker-desktop/" target="_blank">Docker Desktop</a>
 
 ### Docker 
 Start your Docker software before running the following command:
