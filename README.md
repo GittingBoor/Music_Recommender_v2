@@ -32,6 +32,9 @@ Password: admin
 ## How to use
 
 ### Frontend
+```
+npm run dev
+```
 
 ### Backend
 
