@@ -40,6 +40,7 @@ _NOISE_BRACKET_RE = re.compile(
     # Release variants
     r'radio\s*edit|extended\s*(?:mix|version|edit)?|original\s*(?:mix|version)|'
     r'(?:album|single|deluxe|bonus)\s*(?:version|edition|track)?|'
+    r'long\s*(?:version|edit)?|'
     r'club\s*(?:mix|edit|version)?|vip\s*(?:mix|edit)?|'
     r'dirty(?:\s+version)?|clean(?:\s+version)?|explicit|censored|'
     r'acoustic\s*(?:version|session|performance)?|'
@@ -118,17 +119,37 @@ def _parse_featured_artists(title: str) -> list[str]:
         r'\(feat\.?\s+([^)]+)\)',
         r'\(ft\.?\s+([^)]+)\)',
         r'\(featuring\s+([^)]+)\)',
-        r'\bfeat\.?\s+([^(\[,]+)',
-        r'\bft\.?\s+([^(\[,]+)',
-        r'\bfeaturing\s+([^(\[,]+)',
+        r'\[feat\.?\s+([^\]]+)\]',
+        r'\[ft\.?\s+([^\]]+)\]',
+        r'\[featuring\s+([^\]]+)\]',
+        r'\bfeat\.?\s+([^(\[,\]]+)',
+        r'\bft\.?\s+([^(\[,\]]+)',
+        r'\bfeaturing\s+([^(\[,\]]+)',
     ]
     for pattern in patterns:
         match = re.search(pattern, title, re.IGNORECASE)
         if match:
-            artists_str = match.group(1).strip().rstrip(')')
+            artists_str = match.group(1).strip().rstrip(')]')
             artists = re.split(r'\s*[&,]\s*|\s+x\s+|\s+and\s+', artists_str, flags=re.IGNORECASE)
-            return [a.strip() for a in artists if a.strip()]
+            return [a.strip().rstrip('])') for a in artists if a.strip()]
     return []
+
+
+def _dedup_featured_artists(artists: list[str]) -> list[str]:
+    """Deduplicate featured artists, keeping the longer/more complete name when one is a substring of another."""
+    if not artists:
+        return artists
+    normalized = [a.lower().strip() for a in artists]
+    kept: list[str] = []
+    for i, (n, original) in enumerate(zip(normalized, artists)):
+        # Skip if a longer version already exists (e.g. "Pharrell" when "Pharrell Williams" is present)
+        dominated = any(
+            j != i and n in normalized[j] and len(normalized[j]) > len(n)
+            for j in range(len(normalized))
+        )
+        if not dominated and original not in kept:
+            kept.append(original)
+    return kept
 
 
 _FEAT_IN_ARTIST_RE = re.compile(
@@ -186,11 +207,23 @@ def extract_file_metadata(audio_path: Path) -> dict[str, object]:
     tags = audio.tags or {}
     genre_raw = _tag_str(tags, "genre")
     title = _tag_str(tags, "title")
+
+    # Always clean feat./ft. from the artist tag so the main artist is stored cleanly
+    raw_artist = _tag_str(tags, "artist")
+    clean_artist, feat_from_artist = _split_artist_featuring(raw_artist or "") if raw_artist else (raw_artist, [])
+
+    feat_from_title = _parse_featured_artists(title) if title else []
+    all_featured: list[str] = list(feat_from_artist)
+    for fa in feat_from_title:
+        if fa not in all_featured:
+            all_featured.append(fa)
+    all_featured = _dedup_featured_artists(all_featured)
+
     result: dict[str, object] = {
         "filename": audio_path.name,
         "title": title,
-        "artist": _tag_str(tags, "artist"),
-        "featured_artists": _parse_featured_artists(title) if title else [],
+        "artist": clean_artist,
+        "featured_artists": all_featured,
         "album": _tag_str(tags, "album"),
         "release_date": _normalize_date(_tag_str(tags, "date")),
         "genres": [genre_raw] if genre_raw else [],
@@ -997,11 +1030,12 @@ def extract_all_metadata(
     result["genres"] = mb_data["genres"]
     result.setdefault("album_mbid", None)
 
-    # Merge featured artists: filename → Spotify → MusicBrainz (deduplicated)
+    # Merge featured artists: file tag → Last.fm → Spotify → MusicBrainz, then deduplicate
     all_featured: list[str] = list(result.get("featured_artists") or [])
     for fa in (mb_data.get("featured_artists") or []):
         if fa not in all_featured:
             all_featured.append(fa)
+    all_featured = _dedup_featured_artists(all_featured)
     if all_featured:
         result["featured_artists"] = all_featured
         logger.info("[Metadata] Featured artists: %s", all_featured)
