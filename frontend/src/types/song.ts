@@ -93,6 +93,7 @@ export interface Song {
   id: string;
   title: string | null;
   artist: string | null;
+  has_preview: boolean;
   file_metadata: FileMetadata | null;
   track_metadata: TrackMetadata | null;
   dsp_features: DSPFeatures | null;

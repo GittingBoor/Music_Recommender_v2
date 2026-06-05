@@ -115,5 +115,6 @@ class SongResponse(BaseModel):
     parent_genres: list[ParentGenreSchema] = []
     detailed_genres: list[DetailedGenreSchema] = []
     instruments: list[InstrumentSchema] = []
+    has_preview: bool = False
 
     model_config = {"from_attributes": True}
