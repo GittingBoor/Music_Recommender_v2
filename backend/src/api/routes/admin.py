@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _DATASETS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "datasets"
-_MIX_2013_DIR = _DATASETS_DIR / "Mix_2013"
 _SHORT_AUDIO_DIR = Path(__file__).resolve().parent.parent.parent.parent / "short_audio"
 _SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".aiff", ".m4a"}
 _PREVIEW_SECONDS = 15
@@ -214,10 +213,10 @@ def _run_ingest() -> None:
     from src.core.config import settings
 
     audio_files = sorted(
-        f for f in _MIX_2013_DIR.iterdir()
+        f for f in _DATASETS_DIR.rglob("*")
         if f.is_file() and f.suffix.lower() in _SUPPORTED_EXTENSIONS
     )
-    logger.info("[Admin] Ingesting %d files from %s", len(audio_files), _MIX_2013_DIR)
+    logger.info("[Admin] Ingesting %d files from %s", len(audio_files), _DATASETS_DIR)
 
     for audio_file in audio_files:
         try:
@@ -260,11 +259,11 @@ def _run_ingest() -> None:
 
 @router.post("/admin/ingest")
 def ingest_dataset(background_tasks: BackgroundTasks):
-    if not _MIX_2013_DIR.exists():
-        return {"status": "error", "message": f"Directory not found: {_MIX_2013_DIR}"}
+    if not _DATASETS_DIR.exists():
+        return {"status": "error", "message": f"Directory not found: {_DATASETS_DIR}"}
 
     file_count = sum(
-        1 for f in _MIX_2013_DIR.iterdir()
+        1 for f in _DATASETS_DIR.rglob("*")
         if f.is_file() and f.suffix.lower() in _SUPPORTED_EXTENSIONS
     )
     background_tasks.add_task(_run_ingest)
