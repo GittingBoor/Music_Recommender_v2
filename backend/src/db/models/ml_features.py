@@ -1,4 +1,4 @@
-from sqlalchemy import Float, ForeignKey, Integer, String
+from sqlalchemy import Float, ForeignKey, String
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -9,31 +9,28 @@ class MLProfileFeatures(Base):
     """
     Profile features from EffNet/MusiCNN classifiers.
 
-    For 2-class classifiers (approachability, engagement, voice, gender):
-      - *_label stores the dominant class name (fixed from the mean)
-      - *_score stores the dominant class probability
-      - *_timeseries stores per-second values of the dominant class only
-
+    For 2-class classifiers both class scores are stored separately.
+    Timeseries contains per-second values of the first-listed class.
     arousal and valence are regression values normalized 0–1 from 1–9.
     """
     __tablename__ = "ml_profile_features"
 
     id: Mapped[str] = mapped_column(String(22), ForeignKey("songs.id"), primary_key=True)
 
-    approachability_label: Mapped[str | None] = mapped_column(String(20))   # "niche" or "mainstream"
-    approachability_score: Mapped[float | None] = mapped_column(Float)
+    niche_score: Mapped[float | None] = mapped_column(Float)
+    mainstream_score: Mapped[float | None] = mapped_column(Float)
     approachability_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
 
-    engagement_label: Mapped[str | None] = mapped_column(String(20))        # "background" or "active"
-    engagement_score: Mapped[float | None] = mapped_column(Float)
+    background_score: Mapped[float | None] = mapped_column(Float)
+    active_score: Mapped[float | None] = mapped_column(Float)
     engagement_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
 
-    voice_label: Mapped[str | None] = mapped_column(String(20))             # "instrumental" or "vocal"
-    voice_score: Mapped[float | None] = mapped_column(Float)
+    instrumental_score: Mapped[float | None] = mapped_column(Float)
+    vocal_score: Mapped[float | None] = mapped_column(Float)
     voice_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
 
-    gender_label: Mapped[str | None] = mapped_column(String(10))            # "female" or "male"
-    gender_score: Mapped[float | None] = mapped_column(Float)
+    female_score: Mapped[float | None] = mapped_column(Float)
+    male_score: Mapped[float | None] = mapped_column(Float)
     gender_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
 
     arousal: Mapped[float | None] = mapped_column(Float)                    # 0–1

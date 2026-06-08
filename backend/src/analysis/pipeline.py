@@ -194,13 +194,6 @@ def _mood_ts(moods: dict, key: str) -> list[float] | None:
     return m.get("timeseries") if isinstance(m, dict) else None
 
 
-def _two_class_score(block: dict | None) -> float | None:
-    if not block:
-        return None
-    dominant = block.get("dominant")
-    mean = block.get("mean") or {}
-    return mean.get(dominant) if dominant else None
-
 
 def _save_to_database(result: dict[str, object], audio_path: Path) -> None:
     """Persist analysis results to the database."""
@@ -237,6 +230,7 @@ def _save_to_database(result: dict[str, object], audio_path: Path) -> None:
 
         session.add(FileMetadata(
             id=song_id,
+            filename=meta.get("filename"),
             file_format=meta.get("file_format"),
             duration_seconds=meta.get("duration_seconds"),
             sample_rate_hz=meta.get("sample_rate_hz"),
@@ -312,17 +306,17 @@ def _save_to_database(result: dict[str, object], audio_path: Path) -> None:
 
         session.add(MLProfileFeatures(
             id=song_id,
-            approachability_label=approachability.get("dominant"),
-            approachability_score=_two_class_score(approachability),
+            niche_score=approachability.get("niche"),
+            mainstream_score=approachability.get("mainstream"),
             approachability_timeseries=approachability.get("timeseries"),
-            engagement_label=engagement.get("dominant"),
-            engagement_score=_two_class_score(engagement),
+            background_score=engagement.get("background"),
+            active_score=engagement.get("active"),
             engagement_timeseries=engagement.get("timeseries"),
-            voice_label=voice.get("dominant"),
-            voice_score=_two_class_score(voice),
+            instrumental_score=voice.get("instrumental"),
+            vocal_score=voice.get("vocal"),
             voice_timeseries=voice.get("timeseries"),
-            gender_label=gender.get("dominant"),
-            gender_score=_two_class_score(gender),
+            female_score=gender.get("female"),
+            male_score=gender.get("male"),
             gender_timeseries=gender.get("timeseries"),
             arousal=av_mean.get("arousal"),
             arousal_timeseries=[p["arousal"] for p in av_ts] if av_ts else None,

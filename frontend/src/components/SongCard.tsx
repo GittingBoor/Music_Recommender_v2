@@ -118,6 +118,7 @@ export function SongCard({ song }: { song: Song }) {
 
           {file && (
             <KVTable name="file_metadata" rows={[
+              ['filename', file.filename],
               ['file_format', file.file_format],
               ['duration_seconds', file.duration_seconds],
               ['sample_rate_hz', file.sample_rate_hz],
@@ -178,14 +179,14 @@ export function SongCard({ song }: { song: Song }) {
 
           {profile && (
             <KVTable name="ml_profile_features" rows={[
-              ['approachability_label', profile.approachability_label],
-              ['approachability_score', profile.approachability_score],
-              ['engagement_label', profile.engagement_label],
-              ['engagement_score', profile.engagement_score],
-              ['voice_label', profile.voice_label],
-              ['voice_score', profile.voice_score],
-              ['gender_label', profile.gender_label],
-              ['gender_score', profile.gender_score],
+              ['niche_score', profile.niche_score],
+              ['mainstream_score', profile.mainstream_score],
+              ['background_score', profile.background_score],
+              ['active_score', profile.active_score],
+              ['instrumental_score', profile.instrumental_score],
+              ['vocal_score', profile.vocal_score],
+              ['female_score', profile.female_score],
+              ['male_score', profile.male_score],
               ['arousal', profile.arousal],
               ['valence', profile.valence],
             ]} />

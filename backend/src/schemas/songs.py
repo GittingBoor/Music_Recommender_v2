@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 
 class FileMetadataSchema(BaseModel):
+    filename: str | None = None
     file_format: str | None = None
     duration_seconds: float | None = None
     sample_rate_hz: int | None = None
@@ -56,14 +57,14 @@ class DSPFeaturesSchema(BaseModel):
 
 
 class MLProfileSchema(BaseModel):
-    approachability_label: str | None = None
-    approachability_score: float | None = None
-    engagement_label: str | None = None
-    engagement_score: float | None = None
-    voice_label: str | None = None
-    voice_score: float | None = None
-    gender_label: str | None = None
-    gender_score: float | None = None
+    niche_score: float | None = None
+    mainstream_score: float | None = None
+    background_score: float | None = None
+    active_score: float | None = None
+    instrumental_score: float | None = None
+    vocal_score: float | None = None
+    female_score: float | None = None
+    male_score: float | None = None
     arousal: float | None = None
     valence: float | None = None
 

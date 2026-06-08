@@ -62,5 +62,6 @@ python -m src.analysis.pipeline /app/test_audio/"filename.mp3" --db
 | Service  | Address               |
 |----------|-----------------------|
 | Frontend | http://localhost:5173 |
-| Backend  | http://localhost:8000 |
+| Backend  | http://localhost:8000/docs#/ |
 | Database | localhost:5432        |
+| pgAdmin  | http://localhost:5050 |

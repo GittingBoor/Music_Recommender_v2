@@ -198,23 +198,6 @@ def _binary_with_timeseries(model_key: str, embedding: np.ndarray, output_layer:
     return {"mean": mean_val, "timeseries": timeseries}
 
 
-def _two_class_with_timeseries(
-    model_key: str,
-    embedding: np.ndarray,
-    output_layer: str,
-    label_0: str,
-    label_1: str,
-) -> dict[str, object]:
-    """Run a 2-class classifier. Timeseries contains only the dominant class's values."""
-    raw = _run_classifier_raw(model_key, embedding, output_layer)
-    mean_arr = np.mean(raw, axis=0)
-    mean_val = {label_0: round(float(mean_arr[0]), 4), label_1: round(float(mean_arr[1]), 4)}
-    dominant_idx = int(np.argmax(mean_arr))
-    dominant_label = label_0 if dominant_idx == 0 else label_1
-    timeseries = [round(float(p[dominant_idx]), 4) for p in raw]
-    return {"mean": mean_val, "dominant": dominant_label, "timeseries": timeseries}
-
-
 def predict_mood_happy(embedding: np.ndarray) -> dict[str, object]:
     result = _binary_with_timeseries("mood_happy", embedding, "model/Softmax")
     _log("mood_happy", result["mean"])
@@ -292,14 +275,26 @@ def predict_genre_discogs400(embedding: np.ndarray) -> dict[str, object]:
 
 
 def predict_approachability(embedding: np.ndarray) -> dict[str, object]:
-    result = _two_class_with_timeseries("approachability", embedding, "model/Softmax", "niche", "mainstream")
-    _log("approachability", result["mean"])
+    raw = _run_classifier_raw("approachability", embedding, "model/Softmax")
+    mean_arr = np.mean(raw, axis=0)
+    result = {
+        "niche": round(float(mean_arr[0]), 4),
+        "mainstream": round(float(mean_arr[1]), 4),
+        "timeseries": [round(float(p[0]), 4) for p in raw],
+    }
+    _log("approachability", result)
     return result
 
 
 def predict_engagement(embedding: np.ndarray) -> dict[str, object]:
-    result = _two_class_with_timeseries("engagement", embedding, "model/Softmax", "background", "active")
-    _log("engagement", result["mean"])
+    raw = _run_classifier_raw("engagement", embedding, "model/Softmax")
+    mean_arr = np.mean(raw, axis=0)
+    result = {
+        "background": round(float(mean_arr[0]), 4),
+        "active": round(float(mean_arr[1]), 4),
+        "timeseries": [round(float(p[0]), 4) for p in raw],
+    }
+    _log("engagement", result)
     return result
 
 
@@ -315,12 +310,24 @@ def predict_instrument(embedding: np.ndarray) -> dict[str, object]:
 
 
 def predict_voice_instrumental(embedding: np.ndarray) -> dict[str, object]:
-    result = _two_class_with_timeseries("voice_instrumental", embedding, "model/Softmax", "instrumental", "vocal")
-    _log("voice_instrumental", result["mean"])
+    raw = _run_classifier_raw("voice_instrumental", embedding, "model/Softmax")
+    mean_arr = np.mean(raw, axis=0)
+    result = {
+        "instrumental": round(float(mean_arr[0]), 4),
+        "vocal": round(float(mean_arr[1]), 4),
+        "timeseries": [round(float(p[0]), 4) for p in raw],
+    }
+    _log("voice_instrumental", result)
     return result
 
 
 def predict_gender(embedding: np.ndarray) -> dict[str, object]:
-    result = _two_class_with_timeseries("gender", embedding, "model/Softmax", "female", "male")
-    _log("gender", result["mean"])
+    raw = _run_classifier_raw("gender", embedding, "model/Softmax")
+    mean_arr = np.mean(raw, axis=0)
+    result = {
+        "female": round(float(mean_arr[0]), 4),
+        "male": round(float(mean_arr[1]), 4),
+        "timeseries": [round(float(p[0]), 4) for p in raw],
+    }
+    _log("gender", result)
     return result
