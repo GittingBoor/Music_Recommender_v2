@@ -10,6 +10,7 @@ class FileMetadata(Base):
 
     id: Mapped[str] = mapped_column(String(22), ForeignKey("songs.id"), primary_key=True)
 
+    filename: Mapped[str | None] = mapped_column(String(500))
     file_format: Mapped[str | None] = mapped_column(String(20))
     duration_seconds: Mapped[float | None] = mapped_column(Float)
     sample_rate_hz: Mapped[int | None] = mapped_column(Integer)

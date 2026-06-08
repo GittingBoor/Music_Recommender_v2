@@ -35,9 +35,9 @@ const FEATURE_OPTIONS = [
   { value: "electronic",             label: "Electronic",        group: "Mood"     },
   { value: "arousal",                label: "Arousal",           group: "Profile"  },
   { value: "valence",                label: "Valence",           group: "Profile"  },
-  { value: "approachability_score",  label: "Approachability",   group: "Profile"  },
-  { value: "engagement_score",       label: "Engagement",        group: "Profile"  },
-  { value: "voice_score",            label: "Voice",             group: "Profile"  },
+  { value: "mainstream_score",        label: "Approachability",   group: "Profile"  },
+  { value: "active_score",           label: "Engagement",        group: "Profile"  },
+  { value: "vocal_score",            label: "Voice",             group: "Profile"  },
 ] as const;
 
 type FeatureValue = (typeof FEATURE_OPTIONS)[number]["value"];
@@ -228,14 +228,6 @@ function SongInfoPanel({ song }: { song: Song }) {
 
   const keyDisplay = dsp?.key && dsp?.scale ? `${dsp.key} ${dsp.scale}` : "—";
 
-  const genderDisplay = (() => {
-    if (!profile?.gender_label) return "—";
-    const pct = profile.gender_score != null
-      ? ` ${Math.round(profile.gender_score * 100)}%`
-      : "";
-    return `${profile.gender_label}${pct}`;
-  })();
-
   return (
     <>
       <TooltipPortal tip={tip} />
@@ -364,52 +356,43 @@ function SongInfoPanel({ song }: { song: Song }) {
             </div>
             {/* Approachability */}
             <div>
-              <div className="flex justify-between text-xs">
-                <Tip text={TIPS.approachability} set={setTip}>
-                  <span className="text-gray-500">Approachability</span>
-                </Tip>
-                <span className="text-gray-400 flex-shrink-0 ml-2">
-                  {profile?.approachability_label ?? "—"}
-                </span>
+              <div className="text-xs text-gray-500 mb-0.5">
+                <Tip text={TIPS.approachability} set={setTip}><span>Approachability</span></Tip>
               </div>
-              {profile ? <Bar value={profile.approachability_score ?? 0} /> : (
-                <div className="mt-0.5 text-gray-700 text-[10px]">—</div>
-              )}
+              <div className="flex justify-between text-xs text-gray-400 mb-0.5"><span>niche</span><span>{profile?.niche_score != null ? (profile.niche_score * 100).toFixed(0) + "%" : "—"}</span></div>
+              {profile ? <Bar value={profile.niche_score ?? 0} /> : null}
+              <div className="flex justify-between text-xs text-gray-400 mt-1 mb-0.5"><span>mainstream</span><span>{profile?.mainstream_score != null ? (profile.mainstream_score * 100).toFixed(0) + "%" : "—"}</span></div>
+              {profile ? <Bar value={profile.mainstream_score ?? 0} /> : null}
             </div>
             {/* Engagement */}
             <div>
-              <div className="flex justify-between text-xs">
-                <Tip text={TIPS.engagement} set={setTip}>
-                  <span className="text-gray-500">Engagement</span>
-                </Tip>
-                <span className="text-gray-400 flex-shrink-0 ml-2">
-                  {profile?.engagement_label ?? "—"}
-                </span>
+              <div className="text-xs text-gray-500 mb-0.5">
+                <Tip text={TIPS.engagement} set={setTip}><span>Engagement</span></Tip>
               </div>
-              {profile ? <Bar value={profile.engagement_score ?? 0} /> : (
-                <div className="mt-0.5 text-gray-700 text-[10px]">—</div>
-              )}
+              <div className="flex justify-between text-xs text-gray-400 mb-0.5"><span>background</span><span>{profile?.background_score != null ? (profile.background_score * 100).toFixed(0) + "%" : "—"}</span></div>
+              {profile ? <Bar value={profile.background_score ?? 0} /> : null}
+              <div className="flex justify-between text-xs text-gray-400 mt-1 mb-0.5"><span>active</span><span>{profile?.active_score != null ? (profile.active_score * 100).toFixed(0) + "%" : "—"}</span></div>
+              {profile ? <Bar value={profile.active_score ?? 0} /> : null}
             </div>
             {/* Voice */}
             <div>
-              <div className="flex justify-between text-xs">
-                <Tip text={TIPS.voice} set={setTip}>
-                  <span className="text-gray-500">Voice</span>
-                </Tip>
-                <span className="text-gray-400 flex-shrink-0 ml-2">
-                  {profile?.voice_label ?? "—"}
-                </span>
+              <div className="text-xs text-gray-500 mb-0.5">
+                <Tip text={TIPS.voice} set={setTip}><span>Voice</span></Tip>
               </div>
-              {profile ? <Bar value={profile.voice_score ?? 0} /> : (
-                <div className="mt-0.5 text-gray-700 text-[10px]">—</div>
-              )}
+              <div className="flex justify-between text-xs text-gray-400 mb-0.5"><span>instrumental</span><span>{profile?.instrumental_score != null ? (profile.instrumental_score * 100).toFixed(0) + "%" : "—"}</span></div>
+              {profile ? <Bar value={profile.instrumental_score ?? 0} /> : null}
+              <div className="flex justify-between text-xs text-gray-400 mt-1 mb-0.5"><span>vocal</span><span>{profile?.vocal_score != null ? (profile.vocal_score * 100).toFixed(0) + "%" : "—"}</span></div>
+              {profile ? <Bar value={profile.vocal_score ?? 0} /> : null}
             </div>
-            {/* Gender — text only */}
-            <div className="flex justify-between text-xs">
-              <Tip text={TIPS.gender} set={setTip}>
-                <span className="text-gray-500">Gender</span>
-              </Tip>
-              <span className="text-gray-200">{genderDisplay}</span>
+            {/* Gender */}
+            <div>
+              <div className="text-xs text-gray-500 mb-0.5">
+                <Tip text={TIPS.gender} set={setTip}><span>Gender</span></Tip>
+              </div>
+              <div className="flex justify-between text-xs text-gray-400 mb-0.5"><span>female</span><span>{profile?.female_score != null ? (profile.female_score * 100).toFixed(0) + "%" : "—"}</span></div>
+              {profile ? <Bar value={profile.female_score ?? 0} /> : null}
+              <div className="flex justify-between text-xs text-gray-400 mt-1 mb-0.5"><span>male</span><span>{profile?.male_score != null ? (profile.male_score * 100).toFixed(0) + "%" : "—"}</span></div>
+              {profile ? <Bar value={profile.male_score ?? 0} /> : null}
             </div>
           </div>
         </div>

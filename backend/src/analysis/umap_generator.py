@@ -36,9 +36,9 @@ FEATURE_DEFINITIONS: dict[str, tuple[str, str]] = {
     "electronic": ("ml_moods", "electronic"),
     "arousal": ("ml_profile", "arousal"),
     "valence": ("ml_profile", "valence"),
-    "approachability_score": ("ml_profile", "approachability_score"),
-    "engagement_score": ("ml_profile", "engagement_score"),
-    "voice_score": ("ml_profile", "voice_score"),
+    "mainstream_score": ("ml_profile", "mainstream_score"),
+    "active_score": ("ml_profile", "active_score"),
+    "vocal_score": ("ml_profile", "vocal_score"),
 }
 
 ALL_FEATURES: list[str] = list(FEATURE_DEFINITIONS.keys())

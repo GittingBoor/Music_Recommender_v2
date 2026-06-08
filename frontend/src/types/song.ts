@@ -1,4 +1,5 @@
 export interface FileMetadata {
+  filename: string | null;
   file_format: string | null;
   duration_seconds: number | null;
   sample_rate_hz: number | null;
@@ -52,14 +53,14 @@ export interface DSPFeatures {
 }
 
 export interface MLProfile {
-  approachability_label: string | null;
-  approachability_score: number | null;
-  engagement_label: string | null;
-  engagement_score: number | null;
-  voice_label: string | null;
-  voice_score: number | null;
-  gender_label: string | null;
-  gender_score: number | null;
+  niche_score: number | null;
+  mainstream_score: number | null;
+  background_score: number | null;
+  active_score: number | null;
+  instrumental_score: number | null;
+  vocal_score: number | null;
+  female_score: number | null;
+  male_score: number | null;
   arousal: number | null;
   valence: number | null;
 }
