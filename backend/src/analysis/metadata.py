@@ -37,15 +37,6 @@ _NOISE_BRACKET_RE = re.compile(
     r'full\s*hd|hd|hq|4k|2160p|1440p|1080p|720p|480p|360p|'
     # Remaster variants (with optional year)
     r'(?:(?:19|20)\d{2}\s*)?remaster(?:ed)?(?:\s+(?:19|20)\d{2})?|'
-    # Release variants
-    r'radio\s*edit|extended\s*(?:mix|version|edit)?|original\s*(?:mix|version)|'
-    r'(?:album|single|deluxe|bonus)\s*(?:version|edition|track)?|'
-    r'long\s*(?:version|edit)?|'
-    r'club\s*(?:mix|edit|version)?|vip\s*(?:mix|edit)?|'
-    r'dirty(?:\s+version)?|clean(?:\s+version)?|explicit|censored|'
-    r'acoustic\s*(?:version|session|performance)?|'
-    r'live(?:\s+(?:version|performance|session))?|'
-    r'demo|instrumental(?:\s+version)?|karaoke|'
     # Platform / distribution markers
     r'auto[\s\-]?generated|ncs\s*(?:release)?|vevo|'
     # Standalone year
@@ -75,7 +66,7 @@ def _clean_title(text: str) -> str:
     text = _NOISE_BRACKET_RE.sub("", text)
     text = _TRAILING_DASH_NOISE_RE.sub("", text)
     text = _PIPE_NOISE_RE.sub("", text)
-    return text.strip(" -_.[]() ")
+    return text.strip(" -_.")
 
 
 def _tag_str(tags: object, key: str) -> str | None:
@@ -564,41 +555,86 @@ def _acoustid_get_metadata(
         )
         return None, None, None
 
-    # Step 2: lookup via the web service.
+    # Step 2: raw lookup with sources so we can pick the most-voted recording.
+    params = urllib.parse.urlencode({
+        "client": api_key,
+        "meta": "recordings sources",
+        "duration": str(int(duration)),
+        "fingerprint": fingerprint,
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.acoustid.org/v2/lookup",
+        data=params,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
     try:
-        response = acoustid.lookup(api_key, fingerprint, duration)
-        matches = list(acoustid.parse_lookup_result(response))
-    except acoustid.WebServiceError as exc:
-        # parse_lookup_result raises WebServiceError("status: error") and discards
-        # the actual server JSON error details — probe to surface the real code.
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
         _acoustid_probe_key(api_key)
-        logger.warning("[AcoustID] WebServiceError: %s (code=%s)", exc, getattr(exc, "code", "?"))
+        logger.warning("[AcoustID] HTTP %s during lookup", exc.code)
         return None, None, None
     except Exception as exc:
         logger.warning("[AcoustID] Lookup failed (%s): %s", type(exc).__name__, exc)
         return None, None, None
 
-    if not matches:
+    if data.get("status") != "ok":
+        logger.warning("[AcoustID] Non-ok status: %s", data.get("status"))
+        return None, None, None
+
+    results: list[dict] = data.get("results") or []
+    if not results:
         logger.warning("[AcoustID] No matches for %s", audio_path.name)
         return None, None, None
 
-    best = max(matches, key=lambda x: x[0])
-    score: float = best[0]
-    recording_id: str | None = best[1] if len(best) > 1 else None
-    aid_title: str | None = best[2] if len(best) > 2 else None
-    aid_artist: str | None = best[3] if len(best) > 3 else None
+    # Take the highest-scored result above the threshold.
+    best_result = max(results, key=lambda r: r.get("score", 0.0))
+    score: float = float(best_result.get("score", 0.0))
+    if score < 0.5:
+        logger.warning("[AcoustID] Best score %.3f below 0.5 — discarding", score)
+        return None, None, None
+
+    recordings: list[dict] = best_result.get("recordings") or []
+    if not recordings:
+        logger.warning("[AcoustID] Score %.3f match has no linked recordings", score)
+        return None, None, None
+
+    # Pick the recording with the most sources (community votes).
+    # Titles without parentheses are preferred as a tiebreaker.
+    def _rec_sort_key(rec: dict) -> tuple[int, int]:
+        sources = int(rec.get("sources") or 0)
+        title = rec.get("title") or ""
+        no_parens = 0 if re.search(r'\(', title) else 1
+        return (sources, no_parens)
+
+    recordings_sorted = sorted(recordings, key=_rec_sort_key, reverse=True)
+    best_rec = recordings_sorted[0]
 
     logger.info(
-        "[AcoustID] Best match: score=%.3f  recording_id=%s  title=%r  artist=%r",
-        score, recording_id, aid_title, aid_artist,
+        "[AcoustID] %d recording(s) for score=%.3f — picked by sources:",
+        len(recordings), score,
     )
+    for rec in recordings_sorted:
+        artists_raw = rec.get("artists") or []
+        rec_artist = ", ".join(
+            a if isinstance(a, str) else a.get("name", "?") for a in artists_raw
+        )
+        logger.info(
+            "[AcoustID]   sources=%-3s  %s  title=%r  artist=%r",
+            rec.get("sources"), "← chosen" if rec is best_rec else "        ",
+            rec.get("title"), rec_artist,
+        )
 
-    if score < 0.5:
-        logger.warning("[AcoustID] Score %.3f below 0.5 — discarding", score)
-        return None, None, None
+    recording_id: str | None = best_rec.get("id")
+    aid_title: str | None = best_rec.get("title")
+    artists_raw = best_rec.get("artists") or []
+    aid_artist: str | None = ", ".join(
+        a if isinstance(a, str) else a.get("name", "?") for a in artists_raw
+    ) or None
+
     if not recording_id:
-        logger.warning("[AcoustID] Match has no recording_id")
-        return None, None, None
+        logger.warning("[AcoustID] No MusicBrainz recording_id — title/artist from user metadata only")
 
     return recording_id, aid_title, aid_artist
 
@@ -803,6 +839,7 @@ def _fetch_musicbrainz_data(
     artist: str = "",
     lastfm_mbid: str = "",
     prefetched_recording_id: str | None = None,
+    acoustid_done: bool = False,
 ) -> dict[str, object]:
     """Resolve genres, earliest release date, and featured artists from MusicBrainz.
 
@@ -836,6 +873,8 @@ def _fetch_musicbrainz_data(
     acoustid_recording_id = prefetched_recording_id
     if acoustid_recording_id:
         logger.info("[MusicBrainz] Using prefetched AcoustID recording_id: %s", acoustid_recording_id)
+    elif acoustid_done:
+        logger.info("[MusicBrainz] AcoustID already ran — no recording_id found, skipping re-fingerprint")
     elif acoustid_api_key:
         acoustid_recording_id = _acoustid_get_recording_id(audio_path, acoustid_api_key)
     else:
@@ -876,36 +915,35 @@ def extract_all_metadata(
     spotify_client_id: str = "",
     spotify_client_secret: str = "",
 ) -> dict[str, object]:
+    # ── File-level technical metadata (duration, bitrate, etc.) ──────────────
     file_meta = extract_file_metadata(audio_path)
-
-    title = str(file_meta.get("title") or "")
-    artist = str(file_meta.get("artist") or "")
-
-    if not title or not artist:
-        fn_title, fn_artist = _parse_title_artist_from_filename(audio_path)
-        if not title and fn_title:
-            title = fn_title
-            logger.info("[Metadata] Title from filename: %s", title)
-        if not artist and fn_artist:
-            # Extract featured artists embedded in the artist string (e.g. "Guetta Feat. Kid Cudi")
-            clean_artist, fn_featured = _split_artist_featuring(fn_artist)
-            artist = clean_artist
-            logger.info("[Metadata] Artist from filename: %s", artist)
-            if fn_featured:
-                logger.info("[Metadata] Featured artists from filename: %s", fn_featured)
-        else:
-            fn_featured = []
-    else:
-        fn_featured = []
-
     result = dict(file_meta)
-    # Seed featured_artists from filename artist field
-    if fn_featured:
-        existing: list[str] = list(result.get("featured_artists") or [])
-        for fa in fn_featured:
-            if fa not in existing:
-                existing.append(fa)
-        result["featured_artists"] = existing
+    # Title/artist from embedded tags are not used — AcoustID is the only source of truth
+    result.pop("title", None)
+    result.pop("artist", None)
+
+    # ── AcoustID fingerprint — mandatory gate ─────────────────────────────────
+    if not acoustid_api_key:
+        logger.warning("[AcoustID] No API key — cannot verify song identity, skipping %s", audio_path.name)
+        return {}
+
+    acoustid_recording_id, aid_title, aid_artist = _acoustid_get_metadata(audio_path, acoustid_api_key)
+
+    if not aid_title and not aid_artist:
+        logger.warning("[Metadata] No AcoustID match for %s — skipping", audio_path.name)
+        return {}
+
+    # Split "David Guetta feat. Kid Cudi" → artist + featured artists
+    raw_aid_artist = aid_artist or ""
+    artist, aid_feat = _split_artist_featuring(raw_aid_artist)
+    title = aid_title or ""
+
+    result["title"] = title
+    result["artist"] = artist
+    if aid_feat:
+        result["featured_artists"] = list(aid_feat)
+
+    logger.info("[AcoustID] title=%r  artist=%r  recording_id=%s", title, artist, acoustid_recording_id)
 
     # ── Last.fm ───────────────────────────────────────────────────────────────
     track_info: dict[str, object] | None = None
@@ -913,7 +951,7 @@ def extract_all_metadata(
     similar = None
 
     if not lastfm_api_key:
-        logger.info("[Last.fm] Skipped — LASTFM_API_KEY not set")
+        logger.info("[Last.fm] Skipped — no LASTFM_API_KEY")
     elif not title or not artist:
         logger.info("[Last.fm] Skipped — title or artist missing")
     else:
@@ -924,33 +962,23 @@ def extract_all_metadata(
             artist_info = _fetch_artist_info(artist_name, lastfm_api_key) or {}
             similar = _fetch_similar_tracks(title, artist_name, lastfm_api_key)
 
-            for field in ("title", "artist"):
-                if not result.get(field) and track_info.get(field):
-                    result[field] = track_info[field]
-                    logger.info("[Last.fm] %s filled: %s", field, result[field])
-
             existing_featured: list[str] = list(result.get("featured_artists") or [])
             for fa in (track_info.get("featured_artists") or []):
                 if fa not in existing_featured:
                     existing_featured.append(fa)
             result["featured_artists"] = existing_featured
 
-    mb_title = _clean_title(str(result.get("title") or title))
+    mb_title = str(result.get("title") or title)
     mb_artist = str(result.get("artist") or artist)
-    if mb_title != str(result.get("title") or title):
-        logger.info("[Metadata] Title cleaned: %r → %r", result.get("title") or title, mb_title)
-        result["title"] = mb_title
     lastfm_mbid = str(track_info.get("mbid") or "") if track_info else ""
     if lastfm_mbid:
-        logger.info("[Metadata] Last.fm MBID for MB lookup: %s", lastfm_mbid)
+        logger.info("[Metadata] Last.fm MBID: %s", lastfm_mbid)
     else:
-        logger.info("[Metadata] No Last.fm MBID — will use AcoustID or text search")
+        logger.info("[Metadata] No Last.fm MBID — will use AcoustID recording_id or text search")
 
     # ── Spotify (album + release_date) ────────────────────────────────────────
-    acoustid_recording_id: str | None = None  # shared with MB genres step below
-
     if not spotify_client_id or not spotify_client_secret:
-        logger.info("[Spotify] Skipped — SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET not set")
+        logger.info("[Spotify] Skipped — no credentials")
     elif not mb_title or not mb_artist:
         logger.info("[Spotify] Skipped — title or artist missing")
     else:
@@ -958,43 +986,9 @@ def extract_all_metadata(
         token = _spotify_get_token(spotify_client_id, spotify_client_secret)
         if token:
             spotify_info = _fetch_spotify_info(mb_title, mb_artist, token)
-
-            if not spotify_info and acoustid_api_key:
-                # Spotify found nothing — the title may still contain noise or be wrong.
-                # Ask AcoustID for the canonical title/artist from the audio fingerprint.
-                logger.info("[AcoustID] Spotify miss — trying fingerprint for canonical title")
-                acoustid_recording_id, aid_title, aid_artist = _acoustid_get_metadata(
-                    audio_path, acoustid_api_key
-                )
-                if aid_title or aid_artist:
-                    retry_title = _clean_title(aid_title) if aid_title else mb_title
-                    # AcoustID returns credit strings like "David Guetta feat. Kid Cudi".
-                    # Strip the feat part — artist field must contain only the primary artist.
-                    raw_aid_artist = aid_artist if aid_artist else mb_artist
-                    retry_artist_clean, aid_feat = _split_artist_featuring(raw_aid_artist)
-                    retry_artist = retry_artist_clean if retry_artist_clean else mb_artist
-                    if retry_title != mb_title or retry_artist != mb_artist:
-                        logger.info(
-                            "[AcoustID] Corrected metadata: %r / %r — retrying Spotify",
-                            retry_artist, retry_title,
-                        )
-                        spotify_info = _fetch_spotify_info(retry_title, retry_artist, token)
-                        if not spotify_info and raw_aid_artist != retry_artist:
-                            # Try again with the full credit string in case Spotify needs it
-                            spotify_info = _fetch_spotify_info(retry_title, raw_aid_artist, token)
-                        if spotify_info:
-                            mb_title = retry_title
-                            mb_artist = retry_artist
-                            result["title"] = mb_title
-                            result["artist"] = mb_artist
-                            for fa in aid_feat:
-                                existing_fa2: list[str] = list(result.get("featured_artists") or [])
-                                if fa not in existing_fa2:
-                                    existing_fa2.append(fa)
-                                    result["featured_artists"] = existing_fa2
-                            logger.info(
-                                "[AcoustID] Title/artist corrected to: %r / %r", mb_artist, mb_title
-                            )
+            if not spotify_info and raw_aid_artist and raw_aid_artist != mb_artist:
+                # Try with full credit string (e.g. "David Guetta feat. Kid Cudi") in case Spotify needs it
+                spotify_info = _fetch_spotify_info(mb_title, raw_aid_artist, token)
 
             if spotify_info:
                 if spotify_info.get("album"):
@@ -1020,12 +1014,13 @@ def extract_all_metadata(
                 result["album"] = track_info["album"]
                 logger.info("[Last.fm] album fallback: %s", result["album"])
 
-    # ── MusicBrainz (genres + earliest release date + featured artists) ──────────
+    # ── MusicBrainz (genres + earliest release date + featured artists) ───────
     mb_data = _fetch_musicbrainz_data(
         audio_path, acoustid_api_key,
         title=mb_title, artist=mb_artist,
         lastfm_mbid=lastfm_mbid,
         prefetched_recording_id=acoustid_recording_id,
+        acoustid_done=True,
     )
     result["genres"] = mb_data["genres"]
     result.setdefault("album_mbid", None)
@@ -1069,6 +1064,25 @@ def extract_all_metadata(
         if similar:
             lastfm_dict["similar_tracks"] = similar
         result["lastfm"] = lastfm_dict
+
+    # ── AcoustID title/artist are the source of truth — restore if changed ───────
+    _has_parens = bool(re.search(r'\(', title))
+    final_title = str(result.get("title") or title)
+    if final_title != title:
+        if not _has_parens and re.search(r'\(', final_title):
+            logger.warning(
+                "[Metadata] Title gained parenthetical content from downstream source "
+                "(%r → %r) — restoring AcoustID title",
+                final_title, title,
+            )
+            result["title"] = title
+        elif final_title != title:
+            logger.warning(
+                "[Metadata] Title was changed by downstream source (%r → %r) — restoring AcoustID title",
+                final_title, title,
+            )
+            result["title"] = title
+    result["artist"] = artist
 
     # ── Summary ───────────────────────────────────────────────────────────────
     _TRACKED = ("title", "artist", "album", "release_date", "genres", "album_mbid")
