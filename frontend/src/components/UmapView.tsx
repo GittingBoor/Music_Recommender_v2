@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRef } from "react";
 import type { Song } from "../types/song";
-import type { UmapPoint3D, UmapResponse } from "../types/umap";
+import type { UmapResponse } from "../types/umap";
 import { fetchUmap } from "../services/api";
 import { UmapCanvas2D } from "./UmapCanvas2D";
 
@@ -464,19 +465,14 @@ interface Props { songs: Song[] }
 
 const DEFAULT_X: FeatureValue = "danceability";
 const DEFAULT_Y: FeatureValue = "bpm";
-const DEFAULT_Z: FeatureValue = "arousal";
-const DEFAULT_EYE = { x: 1.25, y: 1.25, z: 1.25 };
 
 export function UmapView({ songs }: Props) {
-  const [is3D,        setIs3D]        = useState(false);
   const [featureMode, setFeatureMode] = useState<FeatureMode>("all");
 
   const [pendingX, setPendingX] = useState<FeatureValue>(DEFAULT_X);
   const [pendingY, setPendingY] = useState<FeatureValue>(DEFAULT_Y);
-  const [pendingZ, setPendingZ] = useState<FeatureValue>(DEFAULT_Z);
   const [appliedX, setAppliedX] = useState<FeatureValue>(DEFAULT_X);
   const [appliedY, setAppliedY] = useState<FeatureValue>(DEFAULT_Y);
-  const [appliedZ, setAppliedZ] = useState<FeatureValue>(DEFAULT_Z);
   const [appliedMode, setAppliedMode] = useState<FeatureMode>("all");
 
   const [umapData,       setUmapData]       = useState<UmapResponse | null>(null);
@@ -484,7 +480,6 @@ export function UmapView({ songs }: Props) {
   const [error,          setError]          = useState<string | null>(null);
   const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
 
-  const plotRef = useRef<HTMLDivElement>(null);
   const songMap = useMemo(() => new Map(songs.map((s) => [s.id, s])), [songs]);
 
   const genreColorMap = useMemo(() => {
@@ -505,23 +500,11 @@ export function UmapView({ songs }: Props) {
     return top ? (genreColorMap[top.genre] ?? GENRE_PALETTE[0]) : GENRE_PALETTE[0];
   }, [songMap, genreColorMap]);
 
-  // Stable refs so Plotly closures always see fresh values
-  const selectedSongIdRef  = useRef(selectedSongId);
-  const getPointColorRef   = useRef(getPointColor);
-  const updateDepthCueRef  = useRef<((eye: typeof DEFAULT_EYE) => void) | null>(null);
-  const cameraEyeRef       = useRef(DEFAULT_EYE);
-
-  useEffect(() => { selectedSongIdRef.current  = selectedSongId; }, [selectedSongId]);
-  useEffect(() => { getPointColorRef.current   = getPointColor;  }, [getPointColor]);
-
-  const appliedFeaturesRef = useRef<string[]>(ALL_FEATURE_VALUES);
-
   const loadUmap = useCallback(async (features: string[]) => {
     setLoading(true);
     setError(null);
     try {
       const data = await fetchUmap(features);
-      appliedFeaturesRef.current = features;
       setUmapData(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
@@ -532,185 +515,6 @@ export function UmapView({ songs }: Props) {
 
   useEffect(() => { loadUmap(ALL_FEATURE_VALUES); }, [loadUmap]);
 
-  // ── 3D plot: CREATION (no selectedSongId dep → camera never jumps on click) ─
-
-  useEffect(() => {
-    if (!is3D || !plotRef.current || !umapData) return;
-    let cancelled = false;
-    let pollId = 0;
-
-    import("plotly.js-dist-min").then((mod) => {
-      if (cancelled || !plotRef.current || !umapData) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const Plotly = (mod as any).default ?? mod;
-      const pts = umapData.points_3d;
-      if (pts.length === 0) return;
-      const n = pts.length;
-
-      // Precompute scene-normalized coords [-1, 1] (done once per data set)
-      const xs = pts.map((p: UmapPoint3D) => p.x);
-      const ys = pts.map((p: UmapPoint3D) => p.y);
-      const zs = pts.map((p: UmapPoint3D) => p.z);
-      const norm = (vals: number[]) => {
-        const lo = Math.min(...vals), hi = Math.max(...vals), r = hi - lo || 1;
-        return vals.map((v) => ((v - lo) / r) * 2 - 1);
-      };
-      const nx = norm(xs), ny = norm(ys), nz = norm(zs);
-
-      // Depth = dot(point, cameraDir): high dot → close to camera → big/opaque.
-      // Positive sign so near points (same side as eye) get t≈1 and large size.
-      const computeMarkers = (eye: typeof DEFAULT_EYE) => {
-        const ed = Math.sqrt(eye.x ** 2 + eye.y ** 2 + eye.z ** 2) || 1;
-        const ex = eye.x / ed, ey = eye.y / ed, ez = eye.z / ed;
-        let dMin = Infinity, dMax = -Infinity;
-        const depths = new Array<number>(n);
-        for (let i = 0; i < n; i++) {
-          const d = nx[i] * ex + ny[i] * ey + nz[i] * ez; // no negative: near = big
-          depths[i] = d;
-          if (d < dMin) dMin = d;
-          if (d > dMax) dMax = d;
-        }
-        const dRange = dMax - dMin || 1;
-        const selId  = selectedSongIdRef.current;
-        const sizes  = new Array<number>(n);
-        const opacs  = new Array<number>(n);
-        const colors = new Array<string>(n);
-        for (let i = 0; i < n; i++) {
-          const t = (depths[i] - dMin) / dRange;
-          if (pts[i].song_id === selId) {
-            sizes[i]  = 12;
-            opacs[i]  = 1;
-            colors[i] = "#f59e0b";
-          } else {
-            sizes[i]  = 2 + t * 8;
-            opacs[i]  = 0.25 + t * 0.75;
-            colors[i] = getPointColorRef.current(pts[i].song_id);
-          }
-        }
-        return { sizes, opacs, colors };
-      };
-
-      const doRestyle = (eye: typeof DEFAULT_EYE) => {
-        if (!plotRef.current) return;
-        const { sizes, opacs, colors } = computeMarkers(eye);
-        Plotly.restyle(plotRef.current, {
-          "marker.size":    [sizes],
-          "marker.color":   [colors],
-          "marker.opacity": [opacs],
-        }, [0]);
-      };
-
-      updateDepthCueRef.current = doRestyle;
-
-      // Initial markers
-      const init = computeMarkers(cameraEyeRef.current);
-
-      const silentAxis = {
-        showspikes: false, showgrid: false, zeroline: false,
-        showticklabels: false, backgroundcolor: "transparent",
-        title: { text: "" },
-      };
-
-      Plotly.newPlot(
-        plotRef.current,
-        [{
-          type: "scatter3d", mode: "markers",
-          x: xs, y: ys, z: zs,
-          text:          pts.map((p: UmapPoint3D) => `<b>${p.title ?? "Unknown"}</b><br>${p.artist ?? ""}`),
-          customdata:    pts.map((p: UmapPoint3D) => p.song_id),
-          hovertemplate: "%{text}<extra></extra>",
-          marker: { size: init.sizes, color: init.colors, opacity: init.opacs },
-        }],
-        {
-          paper_bgcolor: "transparent",
-          margin: { l: 0, r: 0, t: 0, b: 0 },
-          autosize: true,
-          scene: {
-            bgcolor: "#111827",
-            xaxis: silentAxis,
-            yaxis: silentAxis,
-            zaxis: silentAxis,
-          },
-          hoverlabel: {
-            bgcolor: "#1f2937", bordercolor: "#374151",
-            font: { color: "#e5e7eb", size: 12 },
-          },
-        },
-        // scrollZoom disabled — we handle wheel ourselves for better responsiveness
-        { displayModeBar: false, responsive: true }
-      );
-
-      const plotEl = plotRef.current;
-
-      // RAF polling loop for real-time depth cueing during rotation.
-      //
-      // Plotly only fires plotly_relayout on mouseup, not during the drag.
-      // The live camera position lives in the gl-plot3d scene object at
-      // _scene.camera.eye (a Float32Array [x,y,z] from the gl-camera package),
-      // which IS updated every frame during rotation. We poll that at ~30fps.
-      // Fallback to _fullLayout.scene.camera (layout object) for non-drag updates.
-      let prevEyeKey = "";
-      let lastRestyleMs = 0;
-      const poll = () => {
-        if (cancelled) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const sceneLayout = (plotEl as any)?._fullLayout?.scene;
-        // Live gl-camera eye (Float32Array) — updates during rotation
-        const liveEye: ArrayLike<number> | null = sceneLayout?._scene?.camera?.eye ?? null;
-        // Layout eye ({x,y,z}) — only updated on mouseup
-        const layoutEye = sceneLayout?.camera?.eye ?? null;
-
-        let ex: number | undefined, ey: number | undefined, ez: number | undefined;
-        if (liveEye && typeof liveEye[0] === "number") {
-          ex = liveEye[0]; ey = liveEye[1]; ez = liveEye[2];
-        } else if (layoutEye && "x" in layoutEye) {
-          ex = layoutEye.x; ey = layoutEye.y; ez = layoutEye.z;
-        }
-
-        if (ex != null && ey != null && ez != null) {
-          const now = performance.now();
-          const key = `${ex.toFixed(3)},${ey.toFixed(3)},${ez.toFixed(3)}`;
-          if (key !== prevEyeKey && now - lastRestyleMs > 33) {
-            prevEyeKey = key;
-            lastRestyleMs = now;
-            cameraEyeRef.current = { x: ex, y: ey, z: ez };
-            doRestyle(cameraEyeRef.current);
-          }
-        }
-        pollId = requestAnimationFrame(poll);
-      };
-      pollId = requestAnimationFrame(poll);
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (plotEl as any).on("plotly_click", (e: any) => {
-        const pt = e?.points?.[0];
-        if (pt) setSelectedSongId(pt.customdata as string);
-      });
-
-      plotEl.addEventListener("contextmenu", (ev) => ev.preventDefault());
-    });
-
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(pollId);
-      import("plotly.js-dist-min").then((mod) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const Plotly = (mod as any).default ?? mod;
-        if (plotRef.current) Plotly.purge(plotRef.current);
-        updateDepthCueRef.current = null;
-      });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [umapData, is3D, appliedMode]);
-
-  // ── 3D plot: SELECTION update (no newPlot, camera stays put) ────────────────
-
-  useEffect(() => {
-    if (!is3D || !umapData) return;
-    // Re-run depth cue with current camera so selection highlight is applied
-    updateDepthCueRef.current?.(cameraEyeRef.current);
-  }, [selectedSongId, is3D, umapData]);
-
   const applyFeatures = () => {
     setAppliedMode(featureMode);
     if (featureMode === "all") {
@@ -718,19 +522,12 @@ export function UmapView({ songs }: Props) {
     } else {
       setAppliedX(pendingX);
       setAppliedY(pendingY);
-      setAppliedZ(pendingZ);
-      loadUmap(is3D ? [pendingX, pendingY, pendingZ] : [pendingX, pendingY]);
+      loadUmap([pendingX, pendingY]);
     }
   };
 
-  // 2D axis labels: empty in "all" mode
   const xLabel2D = appliedMode === "custom" ? (FEATURE_LABEL[appliedX] ?? "") : "";
   const yLabel2D = appliedMode === "custom" ? (FEATURE_LABEL[appliedY] ?? "") : "";
-
-  // 3D overlay labels: only shown in "custom" mode
-  const x3D = appliedMode === "custom" ? (FEATURE_LABEL[appliedX] ?? appliedX) : null;
-  const y3D = appliedMode === "custom" ? (FEATURE_LABEL[appliedY] ?? appliedY) : null;
-  const z3D = appliedMode === "custom" ? (FEATURE_LABEL[appliedZ] ?? appliedZ) : null;
 
   const selectedSong = selectedSongId ? songMap.get(selectedSongId) : null;
 
@@ -750,28 +547,6 @@ export function UmapView({ songs }: Props) {
 
       {/* ── Left controls panel ── */}
       <div className="w-56 flex-shrink-0 border-r border-gray-800 flex flex-col">
-
-        {/* 2D / 3D toggle */}
-        <div className="flex-shrink-0 px-4 pt-3 pb-2.5 border-b border-gray-800">
-          <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
-            View Mode
-          </p>
-          <div className="flex rounded overflow-hidden border border-gray-700">
-            {(["2D", "3D"] as const).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setIs3D(mode === "3D")}
-                className={`flex-1 py-1 text-xs font-medium transition-colors ${
-                  (mode === "3D") === is3D
-                    ? "bg-indigo-600 text-white"
-                    : "bg-gray-900 text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                {mode}
-              </button>
-            ))}
-          </div>
-        </div>
 
         {/* Feature mode + selectors — scrollable */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
@@ -805,7 +580,6 @@ export function UmapView({ songs }: Props) {
             <>
               <AxisSelect label="X" value={pendingX} onChange={setPendingX} />
               <AxisSelect label="Y" value={pendingY} onChange={setPendingY} />
-              {is3D && <AxisSelect label="Z" value={pendingZ} onChange={setPendingZ} />}
             </>
           )}
 
@@ -857,8 +631,7 @@ export function UmapView({ songs }: Props) {
           </div>
         )}
 
-        {/* 2D canvas */}
-        {!is3D && umapData && (
+        {umapData && (
           <UmapCanvas2D
             points={umapData.points_2d}
             selectedSongId={selectedSongId}
@@ -867,22 +640,6 @@ export function UmapView({ songs }: Props) {
             xLabel={xLabel2D}
             yLabel={yLabel2D}
           />
-        )}
-
-        {/* 3D Plotly container */}
-        <div
-          ref={plotRef}
-          className={`w-full h-full ${!is3D ? "hidden" : ""}`}
-          onContextMenu={(e) => e.preventDefault()}
-        />
-
-        {/* Fixed axis label overlay for 3D custom mode — stays put while rotating */}
-        {is3D && (x3D || y3D || z3D) && (
-          <div className="pointer-events-none absolute bottom-4 left-4 z-10 text-[11px] text-gray-500 space-y-0.5">
-            {x3D && <div><span className="text-gray-600">X:</span> {x3D}</div>}
-            {y3D && <div><span className="text-gray-600">Y:</span> {y3D}</div>}
-            {z3D && <div><span className="text-gray-600">Z:</span> {z3D}</div>}
-          </div>
         )}
       </div>
 
