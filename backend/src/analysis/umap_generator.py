@@ -53,16 +53,6 @@ class UmapPoint2D:
     artist: str | None
 
 
-@dataclass
-class UmapPoint3D:
-    song_id: str
-    x: float
-    y: float
-    z: float
-    title: str | None
-    artist: str | None
-
-
 def _get_value(song: object, relation: str, attr: str) -> float | None:
     rel = getattr(song, relation, None)
     if rel is None:
@@ -92,21 +82,19 @@ def _build_feature_matrix(songs: list, feature_keys: list[str]) -> np.ndarray:
 
 class UmapState:
     """
-    Global singleton that holds fitted UMAP models and current embeddings.
+    Global singleton that holds a fitted UMAP model and current 2D embeddings.
 
-    fit()      — initial fit on all existing songs.
+    fit()       — initial fit on all existing songs.
     add_songs() — projects new songs into the existing space via transform().
-    reset()    — clears everything (called when DB is cleared).
+    reset()     — clears everything (called when DB is cleared).
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._reducer_2d: UMAP | None = None
-        self._reducer_3d: UMAP | None = None
         self._scaler: StandardScaler | None = None
         self._feature_keys: list[str] = []
         self._coords_2d: dict[str, tuple[float, float]] = {}
-        self._coords_3d: dict[str, tuple[float, float, float]] = {}
         self._meta: dict[str, tuple[str | None, str | None]] = {}
 
     # ── public properties ──────────────────────────────────────────────────
@@ -143,20 +131,13 @@ class UmapState:
         n_neighbors = min(15, len(songs) - 1)
         reducer_2d = UMAP(n_components=2, random_state=42, n_neighbors=n_neighbors)
         coords_2d = reducer_2d.fit_transform(matrix_scaled)
-        reducer_3d = UMAP(n_components=3, random_state=42, n_neighbors=n_neighbors)
-        coords_3d = reducer_3d.fit_transform(matrix_scaled)
 
         with self._lock:
             self._reducer_2d = reducer_2d
-            self._reducer_3d = reducer_3d
             self._scaler = scaler
             self._feature_keys = keys
             self._coords_2d = {
                 s.id: (float(coords_2d[i, 0]), float(coords_2d[i, 1]))
-                for i, s in enumerate(songs)
-            }
-            self._coords_3d = {
-                s.id: (float(coords_3d[i, 0]), float(coords_3d[i, 1]), float(coords_3d[i, 2]))
                 for i, s in enumerate(songs)
             }
             self._meta = {s.id: (s.title, s.artist) for s in songs}
@@ -175,16 +156,10 @@ class UmapState:
         matrix = _build_feature_matrix(new_songs, self._feature_keys)
         matrix_scaled = self._scaler.transform(matrix)  # type: ignore[union-attr]
         coords_2d = self._reducer_2d.transform(matrix_scaled)  # type: ignore[union-attr]
-        coords_3d = self._reducer_3d.transform(matrix_scaled)  # type: ignore[union-attr]
 
         with self._lock:
             for i, song in enumerate(new_songs):
                 self._coords_2d[song.id] = (float(coords_2d[i, 0]), float(coords_2d[i, 1]))
-                self._coords_3d[song.id] = (
-                    float(coords_3d[i, 0]),
-                    float(coords_3d[i, 1]),
-                    float(coords_3d[i, 2]),
-                )
                 self._meta[song.id] = (song.title, song.artist)
 
         logger.info("[UMAP] Added %d song(s) via transform", len(new_songs))
@@ -192,17 +167,15 @@ class UmapState:
     def reset(self) -> None:
         with self._lock:
             self._reducer_2d = None
-            self._reducer_3d = None
             self._scaler = None
             self._feature_keys = []
             self._coords_2d.clear()
-            self._coords_3d.clear()
             self._meta.clear()
         logger.info("[UMAP] State reset")
 
-    def get_result(self) -> tuple[list[UmapPoint2D], list[UmapPoint3D]]:
+    def get_result(self) -> list[UmapPoint2D]:
         with self._lock:
-            points_2d = [
+            return [
                 UmapPoint2D(
                     song_id=sid,
                     x=c[0],
@@ -212,18 +185,6 @@ class UmapState:
                 )
                 for sid, c in self._coords_2d.items()
             ]
-            points_3d = [
-                UmapPoint3D(
-                    song_id=sid,
-                    x=c[0],
-                    y=c[1],
-                    z=c[2],
-                    title=self._meta[sid][0],
-                    artist=self._meta[sid][1],
-                )
-                for sid, c in self._coords_3d.items()
-            ]
-        return points_2d, points_3d
 
 
 # Module-level singleton shared by all routes and background tasks

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from src.analysis.umap_generator import ALL_FEATURES, get_umap_state
 from src.db.models import Song
 from src.db.session import get_session
-from src.schemas.umap import UmapPoint2D, UmapPoint3D, UmapResponse
+from src.schemas.umap import UmapPoint2D, UmapResponse
 
 router = APIRouter()
 
@@ -48,11 +48,10 @@ def get_umap(
             state.fit(songs, requested_keys)
 
     if not state.is_fitted:
-        return UmapResponse(points_2d=[], points_3d=[], features_used=requested_keys)
+        return UmapResponse(points_2d=[], features_used=requested_keys)
 
-    points_2d, points_3d = state.get_result()
+    points_2d = state.get_result()
     return UmapResponse(
         points_2d=[UmapPoint2D(**asdict(p)) for p in points_2d],
-        points_3d=[UmapPoint3D(**asdict(p)) for p in points_3d],
         features_used=state.feature_keys,
     )
