@@ -3,8 +3,9 @@ import { fetchSongs } from "./services/api";
 import type { Song } from "./types/song";
 import { SongCard } from "./components/SongCard";
 import { UmapView } from "./components/UmapView";
+import { AnalysisPage } from "./components/analysis/AnalysisPage";
 
-type Tab = "cards" | "umap";
+type Tab = "cards" | "umap" | "analysis";
 
 const POLL_INTERVAL_MS = 8_000;
 
@@ -53,7 +54,7 @@ export default function App() {
           )}
         </div>
         <nav className="flex gap-1">
-          {(["cards", "umap"] as Tab[]).map((t) => (
+          {(["cards", "umap", "analysis"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -63,7 +64,7 @@ export default function App() {
                   : "text-gray-500 hover:text-gray-300 hover:bg-gray-900"
               }`}
             >
-              {t === "cards" ? "Cards" : "UMAP"}
+              {t === "cards" ? "Cards" : t === "umap" ? "UMAP" : "Analysis"}
             </button>
           ))}
         </nav>
@@ -100,6 +101,7 @@ export default function App() {
               </div>
             )}
             {tab === "umap" && <UmapView songs={songs} />}
+            {tab === "analysis" && <AnalysisPage songs={songs} />}
           </>
         )}
       </main>
