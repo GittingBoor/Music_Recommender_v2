@@ -90,6 +90,18 @@ export interface Instrument {
   probability: number;
 }
 
+export interface OtherFeatures {
+  gmbi_valence: number | null;
+  gmbi_arousal: number | null;
+  gmbi_authenticity: number | null;
+  gmbi_timeliness: number | null;
+  gmbi_complexity: number | null;
+  tonal: number | null;
+  tonal_timeseries: number[] | null;
+  hpcp_mean: number[] | null;
+  tristimulus_mean: number[] | null;
+}
+
 export interface Song {
   id: string;
   title: string | null;
@@ -100,6 +112,7 @@ export interface Song {
   dsp_features: DSPFeatures | null;
   ml_profile: MLProfile | null;
   ml_moods: MLMoods | null;
+  other_features: OtherFeatures | null;
   parent_genres: ParentGenre[];
   detailed_genres: DetailedGenre[];
   instruments: Instrument[];

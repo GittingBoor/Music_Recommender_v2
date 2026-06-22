@@ -1,5 +1,6 @@
 # Essentia model cache — downloaded at runtime, never committed
 model_cache/
+models
 
 # Analysis debug output — local test results, never committed
 backend/test_output/

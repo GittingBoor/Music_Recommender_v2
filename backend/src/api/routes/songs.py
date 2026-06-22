@@ -13,6 +13,7 @@ from src.db.models import (
     ParentGenre,
     DetailedGenre,
     Instrument,
+    OtherFeatures,
 )
 from src.db.session import get_session
 from src.schemas.songs import SongResponse
@@ -43,6 +44,7 @@ def list_songs(db: Session = Depends(get_db)):
             selectinload(Song.ml_profile),
             selectinload(Song.ml_moods),
             selectinload(Song.dsp_features),
+            selectinload(Song.other_features),
         )
         .all()
     )
