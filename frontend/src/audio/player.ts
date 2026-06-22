@@ -2,6 +2,10 @@
  * Global single-player singleton.
  * Only one song plays at a time across the whole app.
  * Designed for use with React's useSyncExternalStore.
+ *
+ * Note: subscribe/getSnapshot only fire on play-state changes (not every
+ * timeupdate tick) so that PlayButton components don't re-render constantly.
+ * PlayerBar attaches its own timeupdate listener via getAudio().
  */
 
 export interface PlayerSnapshot {
@@ -36,23 +40,38 @@ export function toggle(songId: string): void {
   const audio = _getAudio();
 
   if (_state.currentId === songId) {
-    // Same song: toggle pause/resume
     if (_state.playing) {
       audio.pause();
     } else {
       audio.play().catch(() => _emit({ currentId: null, playing: false }));
     }
   } else {
-    // Different song: swap source and play
     audio.pause();
     audio.src = `/api/audio/full/${songId}`;
     audio.currentTime = 0;
-    _emit({ currentId: songId, playing: false }); // optimistic id update before play fires
+    _emit({ currentId: songId, playing: false });
     audio.play().catch(() => _emit({ currentId: null, playing: false }));
   }
 }
 
-/** Subscribe to state changes (for useSyncExternalStore). */
+/** Seek to an absolute time in seconds. */
+export function seek(time: number): void {
+  const audio = _getAudio();
+  if (audio.src) audio.currentTime = Math.max(0, Math.min(time, audio.duration || 0));
+}
+
+/** Skip forward or backward by the given number of seconds. */
+export function skip(seconds: number): void {
+  const audio = _getAudio();
+  if (audio.src) seek(audio.currentTime + seconds);
+}
+
+/** Expose the raw audio element so components can attach timeupdate listeners. */
+export function getAudio(): HTMLAudioElement | null {
+  return _audio;
+}
+
+/** Subscribe to play-state changes (for useSyncExternalStore). */
 export function subscribe(listener: Listener): () => void {
   _listeners.add(listener);
   return () => _listeners.delete(listener);
