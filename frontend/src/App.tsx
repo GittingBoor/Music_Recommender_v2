@@ -5,6 +5,7 @@ import { SongCard } from "./components/SongCard";
 import { UmapView } from "./components/UmapView";
 import { AnalysisPage } from "./components/analysis/AnalysisPage";
 import { FilterPage } from "./components/filter/FilterPage";
+import { PlayerBar } from "./components/PlayerBar";
 
 type Tab = "cards" | "umap" | "analysis" | "filter";
 
@@ -107,6 +108,7 @@ export default function App() {
           </>
         )}
       </main>
+      <PlayerBar songs={songs} />
     </div>
   );
 }
