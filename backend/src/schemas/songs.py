@@ -104,6 +104,20 @@ class InstrumentSchema(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class OtherFeaturesSchema(BaseModel):
+    gmbi_valence: float | None = None
+    gmbi_arousal: float | None = None
+    gmbi_authenticity: float | None = None
+    gmbi_timeliness: float | None = None
+    gmbi_complexity: float | None = None
+    tonal: float | None = None
+    tonal_timeseries: list[float] | None = None
+    hpcp_mean: list[float] | None = None
+    tristimulus_mean: list[float] | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class SongResponse(BaseModel):
     id: str
     title: str | None = None
@@ -113,6 +127,7 @@ class SongResponse(BaseModel):
     dsp_features: DSPFeaturesSchema | None = None
     ml_profile: MLProfileSchema | None = None
     ml_moods: MLMoodsSchema | None = None
+    other_features: OtherFeaturesSchema | None = None
     parent_genres: list[ParentGenreSchema] = []
     detailed_genres: list[DetailedGenreSchema] = []
     instruments: list[InstrumentSchema] = []

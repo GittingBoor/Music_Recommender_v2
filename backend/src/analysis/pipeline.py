@@ -27,6 +27,7 @@ from src.analysis.classifiers import (
 from src.analysis.dsp import extract_all_dsp_features
 from src.analysis.metadata import extract_all_metadata
 from src.analysis.model_manager import get_manager
+from src.analysis.other_features import extract_other_features
 from src.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -144,12 +145,20 @@ def run_full_pipeline(audio_path: Path) -> dict[str, object]:
     flat_ml.update(_run_musicnn_classifiers(audio_path, list(_MUSICNN_CLASSIFIERS)))
     logger.info("[Pipeline] All ML models done")
 
+    try:
+        other = extract_other_features(audio_path)
+        logger.info("[Pipeline] Other features done")
+    except Exception as exc:
+        logger.warning("[Pipeline] Other features failed, continuing: %s", exc)
+        other = {}
+
     logger.info("[Pipeline] Full pipeline complete")
 
     return {
         "metadata": metadata,
         "dsp": dsp,
         "ml": _structure_ml_results(flat_ml),
+        "other": other,
     }
 
 
@@ -202,6 +211,7 @@ def _save_to_database(result: dict[str, object], audio_path: Path) -> None:
         Song, generate_song_id,
         FileMetadata, TrackMetadata, Artist,
         DSPFeatures, MLProfileFeatures, MLMoodFeatures, MLGMBIFeatures,
+        OtherFeatures,
         ParentGenre, DetailedGenre, Instrument,
     )
 
@@ -344,6 +354,25 @@ def _save_to_database(result: dict[str, object], audio_path: Path) -> None:
         ))
 
         session.add(MLGMBIFeatures(id=song_id))
+
+        other: dict = result.get("other") or {}
+        gmbi: dict = other.get("gmbi") or {}
+        gmbi_mean: dict = gmbi.get("mean") or {}
+        gmbi_frames: dict = gmbi.get("frames") or {}
+        tonal_other: dict = other.get("tonal") or {}
+
+        session.add(OtherFeatures(
+            id=song_id,
+            gmbi_valence=gmbi_mean.get("valence"),
+            gmbi_arousal=gmbi_mean.get("arousal"),
+            gmbi_authenticity=gmbi_mean.get("authenticity"),
+            gmbi_timeliness=gmbi_mean.get("timeliness"),
+            gmbi_complexity=gmbi_mean.get("complexity"),
+            tonal=tonal_other.get("mean"),
+            tonal_timeseries=tonal_other.get("timeseries"),
+            hpcp_mean=other.get("hpcp_mean"),
+            tristimulus_mean=other.get("tristimulus_mean"),
+        ))
 
         genre_discogs: dict = ml.get("genre_discogs400") or {}
         for g in genre_discogs.get("parent_genre_distribution") or []:

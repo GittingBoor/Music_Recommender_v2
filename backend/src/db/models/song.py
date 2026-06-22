@@ -40,3 +40,4 @@ class Song(Base):
     ml_moods: Mapped["MLMoodFeatures"] = relationship(back_populates="song", uselist=False)
     ml_gmbi: Mapped["MLGMBIFeatures"] = relationship(back_populates="song", uselist=False)
     dsp_features: Mapped["DSPFeatures"] = relationship(back_populates="song", uselist=False)
+    other_features: Mapped["OtherFeatures"] = relationship(back_populates="song", uselist=False)

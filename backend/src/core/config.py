@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://user:password@localhost:5432/music_recommender"
     debug: bool = False
     model_cache_dir: Path = Path("model_cache")
+    audio_process_models_dir: Path = Path("src/audio_process/Models")
     lastfm_api_key: str = ""
     acoustid_api_key: str = ""
     spotify_client_id: str = ""

@@ -69,6 +69,7 @@ export function SongCard({ song }: { song: Song }) {
   const dsp = song.dsp_features;
   const profile = song.ml_profile;
   const moods = song.ml_moods;
+  const other = song.other_features;
   const file = song.file_metadata;
   const track = song.track_metadata;
 
@@ -201,6 +202,20 @@ export function SongCard({ song }: { song: Song }) {
               ['relaxed', moods.relaxed],
               ['acoustic', moods.acoustic],
               ['electronic', moods.electronic],
+            ]} />
+          )}
+
+          {other && (
+            <KVTable name="other_features" rows={[
+              ['gmbi_valence', other.gmbi_valence],
+              ['gmbi_arousal', other.gmbi_arousal],
+              ['gmbi_authenticity', other.gmbi_authenticity],
+              ['gmbi_timeliness', other.gmbi_timeliness],
+              ['gmbi_complexity', other.gmbi_complexity],
+              ['tonal', other.tonal],
+              ['tonal_timeseries', other.tonal_timeseries],
+              ['hpcp_mean', other.hpcp_mean],
+              ['tristimulus_mean', other.tristimulus_mean],
             ]} />
           )}
 
