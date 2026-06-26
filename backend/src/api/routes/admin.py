@@ -208,7 +208,7 @@ _MAX_DURATION_WITHOUT_RECOGNITION = 600.0  # 10 minutes
 
 
 def _run_ingest() -> None:
-    from src.analysis.pipeline import run_full_pipeline, _save_to_database
+    from src.analysis.pipeline import run_full_pipeline, _save_to_database, precheck_skip
     from src.db.models.song import generate_song_id
     from src.core.config import settings
 
@@ -238,17 +238,24 @@ def _run_ingest() -> None:
                     )
                     continue
 
+            # Early-skip: fetch metadata + AcoustID + duplicate check BEFORE heavy analysis.
+            # This avoids running DSP / ML / other_features on songs that will be discarded.
+            skip_reason, metadata, song_id = precheck_skip(audio_file)
+            if skip_reason:
+                logger.info(
+                    "[Admin] Skipping %s — %s", audio_file.name, skip_reason
+                )
+                continue
+
             logger.info("[Admin] Processing %s", audio_file.name)
-            result = run_full_pipeline(audio_file)
+            # Pass the already-fetched metadata so run_full_pipeline doesn't re-fetch it.
+            result = run_full_pipeline(audio_file, metadata=metadata)
             _save_to_database(result, audio_file)
 
-            meta = result.get("metadata") or {}
-            title = str(meta.get("title") or "")
-            artist = str(meta.get("artist") or "")
-            if title and artist:
-                song_id = generate_song_id(title, artist)
-                _extract_preview(audio_file, result.get("dsp") or {}, song_id)
-                _update_umap_for_song(song_id)
+            if title := str((result.get("metadata") or {}).get("title") or ""):
+                if song_id:
+                    _extract_preview(audio_file, result.get("dsp") or {}, song_id)
+                    _update_umap_for_song(song_id)
 
         except Exception as exc:
             logger.error("[Admin] Failed %s: %s", audio_file.name, exc)

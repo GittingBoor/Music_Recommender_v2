@@ -124,10 +124,20 @@ def _structure_ml_results(flat: dict[str, object]) -> dict[str, object]:
     }
 
 
-def run_full_pipeline(audio_path: Path) -> dict[str, object]:
-    """Run metadata extraction, DSP, and all ML models on an audio file."""
-    logger.info("[Pipeline] Starting full pipeline — %s", audio_path.name)
-    ensure_models()
+def precheck_skip(audio_path: Path) -> tuple[str | None, dict, str | None]:
+    """Fetch metadata (AcoustID + enrichment) and decide whether to skip *before*
+    running the expensive DSP / ML analysis.
+
+    Returns
+    -------
+    (skip_reason, metadata, song_id)
+        ``skip_reason`` is ``None`` when the song should be processed, otherwise
+        a short string describing why it is skipped (``"no_acoustid_match"`` or
+        ``"duplicate"``).  ``metadata`` is always the extracted dict (may be
+        empty on a miss).  ``song_id`` is set only when a duplicate was found.
+    """
+    from src.db.session import get_session
+    from src.db.models import Song, generate_song_id
 
     metadata = extract_all_metadata(
         audio_path,
@@ -136,6 +146,49 @@ def run_full_pipeline(audio_path: Path) -> dict[str, object]:
         spotify_client_id=settings.spotify_client_id,
         spotify_client_secret=settings.spotify_client_secret,
     )
+    title = str(metadata.get("title") or "")
+    artist = str(metadata.get("artist") or "")
+
+    if not title or not artist:
+        return ("no_acoustid_match", metadata, None)
+
+    song_id = generate_song_id(title, artist)
+    session = get_session()
+    try:
+        if session.get(Song, song_id):
+            return ("duplicate", metadata, song_id)
+    finally:
+        session.close()
+
+    return (None, metadata, song_id)
+
+
+def run_full_pipeline(
+    audio_path: Path,
+    metadata: dict | None = None,
+) -> dict[str, object]:
+    """Run metadata extraction, DSP, and all ML models on an audio file.
+
+    Parameters
+    ----------
+    audio_path:
+        Path to the audio file.
+    metadata:
+        Pre-fetched metadata dict (from :func:`precheck_skip`).  When supplied,
+        the metadata step is skipped to avoid a redundant AcoustID network call.
+        When ``None`` (default / CLI usage), metadata is fetched here as before.
+    """
+    logger.info("[Pipeline] Starting full pipeline — %s", audio_path.name)
+    ensure_models()
+
+    if metadata is None:
+        metadata = extract_all_metadata(
+            audio_path,
+            lastfm_api_key=settings.lastfm_api_key,
+            acoustid_api_key=settings.acoustid_api_key,
+            spotify_client_id=settings.spotify_client_id,
+            spotify_client_secret=settings.spotify_client_secret,
+        )
     logger.info("[Pipeline] Metadata complete")
 
     dsp = extract_all_dsp_features(audio_path)
@@ -461,11 +514,26 @@ if __name__ == "__main__":
             raise ValueError(f"Unsupported format '{audio_file.suffix}'. Supported: {_SUPPORTED_EXTENSIONS}")
 
         logger.info("[CLI] Processing: %s", audio_file.name)
-        results = run_single_model(audio_file, args.model) if args.model else run_full_pipeline(audio_file)
 
-        if args.db:
+        if args.db and not args.model:
+            # Early-skip before heavy analysis when saving to the database.
+            skip_reason, metadata, _ = precheck_skip(audio_file)
+            if skip_reason:
+                logger.info("[CLI] Skipping %s — %s", audio_file.name, skip_reason)
+                continue
+            results = run_full_pipeline(audio_file, metadata=metadata)
             _save_to_database(results, audio_file)
-        elif args.save:
-            save_debug_output(results, audio_file)
+        elif args.model:
+            results = run_single_model(audio_file, args.model)
+            if args.db:
+                _save_to_database(results, audio_file)
+            elif args.save:
+                save_debug_output(results, audio_file)
+            else:
+                print(json.dumps(results, indent=2))
         else:
-            print(json.dumps(results, indent=2))
+            results = run_full_pipeline(audio_file)
+            if args.save:
+                save_debug_output(results, audio_file)
+            else:
+                print(json.dumps(results, indent=2))

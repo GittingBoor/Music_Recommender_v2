@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import essentia.standard as es
 
-from src.analysis.model_manager import get_manager
+from src.analysis.model_manager import get_manager, get_cached_algo
 
 logger = logging.getLogger(__name__)
 
@@ -173,10 +173,13 @@ def _run_classifier_raw(model_key: str, embedding: np.ndarray, output_layer: str
     """Run a TensorflowPredict2D model and return per-patch predictions (shape: n_patches x n_classes)."""
     path = get_manager().get_path(model_key)
     input_layer, out = _LAYER_OVERRIDES.get(model_key, (_TF1_INPUT, output_layer))
-    model = es.TensorflowPredict2D(
-        graphFilename=str(path),
-        input=input_layer,
-        output=out,
+    model = get_cached_algo(
+        (str(path), input_layer, out),
+        lambda: es.TensorflowPredict2D(
+            graphFilename=str(path),
+            input=input_layer,
+            output=out,
+        ),
     )
     return model(embedding)
 

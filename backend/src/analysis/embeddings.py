@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import essentia.standard as es
 
-from src.analysis.model_manager import get_manager
+from src.analysis.model_manager import get_manager, get_cached_algo
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +53,12 @@ def extract_effnet_embedding(audio_path: Path) -> np.ndarray:
     model_path = manager.get_path("effnet_embedding")
 
     logger.info("[Embedding] Computing EffNet embedding")
-    embedder = es.TensorflowPredictEffnetDiscogs(
-        graphFilename=str(model_path),
-        output=_EFFNET_OUTPUT_LAYER,
+    embedder = get_cached_algo(
+        (str(model_path), _EFFNET_OUTPUT_LAYER),
+        lambda: es.TensorflowPredictEffnetDiscogs(
+            graphFilename=str(model_path),
+            output=_EFFNET_OUTPUT_LAYER,
+        ),
     )
     embeddings = _to_2d(embedder(audio), "EffNet")
     logger.info("[Embedding] EffNet complete — shape %s", str(embeddings.shape))
@@ -71,9 +74,12 @@ def extract_musicnn_embedding(audio_path: Path) -> np.ndarray:
     model_path = manager.get_path("musicnn_embedding")
 
     logger.info("[Embedding] Computing MusiCNN embedding")
-    embedder = es.TensorflowPredictMusiCNN(
-        graphFilename=str(model_path),
-        output=_MUSICNN_OUTPUT_LAYER,
+    embedder = get_cached_algo(
+        (str(model_path), _MUSICNN_OUTPUT_LAYER),
+        lambda: es.TensorflowPredictMusiCNN(
+            graphFilename=str(model_path),
+            output=_MUSICNN_OUTPUT_LAYER,
+        ),
     )
     embeddings = _to_2d(embedder(audio), "MusiCNN")
     logger.info("[Embedding] MusiCNN complete — shape %s", str(embeddings.shape))
