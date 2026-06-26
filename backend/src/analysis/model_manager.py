@@ -192,6 +192,34 @@ def get_manager() -> ModelManager:
     return _manager
 
 
+# ---------------------------------------------------------------------------
+# Essentia algorithm instance cache
+# ---------------------------------------------------------------------------
+# Essentia TensorflowPredict* / TempoCNN / MusicExtractor instances are
+# stateless between compute() calls — they can be built once and reused
+# across all songs in a batch, saving ~21 graph reloads per song.
+_algo_cache: dict = {}
+
+
+def get_cached_algo(cache_key: tuple, builder):
+    """Return a cached Essentia algorithm instance, building it once if needed.
+
+    Parameters
+    ----------
+    cache_key:
+        A hashable tuple that uniquely identifies the algorithm configuration
+        (e.g. model path + output layer).  If it doesn't exist yet, *builder*
+        is called to create the instance, which is then stored and returned.
+    builder:
+        Zero-argument callable that constructs and returns the algorithm.
+    """
+    algo = _algo_cache.get(cache_key)
+    if algo is None:
+        algo = builder()
+        _algo_cache[cache_key] = algo
+    return algo
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     get_manager().ensure_all()

@@ -24,6 +24,7 @@ import pandas as pd
 import essentia.standard as es
 from essentia import log as essentia_log
 
+from src.analysis.model_manager import get_cached_algo
 from src.core.config import settings
 
 # tensorflow may or may not be importable depending on how essentia-tensorflow
@@ -177,9 +178,11 @@ def _run_dl_models(audio_16k: np.ndarray) -> dict[str, dict[str, Any]]:
         if not model_path.exists():
             raise FileNotFoundError(f"MusiCNN model not found: {model_path}")
         logger.info("[OtherFeatures] Running MusiCNN: %s", name)
-        predictions = es.TensorflowPredictMusiCNN(
-            graphFilename=str(model_path)
-        )(audio_16k)
+        predictor = get_cached_algo(
+            (str(model_path),),
+            lambda p=model_path: es.TensorflowPredictMusiCNN(graphFilename=str(p)),
+        )
+        predictions = predictor(audio_16k)
         class_preds = predictions[:, class_idx].astype(float)
         results[name] = {
             "mean":              round(float(np.mean(class_preds)), 8),
@@ -207,16 +210,21 @@ def _extract_gmbi_nn(
     Returns ``{"mean": {dim: float}, "frames": {}}``.
     """
     logger.info("[OtherFeatures] Running MusicExtractor for GMBI NN")
-    stats_pool, _ = es.MusicExtractor(
-        lowlevelStats=["mean", "stdev", "min", "max", "median"],
-        rhythmStats=["mean", "stdev", "min", "max", "median"],
-        tonalStats=["mean", "stdev", "min", "max", "median"],
-        analysisSampleRate=_SR_HIGH,
-        lowlevelHopSize=_HOP_SIZE,
-        lowlevelFrameSize=_FRAME_SIZE,
-        tonalHopSize=_HOP_SIZE,
-        tonalFrameSize=_FRAME_SIZE,
-    )(str(audio_path))
+    _me_key = ("MusicExtractor", _SR_HIGH, _HOP_SIZE, _FRAME_SIZE)
+    music_extractor = get_cached_algo(
+        _me_key,
+        lambda: es.MusicExtractor(
+            lowlevelStats=["mean", "stdev", "min", "max", "median"],
+            rhythmStats=["mean", "stdev", "min", "max", "median"],
+            tonalStats=["mean", "stdev", "min", "max", "median"],
+            analysisSampleRate=_SR_HIGH,
+            lowlevelHopSize=_HOP_SIZE,
+            lowlevelFrameSize=_FRAME_SIZE,
+            tonalHopSize=_HOP_SIZE,
+            tonalFrameSize=_FRAME_SIZE,
+        ),
+    )
+    stats_pool, _ = music_extractor(str(audio_path))
     stats = _pool_to_dict(stats_pool)
 
     # Build 41-feature input vector (order must match training)
@@ -236,9 +244,12 @@ def _extract_gmbi_nn(
     audio_11k: np.ndarray = es.MonoLoader(
         filename=str(audio_path), sampleRate=_SR_BPM
     )()
-    bpm = float(es.TempoCNN(
-        graphFilename=str(_models_dir() / "deeptemp-k16-3.pb")
-    )(audio_11k)[0])
+    _tempo_pb = str(_models_dir() / "deeptemp-k16-3.pb")
+    tempo_cnn = get_cached_algo(
+        ("TempoCNN", _tempo_pb),
+        lambda p=_tempo_pb: es.TempoCNN(graphFilename=p),
+    )
+    bpm = float(tempo_cnn(audio_11k)[0])
     feature_vec.append(round(bpm, 2))
 
     # DL features: voice (both classes), female (both), danceability (both)
