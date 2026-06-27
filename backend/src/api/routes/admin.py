@@ -207,11 +207,66 @@ def _is_recognized_by_acoustid(audio_path: Path, api_key: str) -> bool:
 _MAX_DURATION_WITHOUT_RECOGNITION = 600.0  # 10 minutes
 
 
-def _run_ingest() -> None:
+def process_audio_file(audio_file: Path) -> dict:
+    """Run the full ingest pipeline on a single audio file.
+
+    Performs the duration gate, precheck_skip, DSP/ML analysis, DB save,
+    preview extraction, and incremental UMAP update.
+
+    Returns a dict with keys:
+        status  : "saved" | "skipped" | "error"
+        reason  : str | None  (None when saved successfully)
+        title   : str | None
+        artist  : str | None
+        song_id : str | None
+    """
     from src.analysis.pipeline import run_full_pipeline, _save_to_database, precheck_skip
-    from src.db.models.song import generate_song_id
     from src.core.config import settings
 
+    try:
+        # Duration gate: skip files >10 min that aren't recognised by AcoustID.
+        duration = _get_duration_seconds(audio_file)
+        if duration is not None and duration > _MAX_DURATION_WITHOUT_RECOGNITION:
+            api_key = settings.acoustid_api_key or ""
+            recognized = _is_recognized_by_acoustid(audio_file, api_key) if api_key else False
+            if not recognized:
+                logger.info(
+                    "[Ingest] Skipping %s — duration=%.0fs (>10min) and not recognized by AcoustID",
+                    audio_file.name, duration,
+                )
+                return {"status": "skipped", "reason": "too_long_unrecognized",
+                        "title": None, "artist": None, "song_id": None}
+
+        # Early-skip: metadata + AcoustID + duplicate check BEFORE heavy analysis.
+        skip_reason, metadata, song_id = precheck_skip(audio_file)
+        if skip_reason:
+            logger.info("[Ingest] Skipping %s — %s", audio_file.name, skip_reason)
+            title  = str((metadata or {}).get("title")  or "") or None
+            artist = str((metadata or {}).get("artist") or "") or None
+            return {"status": "skipped", "reason": skip_reason,
+                    "title": title, "artist": artist, "song_id": song_id}
+
+        logger.info("[Ingest] Processing %s", audio_file.name)
+        result = run_full_pipeline(audio_file, metadata=metadata)
+        _save_to_database(result, audio_file)
+
+        title  = str((result.get("metadata") or {}).get("title")  or "") or None
+        artist = str((result.get("metadata") or {}).get("artist") or "") or None
+
+        if title and song_id:
+            _extract_preview(audio_file, result.get("dsp") or {}, song_id)
+            _update_umap_for_song(song_id)
+
+        return {"status": "saved", "reason": None,
+                "title": title, "artist": artist, "song_id": song_id}
+
+    except Exception as exc:
+        logger.error("[Ingest] Failed %s: %s", audio_file.name, exc)
+        return {"status": "error", "reason": str(exc),
+                "title": None, "artist": None, "song_id": None}
+
+
+def _run_ingest() -> None:
     audio_files = sorted(
         f for f in _DATASETS_DIR.rglob("*")
         if f.is_file() and f.suffix.lower() in _SUPPORTED_EXTENSIONS
@@ -219,46 +274,7 @@ def _run_ingest() -> None:
     logger.info("[Admin] Ingesting %d files from %s", len(audio_files), _DATASETS_DIR)
 
     for audio_file in audio_files:
-        try:
-            # Skip suspected playlist/compilation files: >10 min AND not in AcoustID
-            duration = _get_duration_seconds(audio_file)
-            if duration is not None and duration > _MAX_DURATION_WITHOUT_RECOGNITION:
-                api_key = settings.acoustid_api_key or ""
-                if api_key:
-                    if not _is_recognized_by_acoustid(audio_file, api_key):
-                        logger.info(
-                            "[Admin] Skipping %s — duration=%.0fs (>10min) and not recognized by AcoustID",
-                            audio_file.name, duration,
-                        )
-                        continue
-                else:
-                    logger.info(
-                        "[Admin] Skipping %s — duration=%.0fs (>10min) and no AcoustID key to verify",
-                        audio_file.name, duration,
-                    )
-                    continue
-
-            # Early-skip: fetch metadata + AcoustID + duplicate check BEFORE heavy analysis.
-            # This avoids running DSP / ML / other_features on songs that will be discarded.
-            skip_reason, metadata, song_id = precheck_skip(audio_file)
-            if skip_reason:
-                logger.info(
-                    "[Admin] Skipping %s — %s", audio_file.name, skip_reason
-                )
-                continue
-
-            logger.info("[Admin] Processing %s", audio_file.name)
-            # Pass the already-fetched metadata so run_full_pipeline doesn't re-fetch it.
-            result = run_full_pipeline(audio_file, metadata=metadata)
-            _save_to_database(result, audio_file)
-
-            if title := str((result.get("metadata") or {}).get("title") or ""):
-                if song_id:
-                    _extract_preview(audio_file, result.get("dsp") or {}, song_id)
-                    _update_umap_for_song(song_id)
-
-        except Exception as exc:
-            logger.error("[Admin] Failed %s: %s", audio_file.name, exc)
+        process_audio_file(audio_file)
 
     _final_umap_refit()
     logger.info("[Admin] Ingestion complete")

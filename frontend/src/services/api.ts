@@ -41,3 +41,20 @@ export async function fetchSongDetail(songId: string): Promise<SongDetail> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+export interface UploadResult {
+  status: "saved" | "skipped" | "error";
+  reason: string | null;
+  title: string | null;
+  artist: string | null;
+  song_id: string | null;
+  filename: string;
+}
+
+export async function uploadSong(file: File): Promise<UploadResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch("/api/upload", { method: "POST", body: fd });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}

@@ -6,8 +6,9 @@ import { UmapView } from "./components/UmapView";
 import { AnalysisPage } from "./components/analysis/AnalysisPage";
 import { FilterPage } from "./components/filter/FilterPage";
 import { PlayerBar } from "./components/PlayerBar";
+import { UploadPage } from "./components/upload/UploadPage";
 
-type Tab = "cards" | "umap" | "analysis" | "filter";
+type Tab = "cards" | "umap" | "analysis" | "filter" | "upload";
 
 const POLL_INTERVAL_MS = 8_000;
 
@@ -56,7 +57,7 @@ export default function App() {
           )}
         </div>
         <nav className="flex gap-1">
-          {(["cards", "umap", "analysis", "filter"] as Tab[]).map((t) => (
+          {(["cards", "umap", "analysis", "filter", "upload"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -66,7 +67,7 @@ export default function App() {
                   : "text-gray-500 hover:text-gray-300 hover:bg-gray-900"
               }`}
             >
-              {t === "cards" ? "Cards" : t === "umap" ? "UMAP" : t === "analysis" ? "Analysis" : "Filter"}
+              {t === "cards" ? "Cards" : t === "umap" ? "UMAP" : t === "analysis" ? "Analysis" : t === "filter" ? "Filter" : "Upload"}
             </button>
           ))}
         </nav>
@@ -105,6 +106,7 @@ export default function App() {
             {tab === "umap" && <UmapView songs={songs} />}
             {tab === "analysis" && <AnalysisPage songs={songs} />}
             {tab === "filter" && <FilterPage songs={songs} />}
+            {tab === "upload" && <UploadPage />}
           </>
         )}
       </main>
