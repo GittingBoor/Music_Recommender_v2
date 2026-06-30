@@ -1,0 +1,14 @@
+datasets/
+model_cache/
+test_audio/
+test_output/
+tests/
+.git/
+.env
+.env.example
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+**/__pycache__/

@@ -58,3 +58,69 @@ export async function uploadSong(file: File): Promise<UploadResult> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+export interface YoutubeSearchItem {
+  video_id: string;
+  title: string;
+  uploader: string | null;
+  duration: number | null;
+  thumbnail: string | null;
+  url: string;
+}
+
+export async function searchYoutube(
+  q: string,
+  limit = 10,
+): Promise<YoutubeSearchItem[]> {
+  const params = new URLSearchParams({ q, limit: String(limit) });
+  const res = await fetch(`/api/youtube/search?${params}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export type YoutubeStage = "downloading" | "trimming" | "analyzing" | "done";
+
+export interface YoutubeProgress {
+  stage: YoutubeStage;
+  progress: number; // 0..1
+}
+
+/**
+ * Download a video, trim it and run analysis on the backend, streaming
+ * progress events. Resolves with the final UploadResult once it's in the DB.
+ */
+export async function downloadYoutube(
+  videoId: string,
+  title: string | undefined,
+  onProgress: (p: YoutubeProgress) => void,
+): Promise<UploadResult> {
+  const res = await fetch("/api/youtube/download", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ video_id: videoId, title: title ?? null }),
+  });
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: UploadResult | null = null;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const evt = JSON.parse(line) as YoutubeProgress & { result?: UploadResult };
+      onProgress({ stage: evt.stage, progress: evt.progress });
+      if (evt.result) result = evt.result;
+    }
+  }
+
+  if (!result) throw new Error("No result received from server");
+  return result;
+}

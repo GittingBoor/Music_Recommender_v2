@@ -3,12 +3,14 @@ import { uploadSong } from "../../services/api";
 import type { UploadResult } from "../../services/api";
 import { PlayButton } from "../PlayButton";
 import { StatCard } from "../StatCard";
+import { YoutubeSearch } from "./YoutubeSearch";
 
 // ── types ─────────────────────────────────────────────────────────────────
 type ItemStatus = "pending" | "processing" | "done";
 
 interface QueueItem {
-  file: File;
+  name: string;
+  file?: File;
   status: ItemStatus;
   result?: UploadResult;
 }
@@ -54,6 +56,7 @@ export function UploadPage() {
   function addFiles(files: FileList | File[]) {
     const arr = Array.from(files);
     const items: QueueItem[] = arr.map((file) => ({
+      name: file.name,
       file,
       status: "pending" as const,
       result: isSupported(file)
@@ -68,6 +71,18 @@ export function UploadPage() {
           },
     }));
     setQueue((prev) => [...prev, ...items]);
+  }
+
+  // ── add a finished YouTube download ──────────────────────────────────
+  function addYoutubeResult(result: UploadResult) {
+    setQueue((prev) => [
+      ...prev,
+      {
+        name: result.title ?? result.filename,
+        status: "done" as const,
+        result,
+      },
+    ]);
   }
 
   // ── drag&drop ────────────────────────────────────────────────────────
@@ -90,8 +105,9 @@ export function UploadPage() {
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
 
-      // Already resolved client-side (unsupported format)
-      if (item.result) continue;
+      // Already resolved client-side (unsupported format) or no file
+      // to upload (e.g. a YouTube download added directly to the queue).
+      if (item.result || !item.file) continue;
 
       // Mark as processing
       setQueue((prev) =>
@@ -108,7 +124,7 @@ export function UploadPage() {
           title: null,
           artist: null,
           song_id: null,
-          filename: item.file.name,
+          filename: item.name,
         };
       }
 
@@ -147,6 +163,15 @@ export function UploadPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+
+        {/* ── youtube search ───────────────────────────────────────── */}
+        <YoutubeSearch onDownloaded={addYoutubeResult} />
+
+        <div className="flex items-center gap-3 text-xs text-gray-600">
+          <span className="h-px flex-1 bg-gray-800" />
+          oder Datei hochladen
+          <span className="h-px flex-1 bg-gray-800" />
+        </div>
 
         {/* ── drop zone ────────────────────────────────────────────── */}
         <div
@@ -262,7 +287,7 @@ export function UploadPage() {
               const r = item.result;
               const displayName = r?.title
                 ? `${r.title}${r.artist ? ` — ${r.artist}` : ""}`
-                : item.file.name;
+                : item.name;
 
               return (
                 <div
