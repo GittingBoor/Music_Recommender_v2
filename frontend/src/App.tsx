@@ -7,6 +7,7 @@ import { AnalysisPage } from "./components/analysis/AnalysisPage";
 import { FilterPage } from "./components/filter/FilterPage";
 import { PlayerBar } from "./components/PlayerBar";
 import { UploadPage } from "./components/upload/UploadPage";
+import { setQueue } from "./audio/player";
 
 type Tab = "cards" | "umap" | "analysis" | "filter" | "upload";
 
@@ -19,21 +20,21 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("cards");
   const songsRef = useRef<Song[]>([]);
 
+  const applySongs = (data: Song[]) => {
+    songsRef.current = data;
+    setSongs(data);
+    setQueue(data.map((s) => s.id));
+  };
+
   const refreshSongs = () =>
     fetchSongs()
-      .then((data) => {
-        songsRef.current = data;
-        setSongs(data);
-      })
+      .then(applySongs)
       .catch(() => {});
 
   // Initial load
   useEffect(() => {
     fetchSongs()
-      .then((data) => {
-        songsRef.current = data;
-        setSongs(data);
-      })
+      .then(applySongs)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
