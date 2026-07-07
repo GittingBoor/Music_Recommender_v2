@@ -4,19 +4,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, selectinload
 
 from src.analysis.umap_generator import ALL_FEATURES, get_umap_state
+from src.api.deps import get_db
 from src.db.models import Song
-from src.db.session import get_session
 from src.schemas.umap import UmapPoint2D, UmapResponse
 
 router = APIRouter()
-
-
-def get_db():
-    db = get_session()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _load_songs_for_umap(db: Session) -> list:

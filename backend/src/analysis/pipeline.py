@@ -28,13 +28,11 @@ from src.analysis.dsp import extract_all_dsp_features
 from src.analysis.metadata import extract_all_metadata
 from src.analysis.model_manager import get_manager
 from src.analysis.other_features import extract_other_features
-from src.core.config import check_required_keys, settings
+from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, check_required_keys, settings
 
 logger = logging.getLogger(__name__)
 
 _TEST_OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "test_output"
-
-_SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".aiff", ".m4a"}
 
 _EFFNET_CLASSIFIERS: dict[str, Callable[[np.ndarray], object]] = {
     "mood_happy": predict_mood_happy,
@@ -462,7 +460,7 @@ def _collect_audio_files(path: Path) -> list[Path]:
         return [path]
     return sorted(
         f for f in path.iterdir()
-        if f.is_file() and f.suffix.lower() in _SUPPORTED_EXTENSIONS
+        if f.is_file() and f.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
     )
 
 
@@ -471,7 +469,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "audio_path",
         type=Path,
-        help=f"Audio file or directory. Supported formats: {', '.join(_SUPPORTED_EXTENSIONS)}",
+        help=f"Audio file or directory. Supported formats: {', '.join(SUPPORTED_AUDIO_EXTENSIONS)}",
     )
     parser.add_argument(
         "--model",
@@ -509,8 +507,8 @@ if __name__ == "__main__":
         raise ValueError(f"No supported audio files found in: {input_path}")
 
     for audio_file in audio_files:
-        if audio_file.suffix.lower() not in _SUPPORTED_EXTENSIONS:
-            raise ValueError(f"Unsupported format '{audio_file.suffix}'. Supported: {_SUPPORTED_EXTENSIONS}")
+        if audio_file.suffix.lower() not in SUPPORTED_AUDIO_EXTENSIONS:
+            raise ValueError(f"Unsupported format '{audio_file.suffix}'. Supported: {SUPPORTED_AUDIO_EXTENSIONS}")
 
         logger.info("[CLI] Processing: %s", audio_file.name)
 

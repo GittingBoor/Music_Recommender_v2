@@ -7,8 +7,9 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from src.api.routes.admin import _DATASETS_DIR, process_audio_file
+from src.api.routes.admin import process_audio_file
 from src.api.routes.upload import _safe_name, _unique_path
+from src.core.config import settings
 from src.youtube.service import YoutubeService
 from src.youtube.trimmer import get_music_trimmer
 
@@ -18,7 +19,7 @@ router = APIRouter()
 _service = YoutubeService()
 
 # YouTube downloads live in the repo's own dataset dir, not user uploads.
-_YOUTUBE_DIR = _DATASETS_DIR / "youtube"
+_YOUTUBE_DIR = settings.datasets_dir / "youtube"
 
 
 class YoutubeSearchItem(BaseModel):

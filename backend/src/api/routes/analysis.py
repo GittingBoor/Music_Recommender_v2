@@ -5,8 +5,8 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
 
+from src.api.deps import get_db
 from src.db.models import Song
-from src.db.session import get_session
 
 router = APIRouter()
 
@@ -33,14 +33,6 @@ TIMESERIES_FEATURES: dict[str, tuple[str, str]] = {
 }
 
 MOOD_FIELDS = ["happy", "sad", "aggressive", "party", "relaxed", "acoustic", "electronic"]
-
-
-def get_db():
-    db = get_session()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _normalize_array(values: list[float]) -> list[float]:
