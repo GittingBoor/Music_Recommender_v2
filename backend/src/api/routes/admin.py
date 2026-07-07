@@ -38,7 +38,6 @@ def clear_database(db: Session = Depends(get_db)):
             instruments,
             detailed_genres,
             parent_genres,
-            ml_gmbi_features,
             ml_mood_features,
             ml_profile_features,
             dsp_features,

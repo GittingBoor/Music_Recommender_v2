@@ -38,6 +38,5 @@ class Song(Base):
     instruments: Mapped[list["Instrument"]] = relationship(back_populates="song")
     ml_profile: Mapped["MLProfileFeatures"] = relationship(back_populates="song", uselist=False)
     ml_moods: Mapped["MLMoodFeatures"] = relationship(back_populates="song", uselist=False)
-    ml_gmbi: Mapped["MLGMBIFeatures"] = relationship(back_populates="song", uselist=False)
     dsp_features: Mapped["DSPFeatures"] = relationship(back_populates="song", uselist=False)
     other_features: Mapped["OtherFeatures"] = relationship(back_populates="song", uselist=False)

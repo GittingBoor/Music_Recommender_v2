@@ -69,12 +69,3 @@ class MLMoodFeatures(Base):
     electronic_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
 
     song: Mapped["Song"] = relationship(back_populates="ml_moods")
-
-
-class MLGMBIFeatures(Base):
-    """General Music Branding Inventory — placeholder, fields to be defined."""
-    __tablename__ = "ml_gmbi_features"
-
-    id: Mapped[str] = mapped_column(String(22), ForeignKey("songs.id"), primary_key=True)
-
-    song: Mapped["Song"] = relationship(back_populates="ml_gmbi")
