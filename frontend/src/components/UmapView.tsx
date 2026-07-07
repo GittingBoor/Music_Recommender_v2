@@ -6,8 +6,6 @@ import type { UmapResponse } from "../types/umap";
 import { fetchUmap } from "../services/api";
 import { UmapCanvas2D } from "./UmapCanvas2D";
 
-const API_BASE = "http://localhost:8000";
-
 // ─── Feature definitions ──────────────────────────────────────────────────────
 
 const FEATURE_OPTIONS = [
@@ -250,7 +248,7 @@ function SongInfoPanel({ song }: { song: Song }) {
           {song.has_preview && (
             <audio
               ref={audioRef}
-              src={`${API_BASE}/api/audio/${song.id}`}
+              src={`/api/audio/${song.id}`}
               onEnded={() => setPlaying(false)}
             />
           )}
