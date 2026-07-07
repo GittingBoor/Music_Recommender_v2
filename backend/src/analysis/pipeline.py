@@ -28,7 +28,7 @@ from src.analysis.dsp import extract_all_dsp_features
 from src.analysis.metadata import extract_all_metadata
 from src.analysis.model_manager import get_manager
 from src.analysis.other_features import extract_other_features
-from src.core.config import settings
+from src.core.config import check_required_keys, settings
 
 logger = logging.getLogger(__name__)
 
@@ -490,6 +490,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
 
 if __name__ == "__main__":
     args = _build_cli_parser().parse_args()
+    check_required_keys()
 
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO,
