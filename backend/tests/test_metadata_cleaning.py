@@ -1,10 +1,10 @@
 import pytest
 
-from src.analysis.metadata import (
-    _clean_title,
-    _normalize_date,
-    _parse_featured_artists,
-    _split_artist_featuring,
+from src.metadata.cleaning import (
+    clean_title,
+    normalize_date,
+    parse_featured_artists,
+    split_artist_featuring,
 )
 
 
@@ -22,14 +22,14 @@ class TestCleanTitle:
         ],
     )
     def test_removes_noise(self, raw: str, expected: str):
-        assert _clean_title(raw) == expected
+        assert clean_title(raw) == expected
 
     def test_keeps_clean_titles_unchanged(self):
-        assert _clean_title("Somebody That I Used to Know") == "Somebody That I Used to Know"
+        assert clean_title("Somebody That I Used to Know") == "Somebody That I Used to Know"
 
     def test_keeps_meaningful_brackets(self):
         # Brackets that are not upload noise must survive.
-        assert _clean_title("Don't Stop (Color on the Walls)") == "Don't Stop (Color on the Walls)"
+        assert clean_title("Don't Stop (Color on the Walls)") == "Don't Stop (Color on the Walls)"
 
 
 class TestNormalizeDate:
@@ -48,25 +48,25 @@ class TestNormalizeDate:
         ],
     )
     def test_formats(self, raw: str | None, expected: str | None):
-        assert _normalize_date(raw) == expected
+        assert normalize_date(raw) == expected
 
 
 class TestFeaturedArtists:
     def test_paren_feat(self):
-        assert _parse_featured_artists("Strobo Pop (feat. Nena)") == ["Nena"]
+        assert parse_featured_artists("Strobo Pop (feat. Nena)") == ["Nena"]
 
     def test_multiple_artists_split(self):
-        assert _parse_featured_artists("Song (feat. A & B)") == ["A", "B"]
+        assert parse_featured_artists("Song (feat. A & B)") == ["A", "B"]
 
     def test_bare_feat_without_brackets(self):
-        assert _parse_featured_artists("Rain Over Me feat Marc Anthony") == ["Marc Anthony"]
+        assert parse_featured_artists("Rain Over Me feat Marc Anthony") == ["Marc Anthony"]
 
     def test_no_feat(self):
-        assert _parse_featured_artists("Levels") == []
+        assert parse_featured_artists("Levels") == []
 
     def test_split_artist_featuring(self):
-        assert _split_artist_featuring("David Guetta Feat. Kid Cudi") == (
+        assert split_artist_featuring("David Guetta Feat. Kid Cudi") == (
             "David Guetta",
             ["Kid Cudi"],
         )
-        assert _split_artist_featuring("Adele") == ("Adele", [])
+        assert split_artist_featuring("Adele") == ("Adele", [])
