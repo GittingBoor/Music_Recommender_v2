@@ -20,6 +20,13 @@ from src.schemas.songs import SongResponse
 router = APIRouter()
 
 
+@router.get("/songs/count")
+def count_songs(db: Session = Depends(get_db)) -> dict[str, int]:
+    """Cheap poll target: lets clients detect library changes without
+    downloading the full song list every time."""
+    return {"count": db.query(Song).count()}
+
+
 @router.get("/songs", response_model=list[SongResponse])
 def list_songs(db: Session = Depends(get_db)):
     songs = (
