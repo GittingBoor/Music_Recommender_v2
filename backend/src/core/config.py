@@ -3,12 +3,19 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
+# backend/ directory — anchor for all default paths so they work regardless of cwd
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+
+SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".aiff", ".m4a"}
+
 
 class Settings(BaseSettings):
     database_url: str = "postgresql://user:password@localhost:5432/music_recommender"
     debug: bool = False
     model_cache_dir: Path = Path("model_cache")
     audio_process_models_dir: Path = Path("src/audio_process/Models")
+    datasets_dir: Path = _BACKEND_DIR / "datasets"
+    short_audio_dir: Path = _BACKEND_DIR / "short_audio"
     lastfm_api_key: str = ""
     acoustid_api_key: str = ""
     spotify_client_id: str = ""

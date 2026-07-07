@@ -4,16 +4,13 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, UploadFile
 
-from src.api.routes.admin import (
-    _DATASETS_DIR,
-    _SUPPORTED_EXTENSIONS,
-    process_audio_file,
-)
+from src.api.routes.admin import process_audio_file
+from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_UPLOADS_DIR = _DATASETS_DIR / "uploads"
+_UPLOADS_DIR = settings.datasets_dir / "uploads"
 
 # Characters that are unsafe in filenames on any platform.
 _UNSAFE_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -57,7 +54,7 @@ async def upload_song(file: UploadFile = File(...)) -> dict:
     original_name = file.filename or "upload"
     suffix = Path(original_name).suffix.lower()
 
-    if suffix not in _SUPPORTED_EXTENSIONS:
+    if suffix not in SUPPORTED_AUDIO_EXTENSIONS:
         return {
             "status": "skipped",
             "reason": "unsupported_format",

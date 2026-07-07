@@ -4,15 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from src.api.deps import get_db
+from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
 from src.db.models import FileMetadata
-from src.db.session import get_session
 
 router = APIRouter()
-
-_SHORT_AUDIO_DIR = Path(__file__).resolve().parent.parent.parent.parent / "short_audio"
-_DATASETS_DIR    = Path(__file__).resolve().parent.parent.parent.parent / "datasets"
-
-_SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".aiff", ".m4a"}
 
 # Lazy-built cache: basename (lowercase) -> first matching Path in datasets/
 _datasets_index: dict[str, Path] | None = None
@@ -22,9 +18,9 @@ def _get_datasets_index() -> dict[str, Path]:
     global _datasets_index
     if _datasets_index is None:
         _datasets_index = {}
-        if _DATASETS_DIR.exists():
-            for p in _DATASETS_DIR.rglob("*"):
-                if p.is_file() and p.suffix.lower() in _SUPPORTED_EXTENSIONS:
+        if settings.datasets_dir.exists():
+            for p in settings.datasets_dir.rglob("*"):
+                if p.is_file() and p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS:
                     key = p.name.lower()
                     if key not in _datasets_index:
                         _datasets_index[key] = p
@@ -47,17 +43,9 @@ _MEDIA_TYPES: dict[str, str] = {
 }
 
 
-def get_db():
-    db = get_session()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 @router.get("/audio/{song_id}")
 def get_audio_preview(song_id: str):
-    path = _SHORT_AUDIO_DIR / f"{song_id}.mp3"
+    path = settings.short_audio_dir / f"{song_id}.mp3"
     if not path.exists():
         raise HTTPException(status_code=404, detail="No preview available")
     return FileResponse(path, media_type="audio/mpeg")

@@ -7,23 +7,14 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload
 
+from src.api.deps import get_db
+from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
 from src.db.session import get_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_DATASETS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "datasets"
-_SHORT_AUDIO_DIR = Path(__file__).resolve().parent.parent.parent.parent / "short_audio"
-_SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".aiff", ".m4a"}
 _PREVIEW_SECONDS = 15
-
-
-def get_db():
-    db = get_session()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.delete("/admin/clear")
@@ -86,7 +77,7 @@ def _find_exciting_start(dsp: dict, total_seconds: float) -> int:
 
 def _extract_preview(audio_path: Path, dsp: dict, song_id: str) -> None:
     """Extract a 15-second highlight clip and save to short_audio/."""
-    output_path = _SHORT_AUDIO_DIR / f"{song_id}.mp3"
+    output_path = settings.short_audio_dir / f"{song_id}.mp3"
     if output_path.exists():
         return
 
@@ -95,7 +86,7 @@ def _extract_preview(audio_path: Path, dsp: dict, song_id: str) -> None:
         return
 
     start = _find_exciting_start(dsp, duration)
-    _SHORT_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    settings.short_audio_dir.mkdir(parents=True, exist_ok=True)
 
     proc = subprocess.run(
         [
@@ -220,7 +211,6 @@ def process_audio_file(audio_file: Path) -> dict:
         song_id : str | None
     """
     from src.analysis.pipeline import run_full_pipeline, _save_to_database, precheck_skip
-    from src.core.config import settings
 
     try:
         # Duration gate: skip files >10 min that aren't recognised by AcoustID.
@@ -267,10 +257,10 @@ def process_audio_file(audio_file: Path) -> dict:
 
 def _run_ingest() -> None:
     audio_files = sorted(
-        f for f in _DATASETS_DIR.rglob("*")
-        if f.is_file() and f.suffix.lower() in _SUPPORTED_EXTENSIONS
+        f for f in settings.datasets_dir.rglob("*")
+        if f.is_file() and f.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
     )
-    logger.info("[Admin] Ingesting %d files from %s", len(audio_files), _DATASETS_DIR)
+    logger.info("[Admin] Ingesting %d files from %s", len(audio_files), settings.datasets_dir)
 
     for audio_file in audio_files:
         process_audio_file(audio_file)
@@ -281,12 +271,12 @@ def _run_ingest() -> None:
 
 @router.post("/admin/ingest")
 def ingest_dataset(background_tasks: BackgroundTasks):
-    if not _DATASETS_DIR.exists():
-        return {"status": "error", "message": f"Directory not found: {_DATASETS_DIR}"}
+    if not settings.datasets_dir.exists():
+        return {"status": "error", "message": f"Directory not found: {settings.datasets_dir}"}
 
     file_count = sum(
-        1 for f in _DATASETS_DIR.rglob("*")
-        if f.is_file() and f.suffix.lower() in _SUPPORTED_EXTENSIONS
+        1 for f in settings.datasets_dir.rglob("*")
+        if f.is_file() and f.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
     )
     background_tasks.add_task(_run_ingest)
     return {"status": "started", "file_count": file_count}
