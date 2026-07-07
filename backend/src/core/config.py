@@ -26,7 +26,13 @@ _REQUIRED_KEYS: list[tuple[str, str]] = [
 ]
 
 
-def _check_required_keys(s: Settings) -> None:
+def check_required_keys(s: "Settings | None" = None) -> None:
+    """Exit with a clear message if required API keys are missing.
+
+    Called at application startup (FastAPI lifespan) and CLI start — never at
+    import time, so modules stay importable without a .env (e.g. in tests).
+    """
+    s = s or settings
     missing = [env for attr, env in _REQUIRED_KEYS if not getattr(s, attr)]
     if not missing:
         return
@@ -41,4 +47,3 @@ def _check_required_keys(s: Settings) -> None:
 
 
 settings = Settings()
-_check_required_keys(settings)

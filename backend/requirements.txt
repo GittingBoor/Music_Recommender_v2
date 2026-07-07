@@ -18,3 +18,4 @@ scipy>=1.13.0
 python-multipart>=0.0.9
 yt-dlp>=2024.4.9
 inaSpeechSegmenter>=0.7.0
+pytest>=8.0.0
