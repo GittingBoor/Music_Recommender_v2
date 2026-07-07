@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchSongs } from "./services/api";
+import { fetchSongCount, fetchSongs } from "./services/api";
 import type { Song } from "./types/song";
 import { SongCard } from "./components/SongCard";
 import { UmapView } from "./components/UmapView";
@@ -39,10 +39,19 @@ export default function App() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Poll for new songs while app is open (catches ingestion updates)
+  // Poll for new songs while app is open (catches ingestion updates).
+  // Only the cheap count endpoint is polled; the full list is refetched
+  // when the count actually changed.
   useEffect(() => {
     if (loading) return;
-    const id = setInterval(refreshSongs, POLL_INTERVAL_MS);
+    const id = setInterval(async () => {
+      try {
+        const count = await fetchSongCount();
+        if (count !== songsRef.current.length) await refreshSongs();
+      } catch {
+        // backend temporarily unreachable — try again next tick
+      }
+    }, POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -8,6 +8,13 @@ export async function fetchSongs(): Promise<Song[]> {
   return res.json();
 }
 
+export async function fetchSongCount(): Promise<number> {
+  const res = await fetch("/api/songs/count");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data: { count: number } = await res.json();
+  return data.count;
+}
+
 export async function fetchUmap(features?: string[]): Promise<UmapResponse> {
   const params =
     features && features.length > 0 ? `?features=${features.join(",")}` : "";
