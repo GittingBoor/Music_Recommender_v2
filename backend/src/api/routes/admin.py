@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 import numpy as np
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload
 
@@ -272,7 +272,10 @@ def _run_ingest() -> None:
 @router.post("/admin/ingest")
 def ingest_dataset(background_tasks: BackgroundTasks):
     if not settings.datasets_dir.exists():
-        return {"status": "error", "message": f"Directory not found: {settings.datasets_dir}"}
+        raise HTTPException(
+            status_code=500,
+            detail=f"Datasets directory not found: {settings.datasets_dir}",
+        )
 
     file_count = sum(
         1 for f in settings.datasets_dir.rglob("*")

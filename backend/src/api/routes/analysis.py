@@ -134,10 +134,10 @@ def get_timeseries(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     if feature not in TIMESERIES_FEATURES:
-        return {"feature": feature, "song_count": 0, "selected_song": None, "avg_timeseries": []}
+        raise HTTPException(status_code=400, detail=f"Unknown feature '{feature}'")
 
     if mood and mood not in MOOD_FIELDS:
-        return {"feature": feature, "song_count": 0, "selected_song": None, "avg_timeseries": []}
+        raise HTTPException(status_code=400, detail=f"Unknown mood '{mood}'")
 
     songs = (
         db.query(Song)
