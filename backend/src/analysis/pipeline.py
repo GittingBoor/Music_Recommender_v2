@@ -25,7 +25,7 @@ from src.analysis.classifiers import (
     predict_gender,
 )
 from src.analysis.dsp import extract_all_dsp_features
-from src.analysis.metadata import extract_all_metadata
+from src.metadata import extract_all_metadata
 from src.analysis.model_manager import get_manager
 from src.analysis.other_features import extract_other_features
 from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, check_required_keys, settings
