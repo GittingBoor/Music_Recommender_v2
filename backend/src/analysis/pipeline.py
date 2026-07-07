@@ -263,7 +263,7 @@ def _save_to_database(result: dict[str, object], audio_path: Path) -> None:
     from src.db.models import (
         Song, generate_song_id,
         FileMetadata, TrackMetadata, Artist,
-        DSPFeatures, MLProfileFeatures, MLMoodFeatures, MLGMBIFeatures,
+        DSPFeatures, MLProfileFeatures, MLMoodFeatures,
         OtherFeatures,
         ParentGenre, DetailedGenre, Instrument,
     )
@@ -405,8 +405,6 @@ def _save_to_database(result: dict[str, object], audio_path: Path) -> None:
             electronic=_mood_mean(moods, "electronic"),
             electronic_timeseries=_mood_ts(moods, "electronic"),
         ))
-
-        session.add(MLGMBIFeatures(id=song_id))
 
         other: dict = result.get("other") or {}
         gmbi: dict = other.get("gmbi") or {}
