@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Song } from "../../types/song";
-import { PlayButton } from "../PlayButton";
+import { setQueue } from "../../audio/player";
 import {
   MOOD_AXES, DSP_AXES, OTHER_AXES,
   computeAxisStats,
@@ -8,6 +8,7 @@ import {
 import { RadarFilter } from "./RadarFilter";
 import { BarSliderFilter } from "./BarSliderFilter";
 import type { BarRow } from "./BarSliderFilter";
+import { ResultsTable } from "./ResultsTable";
 
 // ── colours ──────────────────────────────────────────────────────────────
 const MOOD_COLORS: Record<string, string> = {
@@ -44,12 +45,6 @@ type ThresholdsMap = Record<string, number>;
 
 function emptyThresholds(keys: string[]): ThresholdsMap {
   return Object.fromEntries(keys.map((k) => [k, 0]));
-}
-
-function fmtDuration(s: number) {
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
 interface Props {
@@ -187,6 +182,18 @@ export function FilterPage({ songs }: Props) {
     instrEnabled, instrThresh,
   ]);
 
+  // ── play queue follows the visible table order while this page is open ────
+  const handleVisibleOrderChange = useCallback((ids: string[]) => {
+    setQueue(ids);
+  }, []);
+
+  // Restore the default queue (full library, DB order) when leaving the page.
+  const allSongsRef = useRef(songs);
+  allSongsRef.current = songs;
+  useEffect(() => {
+    return () => setQueue(allSongsRef.current.map((s) => s.id));
+  }, []);
+
   // ── helpers ───────────────────────────────────────────────────────────────
   function setOnePatch(
     setter: React.Dispatch<React.SetStateAction<ThresholdsMap>>,
@@ -304,56 +311,15 @@ export function FilterPage({ songs }: Props) {
           />
         </div>
 
-        {/* ── result list ── */}
+        {/* ── result table (sortable; visible order = play queue) ── */}
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
             Results
           </h2>
-          {filtered.length === 0 ? (
-            <div className="text-gray-600 text-sm text-center py-12 border border-dashed border-gray-800 rounded-lg">
-              No songs match the current filters.
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {filtered.map((song) => {
-                const dsp  = song.dsp_features;
-                const file = song.file_metadata;
-                return (
-                  <div
-                    key={song.id}
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-900/40 border border-gray-800 hover:bg-gray-800/60 transition-colors"
-                  >
-                    <PlayButton songId={song.id} />
-                    <div className="flex-1 min-w-0">
-                      <span className="font-medium text-white text-sm truncate block">
-                        {song.title ?? "Unknown"}
-                      </span>
-                      <span className="text-xs text-gray-400 truncate block">
-                        {song.artist ?? "Unknown artist"}
-                      </span>
-                    </div>
-                    <div className="hidden sm:flex items-center gap-1.5 shrink-0 flex-wrap justify-end max-w-xs">
-                      {dsp?.key && dsp.scale && (
-                        <span className="text-xs bg-gray-800 text-gray-300 px-2 py-0.5 rounded font-mono">
-                          {dsp.key} {dsp.scale}
-                        </span>
-                      )}
-                      {dsp?.bpm != null && (
-                        <span className="text-xs bg-gray-800 text-gray-300 px-2 py-0.5 rounded font-mono">
-                          {Math.round(dsp.bpm)} BPM
-                        </span>
-                      )}
-                      {file?.duration_seconds != null && (
-                        <span className="text-xs bg-gray-800 text-gray-300 px-2 py-0.5 rounded font-mono">
-                          {fmtDuration(file.duration_seconds)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <ResultsTable
+            songs={filtered}
+            onVisibleOrderChange={handleVisibleOrderChange}
+          />
         </div>
       </div>
     </div>
