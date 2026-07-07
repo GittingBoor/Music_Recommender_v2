@@ -9,8 +9,10 @@ RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "120";\n' > /etc/apt/a
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# requirements.lock is the pinned pip-freeze snapshot; requirements.txt is
+# the human-edited manifest (see the lock file header for how to regenerate).
+COPY requirements.lock .
+RUN pip install --no-cache-dir -r requirements.lock
 
 COPY src/ ./src/
 COPY entrypoint.sh ./entrypoint.sh
