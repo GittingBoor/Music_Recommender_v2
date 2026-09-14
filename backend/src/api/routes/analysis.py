@@ -5,6 +5,15 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
 
+from src.analysis.timeseries_aggregation import (
+    MIN_SONGS,
+    AggregateNormalizer,
+    SongSeries,
+    TimeAxisMode,
+    TimeseriesAggregator,
+    TimeseriesDataError,
+    resampler_for,
+)
 from src.api.deps import get_db
 from src.db.models import Song
 
@@ -41,6 +50,10 @@ def _normalize_array(values: list[float]) -> list[float]:
     if mx == mn:
         return [0.5] * len(values)
     return ((arr - mn) / (mx - mn)).tolist()
+
+
+def _nan_to_none(values: np.ndarray) -> list[float | None]:
+    return [None if np.isnan(v) else float(v) for v in values]
 
 
 @router.get("/analysis/correlations")
@@ -131,6 +144,7 @@ def get_timeseries(
     mood: str | None = Query(default=None),
     threshold: float = Query(default=0.7, ge=0.0, le=1.0),
     song_id: str | None = Query(default=None),
+    mode: TimeAxisMode = Query(default=TimeAxisMode.RELATIVE),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     if feature not in TIMESERIES_FEATURES:
@@ -145,65 +159,71 @@ def get_timeseries(
             selectinload(Song.dsp_features),
             selectinload(Song.ml_profile),
             selectinload(Song.ml_moods),
+            selectinload(Song.file_metadata),
         )
         .all()
     )
 
     table_attr, col = TIMESERIES_FEATURES[feature]
 
-    def get_ts(song: Song) -> list[float] | None:
+    def get_series(song: Song) -> SongSeries:
         obj = getattr(song, table_attr, None)
-        return None if obj is None else getattr(obj, col, None)
+        values: list[float] | None = None if obj is None else getattr(obj, col, None)
+        duration = None if song.file_metadata is None else song.file_metadata.duration_seconds
+        return SongSeries.from_optional(song.id, values, duration)
 
     def get_mood_val(song: Song, mood_name: str) -> float | None:
         return None if song.ml_moods is None else getattr(song.ml_moods, mood_name, None)
 
-    selected_song_data: dict[str, Any] | None = None
-    filtered: list[list[float]] = []
+    selected_song: Song | None = None
+    filtered: list[Song] = []
 
     for s in songs:
-        ts = get_ts(s)
-        if not ts:
-            continue
-
         # Always capture selected song regardless of mood filter
-        if s.id == song_id and selected_song_data is None:
-            selected_song_data = {
-                "song_id": s.id,
-                "title":   s.title,
-                "artist":  s.artist,
-                "values":  _normalize_array(ts),
-            }
+        if s.id == song_id:
+            selected_song = s
 
         if mood:
             score = get_mood_val(s, mood)
             if score is None or score < threshold:
                 continue
 
-        filtered.append(ts)
+        filtered.append(s)
 
-    if not filtered:
-        avg: list[float] = []
-        counts_at_time: list[int] = []
-    else:
-        max_len = max(len(t) for t in filtered)
-        counts_at_time = [
-            sum(1 for t in filtered if sec < len(t))
-            for sec in range(max_len)
-        ]
-        padded = np.array(
-            [t + [t[-1]] * (max_len - len(t)) for t in filtered],
-            dtype=float,
+    resampler = resampler_for(feature)
+    try:
+        aggregate = TimeseriesAggregator(resampler).aggregate([get_series(s) for s in filtered], mode)
+        selected_series = None if selected_song is None else get_series(selected_song)
+    except TimeseriesDataError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    aggregate = AggregateNormalizer().normalize(aggregate)
+
+    selected_song_data: dict[str, Any] | None = None
+    if selected_song is not None and selected_series is not None:
+        resampled = (
+            resampler.to_relative(selected_series)
+            if mode is TimeAxisMode.RELATIVE
+            else resampler.to_absolute(selected_series)
         )
-        mean_ts = padded.mean(axis=0)
-        avg = _normalize_array(mean_ts.tolist())
+        selected_song_data = {
+            "song_id":          selected_song.id,
+            "title":            selected_song.title,
+            "artist":           selected_song.artist,
+            "duration_seconds": selected_series.duration_seconds,
+            "values":           _normalize_array(resampled.tolist()),
+        }
 
     return {
         "feature":        feature,
+        "mode":           mode.value,
         "song_count":     len(filtered),
+        "min_songs":      MIN_SONGS,
         "selected_song":  selected_song_data,
-        "avg_timeseries": avg,
-        "counts_at_time": counts_at_time,
+        "positions":      aggregate.positions.tolist(),
+        "avg_timeseries": _nan_to_none(aggregate.mean),
+        "p25_timeseries": _nan_to_none(aggregate.p25),
+        "p75_timeseries": _nan_to_none(aggregate.p75),
+        "counts_at_time": aggregate.counts.tolist(),
     }
 
 

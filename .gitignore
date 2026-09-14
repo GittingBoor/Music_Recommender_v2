@@ -239,3 +239,15 @@ frontend/package-lock.json
 
 # Datasets
 backend/datasets/
+
+# Test- und Debug-Artefakte (Browser-Snapshots, Screenshots, Konsolen-Logs)
+.playwright-mcp/
+playwright-report/
+test-results/
+/umap-*.png
+/upload-*.png
+/*-baseline.png
+/screenshot-*.png
+
+# Lokal erzeugte Audio-Previews (werden live aus dem Full-Audio geschnitten)
+backend/short_audio/

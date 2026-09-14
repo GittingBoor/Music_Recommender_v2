@@ -16,17 +16,37 @@ export interface PlayerSnapshot {
   currentId: string | null;
   playing: boolean;
   volume: number;
+  /** Set while a chorus preview (not the full track) is loaded. */
+  previewId: string | null;
+  /** When on, the next track is the most similar song instead of the next in order. */
+  nnMode: boolean;
 }
 
 type Listener = () => void;
+/** Resolves a song's most similar songs, closest first. */
+type NeighborSource = (songId: string) => Promise<string[]>;
 
 const DEFAULT_VOLUME = 1;
 /** Seconds into a track after which "previous" restarts it instead of going back. */
 const PREVIOUS_RESTART_THRESHOLD_S = 3;
+/** How many recently played songs to avoid when picking a neighbour. */
+const RECENT_MEMORY = 10;
 
 let _audio: HTMLAudioElement | null = null;
 let _queue: string[] = [];
-let _state: PlayerSnapshot = { currentId: null, playing: false, volume: DEFAULT_VOLUME };
+let _state: PlayerSnapshot = {
+  currentId: null,
+  playing: false,
+  volume: DEFAULT_VOLUME,
+  previewId: null,
+  nnMode: false,
+};
+/** Set by the app so the player can look up similar songs without importing the API. */
+let _neighborSource: NeighborSource | null = null;
+/** Recently played IDs, newest last — keeps the radio from ping-ponging. */
+let _recent: string[] = [];
+/** Absolute time (s) at which the current preview stops, or null for full playback. */
+let _previewEnd: number | null = null;
 const _listeners = new Set<Listener>();
 
 function _getAudio(): HTMLAudioElement {
@@ -37,6 +57,12 @@ function _getAudio(): HTMLAudioElement {
     _audio.addEventListener("pause", () => _emit({ ..._state, playing: false }));
     _audio.addEventListener("ended", () => next());
     _audio.addEventListener("error", () => _emit({ ..._state, currentId: null, playing: false }));
+    _audio.addEventListener("timeupdate", () => {
+      if (_previewEnd !== null && _audio!.currentTime >= _previewEnd) {
+        _previewEnd = null;
+        _audio!.pause();
+      }
+    });
   }
   return _audio;
 }
@@ -52,7 +78,64 @@ function _play(songId: string): void {
   audio.pause();
   audio.src = `/api/audio/full/${songId}`;
   audio.currentTime = 0;
-  _emit({ ..._state, currentId: songId, playing: false });
+  _previewEnd = null;
+  _remember(songId);
+  _emit({ ..._state, currentId: songId, playing: false, previewId: null });
+  audio.play().catch(() => _emit({ ..._state, currentId: null, playing: false }));
+}
+
+function _remember(songId: string): void {
+  _recent = [..._recent.filter((id) => id !== songId), songId].slice(-RECENT_MEMORY);
+}
+
+/** Register the lookup used for nearest-neighbour playback. */
+export function setNeighborSource(source: NeighborSource): void {
+  _neighborSource = source;
+}
+
+/** Turn nearest-neighbour playback on or off. */
+export function setNnMode(enabled: boolean): void {
+  if (!enabled) _recent = _state.currentId ? [_state.currentId] : [];
+  _emit({ ..._state, nnMode: enabled });
+}
+
+/**
+ * Pick the closest neighbour that hasn't just been played.
+ * Returns null when there is no usable recommendation.
+ */
+async function _pickNeighbor(songId: string): Promise<string | null> {
+  if (!_neighborSource) return null;
+  let neighbors: string[];
+  try {
+    neighbors = await _neighborSource(songId);
+  } catch {
+    return null; // fall back to queue order
+  }
+  const fresh = neighbors.find((id) => !_recent.includes(id));
+  return fresh ?? neighbors[0] ?? null;
+}
+
+/**
+ * Play only the given segment of a song — used for chorus previews.
+ * Streams the full file and seeks, so no separate preview file is needed.
+ */
+export function playPreview(
+  songId: string,
+  startSeconds: number,
+  durationSeconds: number,
+): void {
+  const audio = _getAudio();
+  audio.pause();
+  audio.src = `/api/audio/full/${songId}`;
+  _previewEnd = startSeconds + durationSeconds;
+
+  const seekToStart = () => {
+    audio.currentTime = startSeconds;
+    audio.removeEventListener("loadedmetadata", seekToStart);
+  };
+  audio.addEventListener("loadedmetadata", seekToStart);
+
+  _emit({ ..._state, currentId: songId, playing: false, previewId: songId });
   audio.play().catch(() => _emit({ ..._state, currentId: null, playing: false }));
 }
 
@@ -80,8 +163,31 @@ export function toggle(songId: string): void {
   }
 }
 
-/** Advance to the next song in the queue, wrapping around at the end. */
+/**
+ * Advance to the next song.
+ *
+ * With nearest-neighbour mode on, that is the most similar song to the current
+ * one; otherwise the next entry in the queue. If the recommendation cannot be
+ * resolved, playback falls back to queue order rather than stopping.
+ */
 export function next(): void {
+  if (_queue.length === 0) {
+    stop();
+    return;
+  }
+
+  const current = _state.currentId;
+  if (_state.nnMode && current) {
+    void _pickNeighbor(current).then((neighborId) => {
+      if (neighborId) _play(neighborId);
+      else _playNextInQueue();
+    });
+    return;
+  }
+  _playNextInQueue();
+}
+
+function _playNextInQueue(): void {
   if (_queue.length === 0) {
     stop();
     return;
@@ -124,7 +230,9 @@ export function stop(): void {
   audio.pause();
   audio.removeAttribute("src");
   audio.load();
-  _emit({ ..._state, currentId: null, playing: false });
+  _previewEnd = null;
+  _recent = [];
+  _emit({ ..._state, currentId: null, playing: false, previewId: null });
 }
 
 /** Set output volume in the range [0, 1]. */

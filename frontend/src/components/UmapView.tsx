@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { useRef } from "react";
 import type { Song } from "../types/song";
 import type { UmapResponse } from "../types/umap";
-import { fetchUmap } from "../services/api";
+import type { PreviewSegment } from "../services/api";
+import { fetchPreviewSegment, fetchUmap } from "../services/api";
+import { getSnapshot, playPreview, subscribe, toggle } from "../audio/player";
 import { UmapCanvas2D } from "./UmapCanvas2D";
 
 // ─── Feature definitions ──────────────────────────────────────────────────────
@@ -204,22 +205,29 @@ function SongInfoPanel({ song }: { song: Song }) {
   const mbGenres          = lastfm?.mb_genres ?? [];
   const featuredArtists   = lastfm?.featured_artists ?? [];
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [playing, setPlaying] = useState(false);
+  const { previewId, playing } = useSyncExternalStore(subscribe, getSnapshot);
+  const [segment, setSegment] = useState<PreviewSegment | null>(null);
   const [tip,     setTip]     = useState<TooltipState | null>(null);
 
-  const togglePlay = () => {
-    const el = audioRef.current;
-    if (!el) return;
-    if (playing) { el.pause(); setPlaying(false); }
-    else el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-  };
+  const isPreviewing = previewId === song.id && playing;
 
+  // The chorus position comes from the stored DSP timeseries, so it's cheap —
+  // but only fetch it for the song actually being looked at.
   useEffect(() => {
-    const el = audioRef.current;
-    if (el) { el.pause(); el.currentTime = 0; }
-    setPlaying(false);
-  }, [song.id]);
+    let cancelled = false;
+    setSegment(null);
+    if (!song.has_preview) return;
+    fetchPreviewSegment(song.id)
+      .then((s) => { if (!cancelled) setSegment(s); })
+      .catch(() => { if (!cancelled) setSegment(null); });
+    return () => { cancelled = true; };
+  }, [song.id, song.has_preview]);
+
+  const togglePreview = () => {
+    if (!segment) return;
+    if (isPreviewing) toggle(song.id);
+    else playPreview(song.id, segment.start_seconds, segment.duration_seconds);
+  };
 
   const danceabilityPct = dsp?.danceability != null
     ? `${Math.round(dsp.danceability * 100)}%`
@@ -243,25 +251,18 @@ function SongInfoPanel({ song }: { song: Song }) {
 
         <div className="border-t border-gray-800" />
 
-        {/* Audio preview */}
+        {/* Chorus preview */}
         <div className="flex items-center gap-2">
-          {song.has_preview && (
-            <audio
-              ref={audioRef}
-              src={`/api/audio/${song.id}`}
-              onEnded={() => setPlaying(false)}
-            />
-          )}
           <div className="relative group">
             <button
-              onClick={song.has_preview ? togglePlay : undefined}
-              disabled={!song.has_preview}
+              onClick={togglePreview}
+              disabled={segment === null}
               className={`flex items-center justify-center w-8 h-8 rounded-full border transition-colors
-                ${song.has_preview
+                ${segment !== null
                   ? "border-indigo-500 text-indigo-400 hover:bg-indigo-500/20 cursor-pointer"
                   : "border-gray-700 text-gray-700 cursor-not-allowed"}`}
             >
-              {playing ? (
+              {isPreviewing ? (
                 <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor">
                   <rect x="3" y="2" width="4" height="12" rx="1" />
                   <rect x="9" y="2" width="4" height="12" rx="1" />
@@ -272,14 +273,16 @@ function SongInfoPanel({ song }: { song: Song }) {
                 </svg>
               )}
             </button>
-            {!song.has_preview && (
+            {segment === null && (
               <div className="pointer-events-none absolute left-10 top-1/2 -translate-y-1/2 hidden group-hover:flex z-20 whitespace-nowrap px-2 py-1 rounded text-xs text-gray-300 bg-gray-800 border border-gray-700 shadow-lg">
-                Kein Sample verfügbar
+                {song.has_preview ? "Locating chorus…" : "No audio file available"}
               </div>
             )}
           </div>
           <span className="text-[11px] text-gray-500">
-            {song.has_preview ? "15s preview" : "No preview"}
+            {segment
+              ? `${segment.duration_seconds}s hook from ${fmtDuration(segment.start_seconds)}`
+              : song.has_preview ? "Locating chorus…" : "No preview"}
           </span>
         </div>
 
@@ -466,12 +469,8 @@ const DEFAULT_Y: FeatureValue = "bpm";
 
 export function UmapView({ songs }: Props) {
   const [featureMode, setFeatureMode] = useState<FeatureMode>("all");
-
-  const [pendingX, setPendingX] = useState<FeatureValue>(DEFAULT_X);
-  const [pendingY, setPendingY] = useState<FeatureValue>(DEFAULT_Y);
-  const [appliedX, setAppliedX] = useState<FeatureValue>(DEFAULT_X);
-  const [appliedY, setAppliedY] = useState<FeatureValue>(DEFAULT_Y);
-  const [appliedMode, setAppliedMode] = useState<FeatureMode>("all");
+  const [customX, setCustomX] = useState<FeatureValue>(DEFAULT_X);
+  const [customY, setCustomY] = useState<FeatureValue>(DEFAULT_Y);
 
   const [umapData,       setUmapData]       = useState<UmapResponse | null>(null);
   const [loading,        setLoading]        = useState(false);
@@ -511,21 +510,14 @@ export function UmapView({ songs }: Props) {
     }
   }, []);
 
-  useEffect(() => { loadUmap(ALL_FEATURE_VALUES); }, [loadUmap]);
+  // Changes apply immediately — switching mode or swapping an axis reloads.
+  useEffect(() => {
+    if (featureMode === "all") loadUmap(ALL_FEATURE_VALUES);
+    else loadUmap([customX, customY]);
+  }, [featureMode, customX, customY, loadUmap]);
 
-  const applyFeatures = () => {
-    setAppliedMode(featureMode);
-    if (featureMode === "all") {
-      loadUmap(ALL_FEATURE_VALUES);
-    } else {
-      setAppliedX(pendingX);
-      setAppliedY(pendingY);
-      loadUmap([pendingX, pendingY]);
-    }
-  };
-
-  const xLabel2D = appliedMode === "custom" ? (FEATURE_LABEL[appliedX] ?? "") : "";
-  const yLabel2D = appliedMode === "custom" ? (FEATURE_LABEL[appliedY] ?? "") : "";
+  const xLabel2D = featureMode === "custom" ? (FEATURE_LABEL[customX] ?? "") : "";
+  const yLabel2D = featureMode === "custom" ? (FEATURE_LABEL[customY] ?? "") : "";
 
   const selectedSong = selectedSongId ? songMap.get(selectedSongId) : null;
 
@@ -544,12 +536,12 @@ export function UmapView({ songs }: Props) {
     <div className="h-full flex overflow-hidden">
 
       {/* ── Left controls panel ── */}
-      <div className="w-56 flex-shrink-0 border-r border-gray-800 flex flex-col">
+      <div className="w-64 flex-shrink-0 border-r border-gray-800 flex flex-col">
 
         {/* Feature mode + selectors — scrollable */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
           <div>
-            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
               Features
             </p>
             <div className="flex rounded overflow-hidden border border-gray-700 mb-3">
@@ -567,30 +559,65 @@ export function UmapView({ songs }: Props) {
                 </button>
               ))}
             </div>
-            {featureMode === "all" && (
-              <p className="text-[10px] text-gray-600 leading-snug">
-                All 28 features — best for finding overall musical similarity clusters.
-              </p>
+            {featureMode === "all" ? (
+              <>
+                <p className="text-xs font-medium text-gray-300 mb-1.5">
+                  UMAP projection
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-xs text-gray-400 leading-relaxed marker:text-gray-600">
+                  <li>All 28 audio features squeezed into a 2D map</li>
+                  <li>
+                    <span className="text-gray-300">Distance = similarity</span> —
+                    dots close together sound alike
+                  </li>
+                  <li>Axes have no unit, don't read values off them</li>
+                </ul>
+              </>
+            ) : (
+              <>
+                <p className="text-xs font-medium text-gray-300 mb-1.5">
+                  Scatter plot — not a UMAP
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-xs text-gray-400 leading-relaxed marker:text-gray-600">
+                  <li>Each song sits at its raw value for the two features you pick</li>
+                  <li>
+                    <span className="text-gray-300">Both axes are readable</span> —
+                    unlike in UMAP mode
+                  </li>
+                </ul>
+              </>
             )}
           </div>
 
           {featureMode === "custom" && (
             <>
-              <AxisSelect label="X" value={pendingX} onChange={setPendingX} />
-              <AxisSelect label="Y" value={pendingY} onChange={setPendingY} />
+              <AxisSelect label="X" value={customX} onChange={setCustomX} />
+              <AxisSelect label="Y" value={customY} onChange={setCustomY} />
             </>
           )}
 
+          <div>
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+              Lines = Similarity
+            </p>
+            <ul className="list-disc pl-4 space-y-1 text-xs text-gray-400 leading-relaxed marker:text-gray-600">
+              <li>Each song links to its 5 nearest neighbours</li>
+              <li>Measured on all features, before the 2D projection</li>
+              <li><span className="text-gray-300">Hover</span> a dot for a faint preview</li>
+              <li><span className="text-gray-300">Click</span> it to pin the lines</li>
+            </ul>
+          </div>
+
           {legendEntries.length > 0 && (
             <div>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
                 Color = Genre
               </p>
               <div className="space-y-1">
                 {legendEntries.map(({ genre, color }) => (
-                  <div key={genre} className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                    <span className="text-[10px] text-gray-400 truncate">{genre}</span>
+                  <div key={genre} className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                    <span className="text-xs text-gray-400 truncate">{genre}</span>
                   </div>
                 ))}
               </div>
@@ -598,16 +625,6 @@ export function UmapView({ songs }: Props) {
           )}
         </div>
 
-        {/* Apply */}
-        <div className="flex-shrink-0 px-4 pb-4 pt-2.5 border-t border-gray-800">
-          <button
-            onClick={applyFeatures}
-            disabled={loading}
-            className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-semibold rounded transition-colors"
-          >
-            {loading ? "Computing…" : "Apply"}
-          </button>
-        </div>
       </div>
 
       {/* ── Center plot ── */}

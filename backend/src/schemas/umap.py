@@ -8,6 +8,8 @@ class UmapPoint2D(BaseModel):
     y: float
     title: str | None = None
     artist: str | None = None
+    # Nearest neighbours in the high-dimensional feature space, closest first.
+    neighbors: list[str] = []
 
 
 class UmapResponse(BaseModel):

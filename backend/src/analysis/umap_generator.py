@@ -3,12 +3,14 @@ import threading
 from dataclasses import dataclass
 
 import numpy as np
+from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 from umap import UMAP
 
 logger = logging.getLogger(__name__)
 
 MIN_FIT_SONGS = 10  # Show a first preview once we have this many songs
+NEIGHBOR_COUNT = 5  # Nearest neighbours reported per song
 
 FEATURE_DEFINITIONS: dict[str, tuple[str, str]] = {
     "bpm": ("dsp_features", "bpm"),
@@ -51,6 +53,7 @@ class UmapPoint2D:
     y: float
     title: str | None
     artist: str | None
+    neighbors: list[str]
 
 
 def _get_value(song: object, relation: str, attr: str) -> float | None:
@@ -96,6 +99,9 @@ class UmapState:
         self._feature_keys: list[str] = []
         self._coords_2d: dict[str, tuple[float, float]] = {}
         self._meta: dict[str, tuple[str | None, str | None]] = {}
+        self._matrix_scaled: np.ndarray | None = None
+        self._song_ids: list[str] = []
+        self._neighbors: dict[str, list[str]] = {}
 
     # ── public properties ──────────────────────────────────────────────────
 
@@ -141,6 +147,9 @@ class UmapState:
                 for i, s in enumerate(songs)
             }
             self._meta = {s.id: (s.title, s.artist) for s in songs}
+            self._matrix_scaled = matrix_scaled
+            self._song_ids = [s.id for s in songs]
+            self._recompute_neighbors()
 
         logger.info("[UMAP] Fit complete")
 
@@ -161,6 +170,10 @@ class UmapState:
             for i, song in enumerate(new_songs):
                 self._coords_2d[song.id] = (float(coords_2d[i, 0]), float(coords_2d[i, 1]))
                 self._meta[song.id] = (song.title, song.artist)
+            if self._matrix_scaled is not None:
+                self._matrix_scaled = np.vstack([self._matrix_scaled, matrix_scaled])
+                self._song_ids.extend(s.id for s in new_songs)
+                self._recompute_neighbors()
 
         logger.info("[UMAP] Added %d song(s) via transform", len(new_songs))
 
@@ -171,7 +184,32 @@ class UmapState:
             self._feature_keys = []
             self._coords_2d.clear()
             self._meta.clear()
+            self._matrix_scaled = None
+            self._song_ids = []
+            self._neighbors.clear()
         logger.info("[UMAP] State reset")
+
+    def _recompute_neighbors(self) -> None:
+        """Find each song's nearest neighbours in the high-dimensional space.
+
+        Runs on the scaled feature matrix — before UMAP reduces it — so the
+        links reflect true feature similarity rather than 2D layout accidents.
+        Must be called with the lock held.
+        """
+        matrix = self._matrix_scaled
+        if matrix is None or len(self._song_ids) < 2:
+            self._neighbors = {}
+            return
+
+        k = min(NEIGHBOR_COUNT, len(self._song_ids) - 1)
+        finder = NearestNeighbors(n_neighbors=k + 1).fit(matrix)
+        _, indices = finder.kneighbors(matrix)
+
+        # Column 0 is the song itself — skip it.
+        self._neighbors = {
+            self._song_ids[row]: [self._song_ids[col] for col in indices[row][1:]]
+            for row in range(len(self._song_ids))
+        }
 
     def get_result(self) -> list[UmapPoint2D]:
         with self._lock:
@@ -182,6 +220,7 @@ class UmapState:
                     y=c[1],
                     title=self._meta[sid][0],
                     artist=self._meta[sid][1],
+                    neighbors=self._neighbors.get(sid, []),
                 )
                 for sid, c in self._coords_2d.items()
             ]

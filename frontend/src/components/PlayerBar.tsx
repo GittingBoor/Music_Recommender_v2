@@ -11,6 +11,7 @@ import {
   shuffle,
   stop,
   setVolume,
+  setNnMode,
 } from "../audio/player";
 import type { Song } from "../types/song";
 
@@ -26,7 +27,7 @@ interface Props {
 }
 
 export function PlayerBar({ songs }: Props) {
-  const { currentId, playing, volume } = useSyncExternalStore(subscribe, getSnapshot);
+  const { currentId, playing, volume, nnMode } = useSyncExternalStore(subscribe, getSnapshot);
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration]       = useState(0);
@@ -109,7 +110,7 @@ export function PlayerBar({ songs }: Props) {
   }
 
   function onNearestNeighbour() {
-    // Placeholder: the recommendation backend does not exist yet.
+    setNnMode(!nnMode);
     setNnHint(true);
     window.setTimeout(() => setNnHint(false), 2500);
   }
@@ -235,13 +236,26 @@ export function PlayerBar({ songs }: Props) {
             </svg>
           </button>
 
-          {/* nearest neighbour (placeholder — recommendation not implemented yet) */}
+          {/* nearest-neighbour radio: next song is the most similar one */}
           <div className="relative">
             <button
               onClick={onNearestNeighbour}
-              className="text-violet-400 hover:text-violet-300 transition-colors"
-              aria-label="Play the nearest-neighbour song (coming soon)"
-              title="Play the most similar song (nearest neighbour) — coming soon"
+              aria-pressed={nnMode}
+              className={`transition-colors ${
+                nnMode
+                  ? "text-violet-400 hover:text-violet-300"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
+              aria-label={
+                nnMode
+                  ? "Similar-song radio is on"
+                  : "Similar-song radio is off"
+              }
+              title={
+                nnMode
+                  ? "Similar-song radio on — the next track is the most similar song"
+                  : "Similar-song radio off — tracks play in library order"
+              }
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="18" cy="5" r="3" />
@@ -251,9 +265,14 @@ export function PlayerBar({ songs }: Props) {
                 <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
               </svg>
             </button>
+            {nnMode && (
+              <span className="pointer-events-none absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-violet-400" />
+            )}
             {nnHint && (
               <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-800 px-2 py-1 text-xs text-gray-200 shadow-lg border border-gray-700">
-                Nearest-neighbour recommendation coming soon
+                {nnMode
+                  ? "Similar-song radio on — next track is the closest match"
+                  : "Similar-song radio off — playing in library order"}
               </div>
             )}
           </div>

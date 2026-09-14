@@ -1,8 +1,6 @@
 import logging
-import subprocess
 from pathlib import Path
 
-import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload
@@ -13,8 +11,6 @@ from src.db.session import get_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-_PREVIEW_SECONDS = 15
 
 
 @router.delete("/admin/clear")
@@ -40,69 +36,6 @@ def clear_database(db: Session = Depends(get_db)):
     db.commit()
     logger.info("[Admin] Database cleared")
     return {"status": "cleared"}
-
-
-def _find_exciting_start(dsp: dict, total_seconds: float) -> int:
-    """Find the start second of the most energetic 15-second window."""
-    loudness = dsp.get("loudness_short_term_timeseries") or []
-    flux = dsp.get("spectral_flux_timeseries") or []
-
-    n = int(min(total_seconds, len(loudness))) if loudness else int(total_seconds)
-    if n < _PREVIEW_SECONDS + 10:
-        return max(0, (n - _PREVIEW_SECONDS) // 2)
-
-    def _norm(ts: list) -> np.ndarray:
-        arr = np.array(ts[:n], dtype=float)
-        lo, hi = arr.min(), arr.max()
-        return (arr - lo) / (hi - lo + 1e-8)
-
-    score = _norm(loudness[:n]) if loudness else np.zeros(n)
-    if flux and len(flux) >= n:
-        score = score * 0.6 + _norm(flux[:n]) * 0.4
-
-    skip_start = max(10, int(n * 0.15))
-    skip_end = max(10, int(n * 0.10))
-    window = _PREVIEW_SECONDS
-
-    best_start = skip_start
-    best_val = -1.0
-    for i in range(skip_start, n - skip_end - window):
-        avg = float(score[i: i + window].mean())
-        if avg > best_val:
-            best_val = avg
-            best_start = i
-
-    return best_start
-
-
-def _extract_preview(audio_path: Path, dsp: dict, song_id: str) -> None:
-    """Extract a 15-second highlight clip and save to short_audio/."""
-    output_path = settings.short_audio_dir / f"{song_id}.mp3"
-    if output_path.exists():
-        return
-
-    duration = dsp.get("duration_seconds") or 0.0
-    if duration < 5:
-        return
-
-    start = _find_exciting_start(dsp, duration)
-    settings.short_audio_dir.mkdir(parents=True, exist_ok=True)
-
-    proc = subprocess.run(
-        [
-            "ffmpeg", "-y",
-            "-i", str(audio_path),
-            "-ss", str(start),
-            "-t", str(_PREVIEW_SECONDS),
-            "-b:a", "128k",
-            str(output_path),
-        ],
-        capture_output=True,
-    )
-    if proc.returncode == 0:
-        logger.info("[Preview] Saved %s (start=%ds)", song_id, start)
-    else:
-        logger.error("[Preview] ffmpeg failed for %s: %s", song_id, proc.stderr.decode())
 
 
 def _update_umap_for_song(song_id: str) -> None:
@@ -243,7 +176,6 @@ def process_audio_file(audio_file: Path) -> dict:
         artist = str((result.get("metadata") or {}).get("artist") or "") or None
 
         if title and song_id:
-            _extract_preview(audio_file, result.get("dsp") or {}, song_id)
             _update_umap_for_song(song_id)
 
         return {"status": "saved", "reason": None,

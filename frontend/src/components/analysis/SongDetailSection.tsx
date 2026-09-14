@@ -6,6 +6,7 @@ import {
   LineChart, Line,
 } from "recharts";
 import { fetchSongDetail } from "../../services/api";
+import { ResultsTable } from "../filter/ResultsTable";
 import type { Song } from "../../types/song";
 import type { SongDetail } from "../../types/analysis";
 
@@ -287,10 +288,16 @@ export function SongDetailSection({ songs }: Props) {
         </div>
       </div>
 
-      {/* Empty state */}
+      {/* Song list — pick a song directly instead of searching */}
       {!selectedId && (
-        <div className="flex items-center justify-center h-48 text-gray-600 text-sm border border-dashed border-gray-800 rounded-lg">
-          Select a song above to see its detailed analysis
+        <div>
+          <p className="text-xs text-gray-600 mb-2">
+            Search above or click a song to see its detailed analysis
+          </p>
+          <ResultsTable
+            songs={songs}
+            onSelect={(id) => { setSelectedId(id); setSearch(""); setShowDrop(false); }}
+          />
         </div>
       )}
 

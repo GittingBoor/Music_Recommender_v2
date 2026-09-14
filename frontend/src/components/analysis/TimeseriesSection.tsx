@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
+  ComposedChart, AreaChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ReferenceLine, ResponsiveContainer,
 } from "recharts";
 import type { TooltipProps } from "recharts";
 import { fetchTimeseries } from "../../services/api";
 import type { Song } from "../../types/song";
-import type { TimeseriesResponse } from "../../types/analysis";
+import type { TimeAxisMode, TimeseriesResponse } from "../../types/analysis";
 
 const FEATURES: { key: string; label: string; group: string; tooltip: string }[] = [
   { key: "loudness",           label: "Loudness",           group: "DSP",        tooltip: "Short-term loudness changes over the song (in dB)." },
@@ -49,6 +49,18 @@ const TOOLTIP_STYLE: React.CSSProperties = {
 const AXIS_STYLE = { fill: "#6b7280", fontSize: 11 };
 const GRID_STYLE = { stroke: "#1f2937" };
 const YAXIS_WIDTH = 40;
+const COUNT_CHART_HEIGHT = 70;
+const VALUE_DECIMALS = 3;
+const RELATIVE_AXIS_MAX = 100;
+const RELATIVE_TICK_STEP = 10;
+const ABSOLUTE_TICK_STEP = 20;
+const ABSOLUTE_AXIS_ROUNDING = 60;
+const ABSOLUTE_STEP_SECONDS = 1;
+
+const MODE_OPTIONS: { readonly mode: TimeAxisMode; readonly label: string }[] = [
+  { mode: "relative", label: "Relative time (%)" },
+  { mode: "absolute", label: "Absolute time (s)" },
+];
 
 const formatTime = (sec: number): string => {
   const m = Math.floor(sec / 60);
@@ -56,9 +68,15 @@ const formatTime = (sec: number): string => {
   return `${m}:${String(s).padStart(2, "0")}`;
 };
 
+const formatPercent = (pct: number): string => `${Math.round(pct)}%`;
+
+const roundValue = (value: number | null | undefined): number | undefined =>
+  value != null ? parseFloat(value.toFixed(VALUE_DECIMALS)) : undefined;
+
 interface ChartEntry {
-  sec: number;
+  x: number;
   avg?: number;
+  band?: [number, number];
   song?: number;
   count: number;
 }
@@ -75,6 +93,7 @@ export function TimeseriesSection({ songs }: Props) {
   const [songId,    setSongId]    = useState<string>("");
   const [search,    setSearch]    = useState("");
   const [showDrop,  setShowDrop]  = useState(false);
+  const [mode,      setMode]      = useState<TimeAxisMode>("relative");
 
   const [tsData,  setTsData]  = useState<TimeseriesResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -101,11 +120,11 @@ export function TimeseriesSection({ songs }: Props) {
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetchTimeseries(feature, mood || null, threshold, songId || null)
+    fetchTimeseries(feature, mood || null, threshold, songId || null, mode)
       .then(setTsData)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [feature, mood, threshold, songId]);
+  }, [feature, mood, threshold, songId, mode]);
 
   useEffect(() => {
     load();
@@ -121,31 +140,40 @@ export function TimeseriesSection({ songs }: Props) {
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
 
+  const isRelative = (tsData?.mode ?? mode) === "relative";
+
   const chartData = useMemo<ChartEntry[]>(() => {
     if (!tsData) return [];
-    const avgLen  = tsData.avg_timeseries.length;
-    const songLen = tsData.selected_song?.values.length ?? 0;
-    const len     = Math.max(avgLen, songLen);
-    return Array.from({ length: len }, (_, sec) => ({
-      sec,
-      avg:  tsData.avg_timeseries[sec]          != null ? parseFloat(tsData.avg_timeseries[sec].toFixed(3))          : undefined,
-      song: tsData.selected_song?.values[sec]   != null ? parseFloat(tsData.selected_song.values[sec].toFixed(3))    : undefined,
-      count: tsData.counts_at_time?.[sec] ?? 0,
-    }));
+    const songValues = tsData.selected_song?.values ?? [];
+    const len        = Math.max(tsData.positions.length, songValues.length);
+    return Array.from({ length: len }, (_, i) => {
+      const p25 = roundValue(tsData.p25_timeseries[i]);
+      const p75 = roundValue(tsData.p75_timeseries[i]);
+      return {
+        x:     tsData.positions[i] ?? i * ABSOLUTE_STEP_SECONDS,
+        avg:   roundValue(tsData.avg_timeseries[i]),
+        band:  p25 != null && p75 != null ? [p25, p75] : undefined,
+        song:  roundValue(songValues[i]),
+        count: tsData.counts_at_time[i] ?? 0,
+      };
+    });
   }, [tsData]);
 
   const xAxisMax = useMemo(() => {
-    if (chartData.length === 0) return 60;
-    const lastSec = chartData.length - 1;
-    if (lastSec === 0) return 60;
-    return Math.ceil(lastSec / 60) * 60;
-  }, [chartData]);
+    if (isRelative) return RELATIVE_AXIS_MAX;
+    const lastSec = chartData[chartData.length - 1]?.x ?? 0;
+    if (lastSec === 0) return ABSOLUTE_AXIS_ROUNDING;
+    return Math.ceil(lastSec / ABSOLUTE_AXIS_ROUNDING) * ABSOLUTE_AXIS_ROUNDING;
+  }, [chartData, isRelative]);
 
   const xAxisTicks = useMemo(() => {
+    const step = isRelative ? RELATIVE_TICK_STEP : ABSOLUTE_TICK_STEP;
     const ticks: number[] = [];
-    for (let t = 0; t <= xAxisMax; t += 20) ticks.push(t);
+    for (let t = 0; t <= xAxisMax; t += step) ticks.push(t);
     return ticks;
-  }, [xAxisMax]);
+  }, [xAxisMax, isRelative]);
+
+  const formatX = isRelative ? formatPercent : formatTime;
 
   const featureLabel = FEATURES.find((f) => f.key === feature)?.label ?? feature;
 
@@ -157,20 +185,27 @@ export function TimeseriesSection({ songs }: Props) {
       const totalCount = tsData?.song_count ?? 0;
       return (
         <div style={TOOLTIP_STYLE} className="px-3 py-2 space-y-1">
-          <p className="text-gray-300 font-medium">{formatTime((label as number) ?? 0)}</p>
-          {payload.map((entry, i) => (
-            <p key={i} style={{ color: entry.color }}>
-              {entry.name}:{" "}
-              <span className="font-mono">{(entry.value as number).toFixed(3)}</span>
-            </p>
-          ))}
+          <p className="text-gray-300 font-medium">{formatX((label as number) ?? 0)}</p>
+          {payload.map((entry, i) => {
+            const value = entry.value as number | [number, number];
+            return (
+              <p key={i} style={{ color: entry.color }}>
+                {entry.name}:{" "}
+                <span className="font-mono">
+                  {Array.isArray(value)
+                    ? `${value[0].toFixed(VALUE_DECIMALS)} – ${value[1].toFixed(VALUE_DECIMALS)}`
+                    : value.toFixed(VALUE_DECIMALS)}
+                </span>
+              </p>
+            );
+          })}
           <p className="text-gray-500 text-[11px] pt-1 border-t border-gray-700/60">
             {count} / {totalCount} songs active at this point
           </p>
         </div>
       );
     },
-    [tsData],
+    [tsData, formatX],
   );
 
   return (
@@ -316,7 +351,7 @@ export function TimeseriesSection({ songs }: Props) {
             {tsData.selected_song && (
               <span className="text-violet-400">
                 + {tsData.selected_song.title ?? "?"}{" "}
-                ({formatTime(tsData.selected_song.values.length)})
+                ({formatTime(Math.round(tsData.selected_song.duration_seconds))})
               </span>
             )}
             {error && <span className="text-red-400">{error}</span>}
@@ -326,9 +361,26 @@ export function TimeseriesSection({ songs }: Props) {
 
       {/* Chart */}
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-          {featureLabel} — normalized (0–1)
-        </p>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            {featureLabel} — normalized (0–1)
+          </p>
+          <div className="flex rounded border border-gray-700 overflow-hidden text-xs">
+            {MODE_OPTIONS.map((option) => (
+              <button
+                key={option.mode}
+                onClick={() => setMode(option.mode)}
+                className={`px-2.5 py-1 transition-colors ${
+                  mode === option.mode
+                    ? "bg-violet-600 text-white"
+                    : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
         {chartData.length === 0 && !loading ? (
           <div className="flex items-center justify-center h-64 text-gray-600 text-sm">
             No timeseries data available for this selection.
@@ -336,21 +388,30 @@ export function TimeseriesSection({ songs }: Props) {
         ) : (
           <>
             <ResponsiveContainer width="100%" height={340}>
-              <LineChart
+              <ComposedChart
                 data={chartData}
                 margin={{ top: 4, right: 16, left: 0, bottom: 8 }}
               >
                 <CartesianGrid {...GRID_STYLE} />
                 <XAxis
-                  dataKey="sec"
+                  dataKey="x"
                   type="number"
                   domain={[0, xAxisMax]}
                   ticks={xAxisTicks}
-                  tickFormatter={formatTime}
+                  tickFormatter={formatX}
                   tick={AXIS_STYLE}
                 />
                 <YAxis tick={AXIS_STYLE} domain={[0, 1]} width={YAXIS_WIDTH} />
                 <Tooltip content={renderTooltip} />
+                <Area
+                  type="monotone"
+                  dataKey="band"
+                  name="P25–P75"
+                  stroke="none"
+                  fill="#6b7280"
+                  fillOpacity={0.25}
+                  isAnimationActive={false}
+                />
                 <Line
                   type="monotone"
                   dataKey="avg"
@@ -374,8 +435,38 @@ export function TimeseriesSection({ songs }: Props) {
                     isAnimationActive={false}
                   />
                 )}
-              </LineChart>
+              </ComposedChart>
             </ResponsiveContainer>
+
+            {tsData?.mode === "absolute" && (
+              <>
+                <ResponsiveContainer width="100%" height={COUNT_CHART_HEIGHT}>
+                  <AreaChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                    <XAxis
+                      dataKey="x"
+                      type="number"
+                      domain={[0, xAxisMax]}
+                      ticks={xAxisTicks}
+                      tickFormatter={formatTime}
+                      tick={AXIS_STYLE}
+                    />
+                    <YAxis tick={AXIS_STYLE} width={YAXIS_WIDTH} allowDecimals={false} />
+                    <ReferenceLine y={tsData.min_songs} stroke="#4b5563" strokeDasharray="3 3" />
+                    <Area
+                      type="stepAfter"
+                      dataKey="count"
+                      stroke="#4b5563"
+                      fill="#374151"
+                      fillOpacity={0.4}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+                <p className="text-[11px] text-gray-600" style={{ paddingLeft: YAXIS_WIDTH }}>
+                  Active songs (n) over time — points with n &lt; {tsData.min_songs} are hidden
+                </p>
+              </>
+            )}
 
             {/* Legend aligned at x=0 (YAxis width = 40px) */}
             <div className="flex flex-wrap gap-4 mt-1 text-xs text-gray-400" style={{ paddingLeft: YAXIS_WIDTH }}>
@@ -383,8 +474,12 @@ export function TimeseriesSection({ songs }: Props) {
                 <svg width="20" height="10">
                   <line x1="0" y1="5" x2="20" y2="5" stroke="#6b7280" strokeWidth="1.5" strokeDasharray="5 3" />
                 </svg>
-                Group avg ({tsData?.song_count ?? 0} songs
+                Group avg (n = {tsData?.song_count ?? 0} songs
                 {mood ? ` · ${mood}≥${threshold.toFixed(2)}` : ""})
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-5 h-2.5 rounded-sm bg-gray-500/25" />
+                P25–P75
               </span>
               {tsData?.selected_song && (
                 <span className="flex items-center gap-1.5">

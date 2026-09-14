@@ -118,6 +118,11 @@ class OtherFeaturesSchema(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PreviewSegmentSchema(BaseModel):
+    start_seconds: int
+    duration_seconds: int
+
+
 class SongResponse(BaseModel):
     id: str
     title: str | None = None

@@ -4,9 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from src.analysis.chorus import get_chorus_locator
 from src.api.deps import get_db
 from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
-from src.db.models import FileMetadata
+from src.db.models import DSPFeatures, FileMetadata
+from src.schemas.songs import PreviewSegmentSchema
 
 router = APIRouter()
 
@@ -27,7 +29,7 @@ def _get_datasets_index() -> dict[str, Path]:
     return _datasets_index
 
 
-def _resolve_audio_file(basename: str) -> Path | None:
+def resolve_audio_file(basename: str) -> Path | None:
     """Return the full Path for a given basename (case-insensitive), or None."""
     idx = _get_datasets_index()
     return idx.get(basename.lower())
@@ -43,12 +45,36 @@ _MEDIA_TYPES: dict[str, str] = {
 }
 
 
-@router.get("/audio/{song_id}")
-def get_audio_preview(song_id: str):
-    path = settings.short_audio_dir / f"{song_id}.mp3"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="No preview available")
-    return FileResponse(path, media_type="audio/mpeg")
+@router.get("/audio/preview/{song_id}", response_model=PreviewSegmentSchema)
+def get_preview_segment(song_id: str, db: Session = Depends(get_db)):
+    """Return the most recognisable segment (chorus) of a song, in seconds.
+
+    The client plays the full audio file and seeks to this offset, so no
+    separate preview file has to be cut.
+    """
+    dsp = db.get(DSPFeatures, song_id)
+    meta = db.get(FileMetadata, song_id)
+    if dsp is None or meta is None or not meta.duration_seconds:
+        raise HTTPException(status_code=404, detail="No analysis data for this song")
+
+    segment = get_chorus_locator().locate(
+        [
+            dsp.loudness_short_term_timeseries,
+            dsp.spectral_flux_timeseries,
+            dsp.spectral_centroid_timeseries,
+            dsp.spectral_rolloff_timeseries,
+            dsp.zero_crossing_rate_timeseries,
+            dsp.dissonance_timeseries,
+        ],
+        float(meta.duration_seconds),
+    )
+    if segment is None:
+        raise HTTPException(status_code=404, detail="No timeseries data for this song")
+
+    return PreviewSegmentSchema(
+        start_seconds=segment.start_seconds,
+        duration_seconds=segment.duration_seconds,
+    )
 
 
 @router.get("/audio/full/{song_id}")
@@ -58,12 +84,12 @@ def get_full_audio(song_id: str, db: Session = Depends(get_db)):
     if not meta or not meta.filename:
         raise HTTPException(status_code=404, detail="No file metadata found")
 
-    path = _resolve_audio_file(meta.filename)
+    path = resolve_audio_file(meta.filename)
     if path is None:
         # Index might be stale (new file ingested after startup) — rebuild once and retry
         global _datasets_index
         _datasets_index = None
-        path = _resolve_audio_file(meta.filename)
+        path = resolve_audio_file(meta.filename)
 
     if path is None:
         raise HTTPException(status_code=404, detail=f"Audio file not found: {meta.filename}")
