@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchSongCount, fetchSongs } from "./services/api";
+import { fetchNeighbors, fetchSongCount, fetchSongs } from "./services/api";
 import type { Song } from "./types/song";
 import { SongCard } from "./components/SongCard";
 import { UmapView } from "./components/UmapView";
@@ -7,7 +7,10 @@ import { AnalysisPage } from "./components/analysis/AnalysisPage";
 import { FilterPage } from "./components/filter/FilterPage";
 import { PlayerBar } from "./components/PlayerBar";
 import { UploadPage } from "./components/upload/UploadPage";
-import { setQueue } from "./audio/player";
+import { setNeighborSource, setQueue } from "./audio/player";
+
+// The player stays free of API imports; the app wires the lookup in once.
+setNeighborSource(fetchNeighbors);
 
 type Tab = "cards" | "umap" | "analysis" | "filter" | "upload";
 

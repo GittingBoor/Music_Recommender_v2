@@ -28,6 +28,13 @@ const DATA_PAD = 0.15; // fractional padding added around the data cloud
 const MAX_ZOOM_FACTOR = 40; // how much you can zoom in relative to fit-all view
 const POINT_RADIUS = 7;
 const SELECTED_RADIUS = 11;
+// Neighbour links: hinted on hover, committed on selection.
+// White reads as "connection" against every genre colour on the dark ground.
+const LINK_COLOR = "#ffffff";
+const LINK_ALPHA_HOVER = 0.22;
+const LINK_ALPHA_SELECTED = 0.8;
+const LINK_WIDTH_HOVER = 1;
+const LINK_WIDTH_SELECTED = 2;
 const DPR = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
 export function UmapCanvas2D({ points, selectedSongId, getColor, onSelect, xLabel, yLabel }: Props) {
@@ -37,7 +44,13 @@ export function UmapCanvas2D({ points, selectedSongId, getColor, onSelect, xLabe
   const dragRef = useRef({ active: false, lastX: 0, lastY: 0, moved: false });
   const rafRef = useRef<number>(0);
   const selectedIdRef = useRef(selectedSongId);
+  const hoveredIdRef = useRef<string | null>(null);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
+
+  const pointById = useMemo(
+    () => new Map(points.map((p) => [p.song_id, p])),
+    [points]
+  );
 
   // ── data bounds (with padding) ────────────────────────────────────────────
   const dataBounds = useMemo(() => {
@@ -129,6 +142,34 @@ export function UmapCanvas2D({ points, selectedSongId, getColor, onSelect, xLabe
 
     const selId = selectedIdRef.current;
 
+    // Neighbour links — drawn first so points sit on top of them
+    const drawLinks = (fromId: string, alpha: number, width: number) => {
+      const from = pointById.get(fromId);
+      if (!from) return;
+      const [fx, fy] = toScreen(from.x, from.y);
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = width * DPR;
+      ctx.strokeStyle = LINK_COLOR;
+      for (const neighborId of from.neighbors) {
+        const to = pointById.get(neighborId);
+        if (!to) continue;
+        const [tx, ty] = toScreen(to.x, to.y);
+        ctx.beginPath();
+        ctx.moveTo(fx * DPR, fy * DPR);
+        ctx.lineTo(tx * DPR, ty * DPR);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    };
+
+    const hoverId = hoveredIdRef.current;
+    if (hoverId && hoverId !== selId) {
+      drawLinks(hoverId, LINK_ALPHA_HOVER, LINK_WIDTH_HOVER);
+    }
+    if (selId) {
+      drawLinks(selId, LINK_ALPHA_SELECTED, LINK_WIDTH_SELECTED);
+    }
+
     // Regular points
     for (const p of points) {
       if (p.song_id === selId) continue;
@@ -155,7 +196,7 @@ export function UmapCanvas2D({ points, selectedSongId, getColor, onSelect, xLabe
       ctx.fill();
     }
     ctx.globalAlpha = 1;
-  }, [points, getColor]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [points, getColor, pointById]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep drawRef in sync so scheduleRedraw doesn't need draw as a dep —
   // if scheduleRedraw were to depend on draw, it would recreate whenever
@@ -253,6 +294,7 @@ export function UmapCanvas2D({ points, selectedSongId, getColor, onSelect, xLabe
     const drag = dragRef.current;
 
     if (drag.active) {
+      if (hoveredIdRef.current !== null) hoveredIdRef.current = null;
       const dx = x - drag.lastX;
       const dy = y - drag.lastY;
       if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true;
@@ -270,6 +312,10 @@ export function UmapCanvas2D({ points, selectedSongId, getColor, onSelect, xLabe
 
     // Hover hit-test
     const hit = hitTest(x, y);
+    if (hoveredIdRef.current !== (hit?.song_id ?? null)) {
+      hoveredIdRef.current = hit?.song_id ?? null;
+      scheduleRedraw();
+    }
     if (hit) {
       const [sx, sy] = toScreen(hit.x, hit.y);
       const canvas = canvasRef.current!;
@@ -298,6 +344,10 @@ export function UmapCanvas2D({ points, selectedSongId, getColor, onSelect, xLabe
   const handleMouseLeave = () => {
     dragRef.current.active = false;
     dragRef.current.moved = false;
+    if (hoveredIdRef.current !== null) {
+      hoveredIdRef.current = null;
+      scheduleRedraw();
+    }
     setTooltip(null);
   };
 

@@ -3,18 +3,26 @@ export interface CorrelationResponse {
   matrix: (number | null)[][];
 }
 
+export type TimeAxisMode = "relative" | "absolute";
+
 export interface TimeseriesSong {
   song_id: string;
   title: string | null;
   artist: string | null;
+  duration_seconds: number;
   values: number[];
 }
 
 export interface TimeseriesResponse {
   feature: string;
+  mode: TimeAxisMode;
   song_count: number;
+  min_songs: number;
   selected_song: TimeseriesSong | null;
-  avg_timeseries: number[];
+  positions: number[];
+  avg_timeseries: (number | null)[];
+  p25_timeseries: (number | null)[];
+  p75_timeseries: (number | null)[];
   counts_at_time: number[];
 }
 

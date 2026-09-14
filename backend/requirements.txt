@@ -6,6 +6,11 @@ sqlalchemy>=2.0.0
 alembic>=1.13.0
 psycopg2-binary>=2.9.9
 essentia-tensorflow>=2.1b6.dev1110
+# CPU build on purpose. inaSpeechSegmenter declares plain "tensorflow" and
+# "onnxruntime-gpu" as its dependencies, which pulls ~3.8 GB of CUDA libraries
+# that this image never uses. The Dockerfile installs the lock with --no-deps
+# so those GPU variants stay out; keep both flags together or the image doubles
+# in size. onnxruntime (CPU) is pinned in the lock as the replacement.
 tensorflow-cpu>=2.12.0,<2.16.0
 numpy>=1.26.0,<2.0
 mutagen>=1.47.0

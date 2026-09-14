@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { uploadSong } from "../../services/api";
-import type { UploadResult } from "../../services/api";
+import type { UploadResult, YoutubeErrorDetail } from "../../services/api";
 import { PlayButton } from "../PlayButton";
 import { StatCard } from "../StatCard";
 import { YoutubeSearch } from "./YoutubeSearch";
@@ -27,7 +27,7 @@ function isSupported(file: File): boolean {
 }
 
 const REASON_LABEL: Record<string, string> = {
-  duplicate:            "Duplikat",
+  duplicate:            "Bereits vorhanden",
   no_acoustid_match:    "Kein AcoustID-Treffer",
   too_long_unrecognized:"Zu lang (unbekannt)",
   unsupported_format:   "Format nicht unterstützt",
@@ -45,11 +45,79 @@ const BADGE_CLASS: Record<string, string> = {
   error:   "bg-red-900/60 text-red-300",
 };
 
+const SCOPE_LABEL: Record<string, string> = {
+  video:  "Betrifft nur dieses Video",
+  global: "Betrifft alle Downloads",
+};
+
+/** Sits at the very top of the page — errors down in the list get missed. */
+function ErrorBanner({ detail, onDismiss }: {
+  detail: YoutubeErrorDetail;
+  onDismiss: () => void;
+}) {
+  const [showRaw, setShowRaw] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-red-900 bg-red-950/40 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <svg className="w-5 h-5 text-red-400 shrink-0 mt-0.5" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" strokeWidth={1.8}>
+          <circle cx="12" cy="12" r="9" />
+          <path strokeLinecap="round" d="M12 7.5v5M12 16h.01" />
+        </svg>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-red-200">{detail.title}</p>
+            {SCOPE_LABEL[detail.scope] && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-900/60 text-red-300 font-medium">
+                {SCOPE_LABEL[detail.scope]}
+              </span>
+            )}
+          </div>
+
+          <p className="text-xs text-red-200/80 leading-relaxed mt-1.5">
+            {detail.explanation}
+          </p>
+
+          {detail.raw_message && (
+            <>
+              <button
+                onClick={() => setShowRaw((v) => !v)}
+                className="text-[11px] text-red-400 hover:text-red-300 mt-2 transition-colors"
+              >
+                {showRaw ? "Originalmeldung ausblenden" : "Originalmeldung anzeigen"}
+              </button>
+              {showRaw && (
+                <pre className="mt-1.5 p-2 rounded bg-black/40 text-[10px] text-red-300/90 whitespace-pre-wrap break-all">
+                  {detail.raw_message}
+                </pre>
+              )}
+            </>
+          )}
+        </div>
+
+        <button
+          onClick={onDismiss}
+          aria-label="Schließen"
+          className="text-red-400 hover:text-red-200 shrink-0 transition-colors"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── component ─────────────────────────────────────────────────────────────
 export function UploadPage() {
   const [queue, setQueue]     = useState<QueueItem[]>([]);
   const [running, setRunning] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [error, setError]     = useState<YoutubeErrorDetail | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // ── add files ────────────────────────────────────────────────────────
@@ -164,8 +232,11 @@ export function UploadPage() {
     <div className="h-full overflow-y-auto">
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
 
+        {/* ── error banner, always at the top ──────────────────────── */}
+        {error && <ErrorBanner detail={error} onDismiss={() => setError(null)} />}
+
         {/* ── youtube search ───────────────────────────────────────── */}
-        <YoutubeSearch onDownloaded={addYoutubeResult} />
+        <YoutubeSearch onDownloaded={addYoutubeResult} onError={setError} />
 
         <div className="flex items-center gap-3 text-xs text-gray-600">
           <span className="h-px flex-1 bg-gray-800" />

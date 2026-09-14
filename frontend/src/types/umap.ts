@@ -4,6 +4,8 @@ export interface UmapPoint2D {
   y: number;
   title: string | null;
   artist: string | null;
+  /** Nearest neighbours in the high-dimensional feature space, closest first. */
+  neighbors: string[];
 }
 
 export interface UmapResponse {

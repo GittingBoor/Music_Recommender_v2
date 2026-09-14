@@ -80,9 +80,11 @@ interface Props {
   songs: Song[];
   /** Fires whenever the visible row order changes (used to sync the play queue). */
   onVisibleOrderChange?: (ids: string[]) => void;
+  /** When set, clicking a row selects that song. */
+  onSelect?: (songId: string) => void;
 }
 
-export function ResultsTable({ songs, onVisibleOrderChange }: Props) {
+export function ResultsTable({ songs, onVisibleOrderChange, onSelect }: Props) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -158,7 +160,8 @@ export function ResultsTable({ songs, onVisibleOrderChange }: Props) {
           {sorted.map((song) => (
             <tr
               key={song.id}
-              className="border-t border-gray-800 hover:bg-gray-800/60 transition-colors"
+              onClick={onSelect ? () => onSelect(song.id) : undefined}
+              className={`border-t border-gray-800 hover:bg-gray-800/60 transition-colors ${onSelect ? "cursor-pointer" : ""}`}
             >
               <td className="px-3 py-1.5">
                 <PlayButton songId={song.id} />
