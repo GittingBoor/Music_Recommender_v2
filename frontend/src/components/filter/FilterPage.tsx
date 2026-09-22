@@ -5,7 +5,8 @@ import {
   MOOD_AXES, DSP_AXES, OTHER_AXES,
   computeAxisStats,
 } from "./featureConfig";
-import { RadarFilter } from "./RadarFilter";
+import type { RadarAxis, AxisStatsMap } from "./featureConfig";
+import { RadarChart } from "./RadarChart";
 import { BarSliderFilter } from "./BarSliderFilter";
 import type { BarRow } from "./BarSliderFilter";
 import { ResultsTable } from "./ResultsTable";
@@ -47,6 +48,44 @@ function emptyThresholds(keys: string[]): ThresholdsMap {
   return Object.fromEntries(keys.map((k) => [k, 0]));
 }
 
+const HIST_BINS = 20;
+
+/** Slider rows for radar axes, each with the library's distribution of normalised values. */
+function axisRows(
+  songs: Song[],
+  axes: RadarAxis[],
+  stats: AxisStatsMap,
+  colors: Record<string, string>,
+): BarRow[] {
+  return axes.map((ax) => {
+    const histogram = new Array<number>(HIST_BINS).fill(0);
+    for (const s of songs) {
+      const raw = ax.get(s);
+      if (raw == null) continue;
+      const v = ax.norm(raw, stats[ax.key]);
+      histogram[Math.min(HIST_BINS - 1, Math.floor(v * HIST_BINS))]++;
+    }
+    return { key: ax.key, label: ax.label, histogram, color: colors[ax.key] };
+  });
+}
+
+/** Mean normalised value per axis over the given songs (missing values skipped). */
+function meanProfile(songs: Song[], axes: RadarAxis[], stats: AxisStatsMap): ThresholdsMap {
+  const out: ThresholdsMap = {};
+  for (const ax of axes) {
+    let sum = 0;
+    let n = 0;
+    for (const s of songs) {
+      const raw = ax.get(s);
+      if (raw == null) continue;
+      sum += ax.norm(raw, stats[ax.key]);
+      n++;
+    }
+    if (n > 0) out[ax.key] = sum / n;
+  }
+  return out;
+}
+
 interface Props {
   songs: Song[];
 }
@@ -75,6 +114,11 @@ export function FilterPage({ songs }: Props) {
   const dspStats   = useMemo(() => computeAxisStats(songs, DSP_AXES),   [songs]);
   const otherStats = useMemo(() => computeAxisStats(songs, OTHER_AXES), [songs]);
   const moodStats  = useMemo(() => computeAxisStats(songs, MOOD_AXES),  [songs]);
+
+  // ── slider rows for the radar axes ───────────────────────────────────────
+  const moodRows  = useMemo(() => axisRows(songs, MOOD_AXES,  moodStats,  MOOD_COLORS),  [songs, moodStats]);
+  const dspRows   = useMemo(() => axisRows(songs, DSP_AXES,   dspStats,   DSP_COLORS),   [songs, dspStats]);
+  const otherRows = useMemo(() => axisRows(songs, OTHER_AXES, otherStats, OTHER_COLORS), [songs, otherStats]);
 
   // ── genre rows ────────────────────────────────────────────────────────────
   const genreRows = useMemo<BarRow[]>(() => {
@@ -182,6 +226,11 @@ export function FilterPage({ songs }: Props) {
     instrEnabled, instrThresh,
   ]);
 
+  // ── average profile of the filtered songs (radar visualisation) ─────────
+  const moodProfile  = useMemo(() => meanProfile(filtered, MOOD_AXES,  moodStats),  [filtered, moodStats]);
+  const dspProfile   = useMemo(() => meanProfile(filtered, DSP_AXES,   dspStats),   [filtered, dspStats]);
+  const otherProfile = useMemo(() => meanProfile(filtered, OTHER_AXES, otherStats), [filtered, otherStats]);
+
   // ── play queue follows the visible table order while this page is open ────
   const handleVisibleOrderChange = useCallback((ids: string[]) => {
     setQueue(ids);
@@ -228,100 +277,126 @@ export function FilterPage({ songs }: Props) {
     Object.values(instrThresh).some(v => v > 0);
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+    <div className="h-full flex">
 
-        {/* ── search bar + counter ── */}
-        <div className="flex items-center gap-4 flex-wrap">
-          <input
-            type="text"
-            placeholder="Search title or artist…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 min-w-60 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-violet-500"
-          />
-          <span className="text-sm text-gray-500 shrink-0">
-            <span className="text-white font-medium">{filtered.length}</span>
-            {" "}/ {songs.length} songs
-          </span>
-          {hasActiveFilters && (
-            <button
-              onClick={resetAll}
-              className="text-xs text-gray-500 hover:text-gray-200 border border-gray-700 hover:border-gray-500 px-3 py-2 rounded-lg transition-colors shrink-0"
-            >
-              Clear all filters
-            </button>
-          )}
-        </div>
+      {/* ── left: all filters ── */}
+      <aside className="w-72 xl:w-80 shrink-0 overflow-y-auto border-r border-gray-800 bg-gray-950">
+        <BarSliderFilter
+          title="Moods"
+          rows={moodRows}
+          thresholds={moodThresh}
+          onChange={(k, v) => setOnePatch(setMoodThresh, k, v)}
+          onReset={() => resetChart(setMoodThresh, MOOD_AXES.map(a => a.key))}
+          enabled={moodEnabled}
+          onToggleEnabled={() => setMoodEnabled(e => !e)}
+        />
+        <BarSliderFilter
+          title="DSP Features"
+          rows={dspRows}
+          thresholds={dspThresh}
+          onChange={(k, v) => setOnePatch(setDspThresh, k, v)}
+          onReset={() => resetChart(setDspThresh, DSP_AXES.map(a => a.key))}
+          enabled={dspEnabled}
+          onToggleEnabled={() => setDspEnabled(e => !e)}
+        />
+        <BarSliderFilter
+          title="Other Features"
+          rows={otherRows}
+          thresholds={otherThresh}
+          onChange={(k, v) => setOnePatch(setOtherThresh, k, v)}
+          onReset={() => resetChart(setOtherThresh, OTHER_AXES.map(a => a.key))}
+          enabled={otherEnabled}
+          onToggleEnabled={() => setOtherEnabled(e => !e)}
+        />
+        <BarSliderFilter
+          title="Parent Genres"
+          rows={genreRows}
+          thresholds={genreThresh}
+          onChange={(k, v) => setOnePatch(setGenreThresh, k, v)}
+          onReset={() => setGenreThresh({})}
+          enabled={genreEnabled}
+          onToggleEnabled={() => setGenreEnabled(e => !e)}
+          accentColor="#fbbf24"
+        />
+        <BarSliderFilter
+          title="Instruments"
+          rows={instrRows}
+          thresholds={instrThresh}
+          onChange={(k, v) => setOnePatch(setInstrThresh, k, v)}
+          onReset={() => setInstrThresh({})}
+          enabled={instrEnabled}
+          onToggleEnabled={() => setInstrEnabled(e => !e)}
+          accentColor="#2dd4bf"
+        />
+      </aside>
 
-        {/* ── filter charts ── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          <RadarFilter
-            title="Moods"
-            axes={MOOD_AXES}
-            stats={moodStats}
-            thresholds={moodThresh}
-            onChange={(k, v) => setOnePatch(setMoodThresh, k, v)}
-            onReset={() => resetChart(setMoodThresh, MOOD_AXES.map(a => a.key))}
-            enabled={moodEnabled}
-            onToggleEnabled={() => setMoodEnabled(e => !e)}
-            axisColors={MOOD_COLORS}
-          />
-          <RadarFilter
-            title="DSP Features"
-            axes={DSP_AXES}
-            stats={dspStats}
-            thresholds={dspThresh}
-            onChange={(k, v) => setOnePatch(setDspThresh, k, v)}
-            onReset={() => resetChart(setDspThresh, DSP_AXES.map(a => a.key))}
-            enabled={dspEnabled}
-            onToggleEnabled={() => setDspEnabled(e => !e)}
-            axisColors={DSP_COLORS}
-          />
-          <RadarFilter
-            title="Other Features"
-            axes={OTHER_AXES}
-            stats={otherStats}
-            thresholds={otherThresh}
-            onChange={(k, v) => setOnePatch(setOtherThresh, k, v)}
-            onReset={() => resetChart(setOtherThresh, OTHER_AXES.map(a => a.key))}
-            enabled={otherEnabled}
-            onToggleEnabled={() => setOtherEnabled(e => !e)}
-            axisColors={OTHER_COLORS}
-          />
-          <BarSliderFilter
-            title="Parent Genres"
-            rows={genreRows}
-            thresholds={genreThresh}
-            onChange={(k, v) => setOnePatch(setGenreThresh, k, v)}
-            onReset={() => setGenreThresh({})}
-            enabled={genreEnabled}
-            onToggleEnabled={() => setGenreEnabled(e => !e)}
-            accentColor="#fbbf24"
-          />
-          <BarSliderFilter
-            title="Instruments"
-            rows={instrRows}
-            thresholds={instrThresh}
-            onChange={(k, v) => setOnePatch(setInstrThresh, k, v)}
-            onReset={() => setInstrThresh({})}
-            enabled={instrEnabled}
-            onToggleEnabled={() => setInstrEnabled(e => !e)}
-            accentColor="#2dd4bf"
-          />
-        </div>
+      {/* ── center: search + results (sortable; visible order = play queue) ── */}
+      <section className="flex-1 min-w-0 overflow-y-auto">
+        <div className="px-4 py-4 space-y-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <input
+              type="text"
+              placeholder="Search title or artist…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1 min-w-48 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-violet-500"
+            />
+            <span className="text-sm text-gray-500 shrink-0">
+              <span className="text-white font-medium">{filtered.length}</span>
+              {" "}/ {songs.length} songs
+            </span>
+            {hasActiveFilters && (
+              <button
+                onClick={resetAll}
+                className="text-xs text-gray-500 hover:text-gray-200 border border-gray-700 hover:border-gray-500 px-3 py-2 rounded-lg transition-colors shrink-0"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
 
-        {/* ── result table (sortable; visible order = play queue) ── */}
-        <div>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
-            Results
-          </h2>
           <ResultsTable
             songs={filtered}
             onVisibleOrderChange={handleVisibleOrderChange}
           />
         </div>
-      </div>
+      </section>
+
+      {/* ── right: radar visualisation of thresholds vs. filtered average ── */}
+      <aside className="hidden lg:flex w-64 xl:w-72 shrink-0 overflow-y-auto border-l border-gray-800 flex-col gap-3 p-3">
+        <div className="flex items-center gap-3 text-[0.65rem] text-gray-500">
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-2 rounded-sm bg-violet-400/40 border border-violet-400" /> Filter
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-2 rounded-sm border border-dashed border-gray-300/70" /> Ø filtered songs
+          </span>
+        </div>
+        <RadarChart
+          title="Moods"
+          axes={MOOD_AXES}
+          thresholds={moodThresh}
+          profile={moodProfile}
+          enabled={moodEnabled}
+          axisColors={MOOD_COLORS}
+        />
+        <RadarChart
+          title="DSP Features"
+          axes={DSP_AXES}
+          thresholds={dspThresh}
+          profile={dspProfile}
+          enabled={dspEnabled}
+          axisColors={DSP_COLORS}
+        />
+        <RadarChart
+          title="Other Features"
+          axes={OTHER_AXES}
+          thresholds={otherThresh}
+          profile={otherProfile}
+          enabled={otherEnabled}
+          axisColors={OTHER_COLORS}
+        />
+      </aside>
     </div>
   );
 }
