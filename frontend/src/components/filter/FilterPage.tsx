@@ -153,12 +153,12 @@ export function FilterPage({ songs }: Props) {
         }
       }
 
-      // genre filter — percentage is 0-100, threshold is 0-1
+      // genre filter — percentage is a 0-1 share (despite the name)
       if (genreEnabled) {
         for (const [key, thresh] of Object.entries(genreThresh)) {
           if (thresh <= 0) continue;
           const match = song.parent_genres.find((g) => g.genre === key);
-          if (!match || match.percentage / 100 < thresh) return false;
+          if (!match || match.percentage < thresh) return false;
         }
       }
 
