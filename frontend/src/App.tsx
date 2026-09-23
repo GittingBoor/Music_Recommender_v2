@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchNeighbors, fetchSongCount, fetchSongs } from "./services/api";
 import type { Song } from "./types/song";
-import { SongCard } from "./components/SongCard";
+import { CardsPage } from "./components/CardsPage";
 import { UmapView } from "./components/UmapView";
 import { AnalysisPage } from "./components/analysis/AnalysisPage";
 import { FilterPage } from "./components/filter/FilterPage";
@@ -99,23 +99,7 @@ export default function App() {
         )}
         {!loading && !error && (
           <>
-            {tab === "cards" && (
-              <div className="h-full overflow-y-auto">
-                <div className="max-w-5xl mx-auto px-4 py-6">
-                  {songs.length === 0 ? (
-                    <div className="text-gray-500 text-center py-16 text-sm">
-                      No songs in the database yet.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {songs.map((song) => (
-                        <SongCard key={song.id} song={song} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+            {tab === "cards" && <CardsPage songs={songs} />}
             {tab === "umap" && <UmapView songs={songs} />}
             {tab === "analysis" && <AnalysisPage songs={songs} />}
             {tab === "filter" && <FilterPage songs={songs} />}
