@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from src.api.deps import get_db
+from src.api.heartbeat import run_with_heartbeat
 from src.api.routes.admin import process_audio_file
 from src.api.routes.upload import _safe_name, _unique_path
 from src.core.config import settings
@@ -260,7 +261,12 @@ def _download_pipeline(req: YoutubeDownloadRequest) -> Iterator[str]:
 
     # 3) Run the full analysis pipeline and save to the database.
     yield _event("analyzing", 0.7)
-    result = process_audio_file(final_path)
+    result: dict = {}
+    for outcome in run_with_heartbeat(lambda: process_audio_file(final_path)):
+        if outcome is None:
+            yield _event("analyzing", 0.7)  # keep-alive
+        else:
+            result = outcome
     result["filename"] = fallback_name
     result.setdefault("error", None)
 
