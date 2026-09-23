@@ -395,6 +395,7 @@ export function FilterPage({ songs }: Props) {
           <ResultsTable
             songs={filtered}
             onVisibleOrderChange={handleVisibleOrderChange}
+            expandable
           />
         </div>
       </section>
