@@ -122,26 +122,8 @@ export function PlayerBar({ songs }: Props) {
   return (
     <div className="flex-shrink-0 border-t border-gray-800 bg-gray-950">
 
-      {/* seekbar */}
-      <div
-        ref={barRef}
-        className="relative h-1 bg-gray-800 cursor-pointer group"
-        onPointerDown={onSeekPointerDown}
-        onPointerMove={onSeekPointerMove}
-        onPointerUp={onSeekPointerUp}
-      >
-        <div
-          className="absolute inset-y-0 left-0 bg-violet-500 group-hover:bg-violet-400 transition-colors"
-          style={{ width: fillPct }}
-        />
-        <div
-          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-          style={{ left: fillPct }}
-        />
-      </div>
-
-      {/* controls row: [ track info | transport | volume / close ] */}
-      <div className="flex items-center gap-4 px-4 h-16">
+      {/* controls row: [ track info | transport + seekbar | volume / close ] */}
+      <div className="flex items-center gap-4 px-4 py-2">
 
         {/* ── left: track info ── */}
         <div className="flex-1 min-w-0">
@@ -153,140 +135,163 @@ export function PlayerBar({ songs }: Props) {
           </span>
         </div>
 
-        {/* ── center: transport controls ── */}
-        <div className="flex items-center gap-3 shrink-0">
+        {/* ── center: transport controls + seekbar ── */}
+        <div className="flex flex-col items-center gap-1.5 w-full max-w-md">
+          <div className="flex items-center gap-3">
 
-          {/* shuffle: random song from the database */}
-          <button
-            onClick={shuffle}
-            className="text-gray-400 hover:text-white transition-colors"
-            aria-label="Play a random song"
-            title="Shuffle — play a random song"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.66 6.83l-1.41 1.41 3.13 3.13L14.5 16H20v-5.5l-2.04 2.04-2.81-2.81z" />
-            </svg>
-          </button>
-
-          {/* previous song */}
-          <button
-            onClick={previous}
-            className="text-gray-300 hover:text-white transition-colors"
-            aria-label="Previous song"
-            title="Previous song"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-            </svg>
-          </button>
-
-          {/* skip back 15s */}
-          <button
-            onClick={() => skip(-15)}
-            className="text-gray-400 hover:text-white transition-colors"
-            aria-label="Skip back 15 seconds"
-            title="Back 15 seconds"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" />
-              <text x="12" y="14" textAnchor="middle" fontSize="5.5" fill="currentColor" fontWeight="700">15</text>
-            </svg>
-          </button>
-
-          {/* play / pause */}
-          <button
-            onClick={() => currentId && toggle(currentId)}
-            className="w-9 h-9 rounded-full bg-white text-gray-900 flex items-center justify-center hover:bg-gray-200 transition-colors shrink-0"
-            aria-label={playing ? "Pause" : "Play"}
-          >
-            {playing ? (
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="5" width="4" height="14" rx="1" />
-                <rect x="14" y="5" width="4" height="14" rx="1" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4 translate-x-px" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            )}
-          </button>
-
-          {/* skip forward 15s */}
-          <button
-            onClick={() => skip(15)}
-            className="text-gray-400 hover:text-white transition-colors"
-            aria-label="Skip forward 15 seconds"
-            title="Forward 15 seconds"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z" />
-              <text x="12" y="14" textAnchor="middle" fontSize="5.5" fill="currentColor" fontWeight="700">15</text>
-            </svg>
-          </button>
-
-          {/* next song */}
-          <button
-            onClick={next}
-            className="text-gray-300 hover:text-white transition-colors"
-            aria-label="Next song"
-            title="Next song"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-            </svg>
-          </button>
-
-          {/* nearest-neighbour radio: next song is the most similar one */}
-          <div className="relative">
+            {/* shuffle: random song from the database */}
             <button
-              onClick={onNearestNeighbour}
-              aria-pressed={nnMode}
-              className={`transition-colors ${
-                nnMode
-                  ? "text-violet-400 hover:text-violet-300"
-                  : "text-gray-500 hover:text-gray-300"
-              }`}
-              aria-label={
-                nnMode
-                  ? "Similar-song radio is on"
-                  : "Similar-song radio is off"
-              }
-              title={
-                nnMode
-                  ? "Similar-song radio on — the next track is the most similar song"
-                  : "Similar-song radio off — tracks play in library order"
-              }
+              onClick={shuffle}
+              className="text-gray-400 hover:text-white transition-colors"
+              aria-label="Play a random song"
+              title="Shuffle — play a random song"
             >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="18" cy="5" r="3" />
-                <circle cx="6" cy="12" r="3" />
-                <circle cx="18" cy="19" r="3" />
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.66 6.83l-1.41 1.41 3.13 3.13L14.5 16H20v-5.5l-2.04 2.04-2.81-2.81z" />
               </svg>
             </button>
-            {nnMode && (
-              <span className="pointer-events-none absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-violet-400" />
-            )}
-            {nnHint && (
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-800 px-2 py-1 text-xs text-gray-200 shadow-lg border border-gray-700">
-                {nnMode
-                  ? "Similar-song radio on — next track is the closest match"
-                  : "Similar-song radio off — playing in library order"}
+
+            {/* previous song */}
+            <button
+              onClick={previous}
+              className="text-gray-300 hover:text-white transition-colors"
+              aria-label="Previous song"
+              title="Previous song"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+              </svg>
+            </button>
+
+            {/* skip back 15s */}
+            <button
+              onClick={() => skip(-15)}
+              className="text-gray-400 hover:text-white transition-colors"
+              aria-label="Skip back 15 seconds"
+              title="Back 15 seconds"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" />
+                <text x="12" y="14" textAnchor="middle" fontSize="5.5" fill="currentColor" fontWeight="700">15</text>
+              </svg>
+            </button>
+
+            {/* play / pause */}
+            <button
+              onClick={() => currentId && toggle(currentId)}
+              className="w-9 h-9 rounded-full bg-white text-gray-900 flex items-center justify-center hover:bg-gray-200 transition-colors shrink-0"
+              aria-label={playing ? "Pause" : "Play"}
+            >
+              {playing ? (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="5" width="4" height="14" rx="1" />
+                  <rect x="14" y="5" width="4" height="14" rx="1" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4 translate-x-px" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              )}
+            </button>
+
+            {/* skip forward 15s */}
+            <button
+              onClick={() => skip(15)}
+              className="text-gray-400 hover:text-white transition-colors"
+              aria-label="Skip forward 15 seconds"
+              title="Forward 15 seconds"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z" />
+                <text x="12" y="14" textAnchor="middle" fontSize="5.5" fill="currentColor" fontWeight="700">15</text>
+              </svg>
+            </button>
+
+            {/* next song */}
+            <button
+              onClick={next}
+              className="text-gray-300 hover:text-white transition-colors"
+              aria-label="Next song"
+              title="Next song"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+              </svg>
+            </button>
+
+            {/* nearest-neighbour radio: next song is the most similar one */}
+            <div className="relative">
+              <button
+                onClick={onNearestNeighbour}
+                aria-pressed={nnMode}
+                className={`transition-colors ${
+                  nnMode
+                    ? "text-violet-400 hover:text-violet-300"
+                    : "text-gray-500 hover:text-gray-300"
+                }`}
+                aria-label={
+                  nnMode
+                    ? "Similar-song radio is on"
+                    : "Similar-song radio is off"
+                }
+                title={
+                  nnMode
+                    ? "Similar-song radio on — the next track is the most similar song"
+                    : "Similar-song radio off — tracks play in library order"
+                }
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="18" cy="5" r="3" />
+                  <circle cx="6" cy="12" r="3" />
+                  <circle cx="18" cy="19" r="3" />
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                </svg>
+              </button>
+              {nnMode && (
+                <span className="pointer-events-none absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-violet-400" />
+              )}
+              {nnHint && (
+                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-800 px-2 py-1 text-xs text-gray-200 shadow-lg border border-gray-700">
+                  {nnMode
+                    ? "Similar-song radio on — next track is the closest match"
+                    : "Similar-song radio off — playing in library order"}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* seekbar */}
+          <div className="flex items-center gap-2 w-full">
+            <span className="text-xs font-mono text-gray-500 tabular-nums w-10 text-right shrink-0">
+              {fmt(displayTime)}
+            </span>
+            <div
+              ref={barRef}
+              className="relative flex-1 h-3 cursor-pointer group touch-none"
+              onPointerDown={onSeekPointerDown}
+              onPointerMove={onSeekPointerMove}
+              onPointerUp={onSeekPointerUp}
+            >
+              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-gray-800 overflow-hidden">
+                <div
+                  className="absolute inset-y-0 left-0 bg-violet-500 group-hover:bg-violet-400 transition-colors"
+                  style={{ width: fillPct }}
+                />
               </div>
-            )}
+              <div
+                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                style={{ left: fillPct }}
+              />
+            </div>
+            <span className="text-xs font-mono text-gray-500 tabular-nums w-10 shrink-0">
+              {fmt(duration)}
+            </span>
           </div>
         </div>
 
-        {/* ── right: time, volume, close ── */}
+        {/* ── right: volume, close ── */}
         <div className="flex-1 flex items-center justify-end gap-3 min-w-0">
-
-          {/* time */}
-          <span className="text-xs font-mono text-gray-500 shrink-0 tabular-nums hidden sm:inline">
-            {fmt(displayTime)}
-            <span className="text-gray-700"> / </span>
-            {fmt(duration)}
-          </span>
 
           {/* volume */}
           <div className="flex items-center gap-2 shrink-0">
