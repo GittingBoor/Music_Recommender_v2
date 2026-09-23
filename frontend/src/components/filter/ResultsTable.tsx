@@ -13,6 +13,8 @@ interface Column {
   format?: (v: number) => string;
   align?: "left" | "right";
   cellClass?: string;
+  /** Max cell width — text beyond it is truncated. Defaults to max-w-56. */
+  widthClass?: string;
 }
 
 function fmtDuration(s: number): string {
@@ -29,12 +31,14 @@ const COLUMNS: Column[] = [
   {
     key: "title", label: "Title", defaultDir: "asc",
     get: (s) => s.title,
-    cellClass: "font-medium text-white",
+    cellClass: "font-medium text-white text-xs",
+    widthClass: "max-w-40",
   },
   {
     key: "artist", label: "Artist", defaultDir: "asc",
     get: (s) => s.artist,
-    cellClass: "text-gray-400",
+    cellClass: "text-gray-400 text-xs",
+    widthClass: "max-w-32",
   },
   {
     key: "key", label: "Key", defaultDir: "asc",
@@ -134,11 +138,11 @@ export function ResultsTable({ songs, onVisibleOrderChange, onSelect }: Props) {
       <table className="w-full text-sm whitespace-nowrap">
         <thead>
           <tr className="bg-gray-900/60">
-            <th className="w-12 px-3 py-2" />
+            <th className="w-10 px-2.5 py-2" />
             {COLUMNS.map((col) => (
               <th
                 key={col.key}
-                className={`px-3 py-2 ${col.align === "right" ? "text-right" : "text-left"}`}
+                className={`px-2.5 py-2 ${col.align === "right" ? "text-right" : "text-left"}`}
               >
                 <button
                   onClick={() => handleHeaderClick(col)}
@@ -163,7 +167,7 @@ export function ResultsTable({ songs, onVisibleOrderChange, onSelect }: Props) {
               onClick={onSelect ? () => onSelect(song.id) : undefined}
               className={`border-t border-gray-800 hover:bg-gray-800/60 transition-colors ${onSelect ? "cursor-pointer" : ""}`}
             >
-              <td className="px-3 py-1.5">
+              <td className="px-2.5 py-1.5">
                 <PlayButton songId={song.id} />
               </td>
               {COLUMNS.map((col) => {
@@ -180,9 +184,9 @@ export function ResultsTable({ songs, onVisibleOrderChange, onSelect }: Props) {
                 return (
                   <td
                     key={col.key}
-                    className={`px-3 py-1.5 ${numeric ? "text-right font-mono text-gray-300" : "text-left"} ${col.cellClass ?? ""}`}
+                    className={`px-2.5 py-1.5 ${numeric ? "text-right font-mono text-gray-300" : "text-left"} ${col.cellClass ?? ""}`}
                   >
-                    <div className="truncate max-w-56">{text}</div>
+                    <div className={`truncate ${col.widthClass ?? "max-w-56"}`}>{text}</div>
                   </td>
                 );
               })}
