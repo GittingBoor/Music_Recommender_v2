@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { Song } from "../../types/song";
 import { PlayButton } from "../PlayButton";
+import { SongDetails } from "../SongDetails";
 
 type SortDir = "asc" | "desc";
 
@@ -86,11 +87,14 @@ interface Props {
   onVisibleOrderChange?: (ids: string[]) => void;
   /** When set, clicking a row selects that song. */
   onSelect?: (songId: string) => void;
+  /** When set (and no onSelect), clicking a row expands a full field dump below it. */
+  expandable?: boolean;
 }
 
-export function ResultsTable({ songs, onVisibleOrderChange, onSelect }: Props) {
+export function ResultsTable({ songs, onVisibleOrderChange, onSelect, expandable }: Props) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const sorted = useMemo(() => {
     const col = COLUMNS.find((c) => c.key === sortKey);
@@ -158,40 +162,67 @@ export function ResultsTable({ songs, onVisibleOrderChange, onSelect }: Props) {
                 </button>
               </th>
             ))}
+            {expandable && !onSelect && <th className="w-8" />}
           </tr>
         </thead>
         <tbody>
-          {sorted.map((song) => (
-            <tr
-              key={song.id}
-              onClick={onSelect ? () => onSelect(song.id) : undefined}
-              className={`border-t border-gray-800 hover:bg-gray-800/60 transition-colors ${onSelect ? "cursor-pointer" : ""}`}
-            >
-              <td className="px-2.5 py-1.5">
-                <PlayButton songId={song.id} />
-              </td>
-              {COLUMNS.map((col) => {
-                const v = col.get(song);
-                const text =
-                  v == null
-                    ? "–"
-                    : typeof v === "number"
-                      ? col.format
-                        ? col.format(v)
-                        : String(v)
-                      : v;
-                const numeric = col.align === "right";
-                return (
-                  <td
-                    key={col.key}
-                    className={`px-2.5 py-1.5 ${numeric ? "text-right font-mono text-gray-300" : "text-left"} ${col.cellClass ?? ""}`}
-                  >
-                    <div className={`truncate ${col.widthClass ?? "max-w-56"}`}>{text}</div>
+          {sorted.map((song) => {
+            const isExpanded = expandable && expandedId === song.id;
+            const rowClick = onSelect
+              ? () => onSelect(song.id)
+              : expandable
+                ? () => setExpandedId((id) => (id === song.id ? null : song.id))
+                : undefined;
+            return (
+              <Fragment key={song.id}>
+                <tr
+                  onClick={rowClick}
+                  className={`border-t border-gray-800 hover:bg-gray-800/60 transition-colors ${rowClick ? "cursor-pointer" : ""} ${isExpanded ? "bg-gray-800/60" : ""}`}
+                >
+                  <td className="px-2.5 py-1.5">
+                    <PlayButton songId={song.id} />
                   </td>
-                );
-              })}
-            </tr>
-          ))}
+                  {COLUMNS.map((col) => {
+                    const v = col.get(song);
+                    const text =
+                      v == null
+                        ? "–"
+                        : typeof v === "number"
+                          ? col.format
+                            ? col.format(v)
+                            : String(v)
+                          : v;
+                    const numeric = col.align === "right";
+                    return (
+                      <td
+                        key={col.key}
+                        className={`px-2.5 py-1.5 ${numeric ? "text-right font-mono text-gray-300" : "text-left"} ${col.cellClass ?? ""}`}
+                      >
+                        <div className={`truncate ${col.widthClass ?? "max-w-56"}`}>{text}</div>
+                      </td>
+                    );
+                  })}
+                  {expandable && !onSelect && (
+                    <td className="px-2 py-1.5 text-right">
+                      <svg
+                        className={`w-3.5 h-3.5 inline text-gray-600 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </td>
+                  )}
+                </tr>
+                {isExpanded && (
+                  <tr className="bg-gray-900/40">
+                    <td colSpan={COLUMNS.length + 2} className="px-4 py-4 whitespace-normal">
+                      <SongDetails song={song} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>
