@@ -10,6 +10,8 @@ from fastapi.responses import StreamingResponse
 from src.api.heartbeat import run_with_heartbeat
 from src.api.routes.admin import process_audio_file
 from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
+from src.ingest.failures import record_failure
+from src.ingest.tracker import Stage, tracker
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -42,19 +44,23 @@ def _unique_path(dest_dir: Path, filename: str) -> Path:
     return candidate
 
 
-def _analyse_upload(dest: Path, original_name: str) -> Iterator[str]:
+def _analyse_upload(dest: Path, original_name: str, job_id: int) -> Iterator[str]:
     """Analyse ``dest`` off the event loop and stream the result as JSON.
 
     While the analysis runs, single spaces keep the connection alive
     (leading whitespace is valid JSON, so ``res.json()`` still works).
     """
     result: dict = {}
-    for outcome in run_with_heartbeat(lambda: process_audio_file(dest)):
-        if outcome is None:
-            yield " "
-        else:
-            result = outcome
+    try:
+        for outcome in run_with_heartbeat(lambda: process_audio_file(dest, job_id)):
+            if outcome is None:
+                yield " "
+            else:
+                result = outcome
+    finally:
+        tracker.remove(job_id)
     result["filename"] = original_name
+    record_failure("upload", original_name, result)
 
     # Clean up if not saved — only successfully processed files stay in datasets/.
     if result["status"] != "saved":
@@ -83,6 +89,7 @@ async def upload_song(file: UploadFile = File(...)) -> dict | StreamingResponse:
     suffix = Path(original_name).suffix.lower()
 
     if suffix not in SUPPORTED_AUDIO_EXTENSIONS:
+        record_failure("upload", original_name, {"status": "skipped", "reason": "unsupported_format"})
         return {
             "status": "skipped",
             "reason": "unsupported_format",
@@ -102,6 +109,7 @@ async def upload_song(file: UploadFile = File(...)) -> dict | StreamingResponse:
         dest.write_bytes(content)
     except Exception as exc:
         logger.error("[Upload] Failed to write %s: %s", original_name, exc)
+        record_failure("upload", original_name, {"status": "error", "reason": f"write_error: {exc}"})
         return {
             "status": "error",
             "reason": f"write_error: {exc}",
@@ -111,8 +119,9 @@ async def upload_song(file: UploadFile = File(...)) -> dict | StreamingResponse:
             "filename": original_name,
         }
 
+    job_id = tracker.add("upload", original_name, Stage.WAITING)
     return StreamingResponse(
-        _analyse_upload(dest, original_name),
+        _analyse_upload(dest, original_name, job_id),
         media_type="application/json",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

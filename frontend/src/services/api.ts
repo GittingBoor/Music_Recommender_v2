@@ -306,3 +306,24 @@ export async function downloadYoutube(
   if (!result) throw new Error("No result received from server");
   return result;
 }
+
+// ── ingest pipeline ─────────────────────────────────────────────────────────
+
+export type PipelineStage =
+  | "queued" | "searching" | "downloading" | "trimming" | "waiting" | "analyzing";
+
+export interface PipelineJob {
+  id: number;
+  /** "upload" | "youtube" | "bulk" */
+  source: string;
+  label: string;
+  stage: PipelineStage;
+  seconds_in_stage: number;
+}
+
+/** Every song the backend is still working on, running ones first. */
+export async function fetchPipeline(): Promise<PipelineJob[]> {
+  const res = await fetch("/api/ingest/pipeline");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()).jobs;
+}

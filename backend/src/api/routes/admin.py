@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session, selectinload
 from src.api.deps import get_db
 from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
 from src.db.session import get_session
+from src.ingest.failures import record_failure
+from src.ingest.tracker import Stage, tracker
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -135,7 +137,7 @@ _MAX_DURATION_WITHOUT_RECOGNITION = 600.0  # 10 minutes
 _ANALYSIS_LOCK = threading.Lock()
 
 
-def process_audio_file(audio_file: Path) -> dict:
+def process_audio_file(audio_file: Path, job_id: int | None = None) -> dict:
     """Run the full ingest pipeline on a single audio file.
 
     Performs the duration gate, precheck_skip, DSP/ML analysis, DB save,
@@ -147,8 +149,15 @@ def process_audio_file(audio_file: Path) -> dict:
         title   : str | None
         artist  : str | None
         song_id : str | None
+
+    ``job_id`` is the song's entry in the pipeline tracker, if any; it shows
+    as waiting until the analysis lock is free, then as analysing.
     """
+    if job_id is not None:
+        tracker.update(job_id, stage=Stage.WAITING)
     with _ANALYSIS_LOCK:
+        if job_id is not None:
+            tracker.update(job_id, stage=Stage.ANALYZING)
         return _process_audio_file(audio_file)
 
 
@@ -205,7 +214,8 @@ def _run_ingest() -> None:
     logger.info("[Admin] Ingesting %d files from %s", len(audio_files), settings.datasets_dir)
 
     for audio_file in audio_files:
-        process_audio_file(audio_file)
+        result = process_audio_file(audio_file)
+        record_failure("folder", audio_file.name, result)
 
     _final_umap_refit()
     logger.info("[Admin] Ingestion complete")

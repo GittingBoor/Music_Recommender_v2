@@ -6,6 +6,7 @@ from src.db.models.instruments import Instrument
 from src.db.models.ml_features import MLProfileFeatures, MLMoodFeatures
 from src.db.models.dsp_features import DSPFeatures
 from src.db.models.other_features import OtherFeatures
+from src.db.models.ingest_failure import IngestFailure
 
 __all__ = [
     "Base",
@@ -21,4 +22,5 @@ __all__ = [
     "MLMoodFeatures",
     "DSPFeatures",
     "OtherFeatures",
+    "IngestFailure",
 ]

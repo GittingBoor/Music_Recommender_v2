@@ -15,6 +15,8 @@ from src.api.routes.admin import process_audio_file
 from src.api.routes.upload import _safe_name, _unique_path
 from src.core.config import settings
 from src.db.models import Song
+from src.ingest.failures import record_failure
+from src.ingest.tracker import Stage, tracker
 from src.youtube.library_match import LibraryMatcher
 from src.youtube.service import MusicVerdict, YoutubeSearchResult, YoutubeService, classify_error
 from src.youtube.trimmer import get_music_trimmer
@@ -223,13 +225,33 @@ def _error_result(filename: str, reason: str, error: dict | None = None) -> dict
     }
 
 
-def _download_pipeline(req: YoutubeDownloadRequest) -> Iterator[str]:
+def _download_pipeline(
+    req: YoutubeDownloadRequest, job_id: int | None = None, log_failures: bool = True
+) -> Iterator[str]:
     """Download → trim → analyse, yielding NDJSON progress events.
 
     Terminal event always has ``stage == "done"`` and carries the result
     (status saved/skipped/error), so the frontend has a single completion path.
+
+    ``job_id`` reuses an existing pipeline-tracker entry (bulk queue); without
+    it the download registers and removes its own. ``log_failures=False``
+    leaves recording a failure to the caller (bulk tries several hits).
     """
     fallback_name = req.title or req.video_id
+    owns_job = job_id is None
+    if job_id is None:
+        job_id = tracker.add("youtube", fallback_name, Stage.DOWNLOADING)
+    try:
+        yield from _download_steps(req, fallback_name, job_id, log_failures)
+    finally:
+        if owns_job:
+            tracker.remove(job_id)
+
+
+def _download_steps(
+    req: YoutubeDownloadRequest, fallback_name: str, job_id: int, log_failures: bool
+) -> Iterator[str]:
+    tracker.update(job_id, stage=Stage.DOWNLOADING)
 
     # 1) Download audio to datasets/youtube/.
     yield _event("downloading", 0.05)
@@ -238,15 +260,15 @@ def _download_pipeline(req: YoutubeDownloadRequest) -> Iterator[str]:
     except Exception as exc:
         error = classify_error(exc)
         logger.error("[YouTube] Download failed for %s: %s", req.video_id, error.raw_message)
-        yield _event(
-            "done",
-            1.0,
-            _error_result(fallback_name, f"download_error: {error.title}", error.as_dict()),
-        )
+        result = _error_result(fallback_name, f"download_error: {error.title}", error.as_dict())
+        if log_failures:
+            record_failure("youtube", fallback_name, result, req.video_id)
+        yield _event("done", 1.0, result)
         return
 
     # 2) Trim non-music intro/outro (YouTube only).
     yield _event("trimming", 0.45)
+    tracker.update(job_id, stage=Stage.TRIMMING)
     final_path = _unique_path(_YOUTUBE_DIR, _safe_name(f"{fallback_name}.mp3"))
     trimmed = False
     try:
@@ -262,13 +284,15 @@ def _download_pipeline(req: YoutubeDownloadRequest) -> Iterator[str]:
     # 3) Run the full analysis pipeline and save to the database.
     yield _event("analyzing", 0.7)
     result: dict = {}
-    for outcome in run_with_heartbeat(lambda: process_audio_file(final_path)):
+    for outcome in run_with_heartbeat(lambda: process_audio_file(final_path, job_id)):
         if outcome is None:
             yield _event("analyzing", 0.7)  # keep-alive
         else:
             result = outcome
     result["filename"] = fallback_name
     result.setdefault("error", None)
+    if log_failures:
+        record_failure("youtube", fallback_name, result, req.video_id)
 
     # Only successfully analysed files stay on disk.
     if result["status"] != "saved":
