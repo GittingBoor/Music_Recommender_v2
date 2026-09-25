@@ -330,7 +330,7 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
                 </div>
 
                 {isDownloading ? (
-                  <div className="w-44 shrink-0">
+                  <div className="w-24 md:w-44 shrink-0">
                     <div className="flex justify-between text-xs text-gray-400 mb-1">
                       <span>{STAGE_LABEL[stage]}</span>
                       <span className="font-mono">{elapsed.toFixed(1)}s</span>

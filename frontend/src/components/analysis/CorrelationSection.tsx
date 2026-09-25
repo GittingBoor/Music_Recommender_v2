@@ -84,17 +84,17 @@ export function CorrelationSection() {
   const svgH = LABEL_H + n * CELL;
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6">
+    <div className="max-w-7xl mx-auto px-4 py-4 md:px-6 md:py-6">
       <div className="mb-4">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-widest">
           Pearson Correlation Matrix
         </h2>
         <p className="text-xs text-gray-600 mt-1">
-          Hover cells to see the correlation value. Blue = positive, Red = negative.
+          Hover or tap cells to see the correlation value. Blue = positive, Red = negative.
         </p>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 overflow-auto" ref={containerRef}>
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-2 md:p-4 overflow-auto" ref={containerRef}>
         <svg width={svgW} height={svgH} style={{ display: "block", margin: "0 auto" }}>
           {/* X-axis labels (rotated -45°) */}
           {features.map((f, i) => (
@@ -141,6 +141,7 @@ export function CorrelationSection() {
                     strokeWidth={isHovered ? 1.5 : 0.5}
                     style={{ cursor: "crosshair" }}
                     onMouseMove={(e) => setTooltip({ x: e.clientX, y: e.clientY, i, j })}
+                    onClick={(e) => setTooltip({ x: e.clientX, y: e.clientY, i, j })}
                     onMouseLeave={() => setTooltip(null)}
                   />
                   {i === j && (
@@ -190,7 +191,7 @@ export function CorrelationSection() {
       {tooltip && (
         <div
           className="fixed pointer-events-none z-50 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-xs shadow-xl"
-          style={{ left: tooltip.x + 14, top: tooltip.y - 10 }}
+          style={{ left: Math.max(8, Math.min(tooltip.x + 14, window.innerWidth - 200)), top: tooltip.y - 10 }}
         >
           <p className="text-gray-300 font-medium">
             {FEATURE_LABELS[features[tooltip.j]] ?? features[tooltip.j]}
