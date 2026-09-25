@@ -1,9 +1,13 @@
+import json
 import logging
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 from fastapi import APIRouter, File, UploadFile
+from fastapi.responses import StreamingResponse
 
+from src.api.heartbeat import run_with_heartbeat
 from src.api.routes.admin import process_audio_file
 from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
 
@@ -38,8 +42,32 @@ def _unique_path(dest_dir: Path, filename: str) -> Path:
     return candidate
 
 
-@router.post("/upload")
-async def upload_song(file: UploadFile = File(...)) -> dict:
+def _analyse_upload(dest: Path, original_name: str) -> Iterator[str]:
+    """Analyse ``dest`` off the event loop and stream the result as JSON.
+
+    While the analysis runs, single spaces keep the connection alive
+    (leading whitespace is valid JSON, so ``res.json()`` still works).
+    """
+    result: dict = {}
+    for outcome in run_with_heartbeat(lambda: process_audio_file(dest)):
+        if outcome is None:
+            yield " "
+        else:
+            result = outcome
+    result["filename"] = original_name
+
+    # Clean up if not saved — only successfully processed files stay in datasets/.
+    if result["status"] != "saved":
+        try:
+            dest.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    yield json.dumps(result)
+
+
+@router.post("/upload", response_model=None)
+async def upload_song(file: UploadFile = File(...)) -> dict | StreamingResponse:
     """Upload a single audio file, run it through the analysis pipeline,
     and save it to ``datasets/uploads/`` if successful.
 
@@ -83,14 +111,8 @@ async def upload_song(file: UploadFile = File(...)) -> dict:
             "filename": original_name,
         }
 
-    result = process_audio_file(dest)
-    result["filename"] = original_name
-
-    # Clean up if not saved — only successfully processed files stay in datasets/.
-    if result["status"] != "saved":
-        try:
-            dest.unlink(missing_ok=True)
-        except Exception:
-            pass
-
-    return result
+    return StreamingResponse(
+        _analyse_upload(dest, original_name),
+        media_type="application/json",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
