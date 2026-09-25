@@ -1,0 +1,345 @@
+# Pop
+Michael Jackson - Billie Jean
+Whitney Houston - I Wanna Dance with Somebody
+Britney Spears - Toxic
+Beyonce - Crazy in Love
+Rihanna - Umbrella
+Lady Gaga - Bad Romance
+Katy Perry - Firework
+Adele - Rolling in the Deep
+Taylor Swift - Shake It Off
+Ed Sheeran - Shape of You
+Bruno Mars - Uptown Funk
+Dua Lipa - Levitating
+The Weeknd - Blinding Lights
+Harry Styles - As It Was
+Billie Eilish - bad guy
+Olivia Rodrigo - drivers license
+Justin Timberlake - Cry Me a River
+Sia - Chandelier
+Lorde - Royals
+Ariana Grande - 7 rings
+Miley Cyrus - Flowers
+Coldplay - Viva la Vida
+Maroon 5 - Moves Like Jagger
+Pharrell Williams - Happy
+ABBA - Dancing Queen
+Cyndi Lauper - Girls Just Want to Have Fun
+Whitney Houston - I Will Always Love You
+Celine Dion - My Heart Will Go On
+Sabrina Carpenter - Espresso
+# Rock
+Queen - Don't Stop Me Now
+Led Zeppelin - Stairway to Heaven
+The Rolling Stones - Paint It Black
+The Beatles - Hey Jude
+The Beatles - Come Together
+Pink Floyd - Comfortably Numb
+Pink Floyd - Wish You Were Here
+Nirvana - Smells Like Teen Spirit
+Pearl Jam - Alive
+Foo Fighters - Everlong
+AC/DC - Back in Black
+Guns N' Roses - Sweet Child O' Mine
+Bon Jovi - Livin' on a Prayer
+Eagles - Hotel California
+Fleetwood Mac - Dreams
+Dire Straits - Sultans of Swing
+The Who - Baba O'Riley
+Deep Purple - Smoke on the Water
+The Doors - Light My Fire
+Jimi Hendrix - All Along the Watchtower
+Red Hot Chili Peppers - Californication
+Radiohead - Creep
+Radiohead - Karma Police
+Oasis - Wonderwall
+Blur - Song 2
+The Killers - Mr. Brightside
+Arctic Monkeys - Do I Wanna Know?
+The White Stripes - Seven Nation Army
+Muse - Uprising
+Linkin Park - In the End
+Green Day - Boulevard of Broken Dreams
+The Strokes - Last Nite
+Kings of Leon - Sex on Fire
+Imagine Dragons - Believer
+David Bowie - Heroes
+Bruce Springsteen - Born to Run
+Toto - Hold the Line
+Journey - Don't Stop Believin'
+Survivor - Eye of the Tiger
+U2 - With or Without You
+# Metal / Punk
+Metallica - Enter Sandman
+Metallica - Nothing Else Matters
+Iron Maiden - The Trooper
+Black Sabbath - Paranoid
+System of a Down - Chop Suey!
+Slipknot - Duality
+Rammstein - Du hast
+Rammstein - Sonne
+Rage Against the Machine - Killing in the Name
+Ramones - Blitzkrieg Bop
+The Clash - London Calling
+Sex Pistols - Anarchy in the U.K.
+blink-182 - All the Small Things
+Sum 41 - In Too Deep
+Avenged Sevenfold - Hail to the King
+Judas Priest - Breaking the Law
+Motorhead - Ace of Spades
+Bring Me the Horizon - Throne
+Ghost - Mary on a Cross
+Sabaton - Primo Victoria
+# Hip-Hop
+Eminem - Lose Yourself
+Eminem - Without Me
+Dr. Dre - Still D.R.E.
+2Pac - California Love
+The Notorious B.I.G. - Juicy
+Kendrick Lamar - HUMBLE.
+Kendrick Lamar - Alright
+Kanye West - Stronger
+Jay-Z - Empire State of Mind
+Drake - Hotline Bling
+Travis Scott - SICKO MODE
+OutKast - Hey Ya!
+Missy Elliott - Get Ur Freak On
+Nas - N.Y. State of Mind
+Wu-Tang Clan - C.R.E.A.M.
+Run-DMC - It's Tricky
+Beastie Boys - Sabotage
+Snoop Dogg - Drop It Like It's Hot
+50 Cent - In Da Club
+Post Malone - Rockstar
+Lil Nas X - Old Town Road
+Cardi B - Bodak Yellow
+Nicki Minaj - Super Bass
+A Tribe Called Quest - Can I Kick It?
+Coolio - Gangsta's Paradise
+Cypress Hill - Insane in the Brain
+Tyler, The Creator - EARFQUAKE
+Doja Cat - Say So
+J. Cole - No Role Modelz
+Mac Miller - Self Care
+# R&B / Soul / Funk
+Marvin Gaye - What's Going On
+Stevie Wonder - Superstition
+Aretha Franklin - Respect
+Otis Redding - Sittin' On the Dock of the Bay
+Al Green - Let's Stay Together
+James Brown - I Got You (I Feel Good)
+Earth, Wind & Fire - September
+Chic - Le Freak
+Prince - Purple Rain
+Prince - Kiss
+Usher - Yeah!
+Alicia Keys - Fallin'
+Amy Winehouse - Rehab
+Amy Winehouse - Back to Black
+Frank Ocean - Thinkin Bout You
+SZA - Kill Bill
+Lauryn Hill - Doo Wop (That Thing)
+TLC - No Scrubs
+Destiny's Child - Say My Name
+Bill Withers - Ain't No Sunshine
+Kool & The Gang - Celebration
+Parliament - Give Up the Funk
+Jamiroquai - Virtual Insanity
+Sade - Smooth Operator
+Childish Gambino - Redbone
+# Electronic / Dance
+Daft Punk - One More Time
+Daft Punk - Around the World
+Avicii - Levels
+Avicii - Wake Me Up
+Swedish House Mafia - Don't You Worry Child
+Calvin Harris - Summer
+David Guetta - Titanium
+Deadmau5 - Strobe
+Skrillex - Bangarang
+The Chemical Brothers - Galvanize
+The Prodigy - Firestarter
+Fatboy Slim - Right Here, Right Now
+Moby - Porcelain
+Massive Attack - Teardrop
+Portishead - Glory Box
+Aphex Twin - Windowlicker
+Kraftwerk - The Model
+Depeche Mode - Enjoy the Silence
+New Order - Blue Monday
+Eurythmics - Sweet Dreams
+Darude - Sandstorm
+Eiffel 65 - Blue (Da Ba Dee)
+Robin Schulz - Prayer in C
+Kygo - Firestone
+Martin Garrix - Animals
+Disclosure - Latch
+Fred again.. - Delilah (pull me out of this)
+Paul Kalkbrenner - Sky and Sand
+Boris Brejcha - Gravity
+Stromae - Alors on danse
+Justice - D.A.N.C.E.
+Gorillaz - Feel Good Inc.
+Groove Armada - At the River
+Bonobo - Kerala
+Odesza - A Moment Apart
+# Jazz / Blues
+Miles Davis - So What
+John Coltrane - Giant Steps
+Dave Brubeck - Take Five
+Louis Armstrong - What a Wonderful World
+Ella Fitzgerald - Summertime
+Nina Simone - Feeling Good
+Billie Holiday - Strange Fruit
+Herbie Hancock - Cantaloupe Island
+Chet Baker - My Funny Valentine
+Frank Sinatra - Fly Me to the Moon
+Norah Jones - Don't Know Why
+B.B. King - The Thrill Is Gone
+Muddy Waters - Mannish Boy
+John Lee Hooker - Boom Boom
+Etta James - At Last
+Gregory Porter - Liquid Spirit
+Snarky Puppy - Lingus
+Kamasi Washington - Truth
+Duke Ellington - Take the A Train
+Ray Charles - Hit the Road Jack
+# Classical / Soundtrack
+Ludwig van Beethoven - Symphony No. 5
+Wolfgang Amadeus Mozart - Eine kleine Nachtmusik
+Johann Sebastian Bach - Toccata and Fugue in D minor
+Antonio Vivaldi - The Four Seasons Spring
+Claude Debussy - Clair de Lune
+Erik Satie - Gymnopedie No. 1
+Frederic Chopin - Nocturne Op. 9 No. 2
+Pyotr Tchaikovsky - Dance of the Sugar Plum Fairy
+Edvard Grieg - In the Hall of the Mountain King
+Carl Orff - O Fortuna
+Ludovico Einaudi - Nuvole Bianche
+Hans Zimmer - Time
+Hans Zimmer - He's a Pirate
+John Williams - Star Wars Main Theme
+Ennio Morricone - The Good, the Bad and the Ugly
+Max Richter - On the Nature of Daylight
+Yann Tiersen - Comptine d'un autre ete
+Howard Shore - Concerning Hobbits
+Joe Hisaishi - One Summer's Day
+Samuel Barber - Adagio for Strings
+# Country / Folk / Singer-Songwriter
+Johnny Cash - Hurt
+Johnny Cash - Ring of Fire
+Dolly Parton - Jolene
+John Denver - Take Me Home, Country Roads
+Kenny Rogers - The Gambler
+Shania Twain - Man! I Feel Like a Woman!
+Luke Combs - Fast Car
+Chris Stapleton - Tennessee Whiskey
+Zach Bryan - Something in the Orange
+Bob Dylan - Like a Rolling Stone
+Simon & Garfunkel - The Sound of Silence
+Leonard Cohen - Hallelujah
+Neil Young - Heart of Gold
+Joni Mitchell - Big Yellow Taxi
+Cat Stevens - Wild World
+Tracy Chapman - Fast Car
+Bon Iver - Skinny Love
+Mumford & Sons - Little Lion Man
+The Lumineers - Ho Hey
+Hozier - Take Me to Church
+Passenger - Let Her Go
+Vance Joy - Riptide
+Fleet Foxes - White Winter Hymnal
+Iron & Wine - Such Great Heights
+Phoebe Bridgers - Motion Sickness
+# Reggae / Latin / World
+Bob Marley - Three Little Birds
+Bob Marley - Is This Love
+Bob Marley - Redemption Song
+Peter Tosh - Legalize It
+UB40 - Red Red Wine
+Sean Paul - Get Busy
+Shaggy - It Wasn't Me
+Luis Fonsi - Despacito
+Shakira - Hips Don't Lie
+Bad Bunny - Titi Me Pregunto
+J Balvin - Mi Gente
+Ricky Martin - Livin' la Vida Loca
+Santana - Smooth
+Buena Vista Social Club - Chan Chan
+Gipsy Kings - Bamboleo
+Rosalia - Malamente
+Manu Chao - Me Gustas Tu
+Fela Kuti - Water No Get Enemy
+Burna Boy - Last Last
+Tems - Free Mind
+Rema - Calm Down
+Miriam Makeba - Pata Pata
+Astrud Gilberto - The Girl from Ipanema
+Anitta - Envolver
+Daddy Yankee - Gasolina
+# K-Pop / J-Pop
+BTS - Dynamite
+BLACKPINK - How You Like That
+PSY - Gangnam Style
+NewJeans - Super Shy
+Stray Kids - S-Class
+Kenshi Yonezu - Lemon
+YOASOBI - Idol
+Joji - Glimpse of Us
+# Indie / Alternative
+Tame Impala - The Less I Know the Better
+MGMT - Electric Feel
+Foster the People - Pumped Up Kicks
+Vampire Weekend - A-Punk
+Arcade Fire - Wake Up
+The xx - Intro
+Florence + The Machine - Dog Days Are Over
+Lana Del Rey - Summertime Sadness
+Glass Animals - Heat Waves
+Twenty One Pilots - Stressed Out
+Cage the Elephant - Ain't No Rest for the Wicked
+Franz Ferdinand - Take Me Out
+Yeah Yeah Yeahs - Maps
+The Cure - Just Like Heaven
+The Smiths - There Is a Light That Never Goes Out
+Joy Division - Love Will Tear Us Apart
+Pixies - Where Is My Mind?
+R.E.M. - Losing My Religion
+Talking Heads - Once in a Lifetime
+Portugal. The Man - Feel It Still
+Cigarettes After Sex - Apocalypse
+Beach House - Space Song
+Mac DeMarco - Chamber of Reflection
+Alt-J - Breezeblocks
+Two Door Cinema Club - What You Know
+# Deutsch
+Peter Fox - Haus am See
+Cro - Easy
+Die Fantastischen Vier - MfG
+Nena - 99 Luftballons
+Falco - Rock Me Amadeus
+Herbert Groenemeyer - Maenner
+Die Aerzte - Schrei nach Liebe
+Die Toten Hosen - Tage wie diese
+Seeed - Dickes B
+Sido - Bilder im Kopf
+Apache 207 - Roller
+Kraftklub - Songs fuer Liam
+AnnenMayKantereit - Barfuss am Klavier
+Helene Fischer - Atemlos durch die Nacht
+Marteria - Lila Wolken
+Tokio Hotel - Durch den Monsun
+Wir sind Helden - Nur ein Wort
+Juli - Perfekte Welle
+Silbermond - Das Beste
+Udo Lindenberg - Sonderzug nach Pankow
+Kraftwerk - Autobahn
+Deichkind - Remmidemmi
+Casper - Im Ascheregen
+K.I.Z - Hurra die Welt geht unter
+Nina Chuba - Wildberry Lillet
+Provinz - Reicht dir das
+Bausa - Was du Liebe nennst
+Mark Forster - Au Revoir
+Clueso - Gewinner
+Rio Reiser - Koenig von Deutschland
