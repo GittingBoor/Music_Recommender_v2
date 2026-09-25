@@ -251,3 +251,6 @@ test-results/
 
 # Lokal erzeugte Audio-Previews (werden live aus dem Full-Audio geschnitten)
 backend/short_audio/
+
+# Produktions-Konfiguration auf dem Mini-PC, enthaelt Passwoerter und Tunnel-Token
+.env.prod

@@ -1,4 +1,5 @@
 import logging
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -129,6 +130,10 @@ def _is_recognized_by_acoustid(audio_path: Path, api_key: str) -> bool:
 
 _MAX_DURATION_WITHOUT_RECOGNITION = 600.0  # 10 minutes
 
+# The cached Essentia model instances are shared and not thread-safe, and two
+# analyses at once saturate the mini-PC. Parallel requests queue up here.
+_ANALYSIS_LOCK = threading.Lock()
+
 
 def process_audio_file(audio_file: Path) -> dict:
     """Run the full ingest pipeline on a single audio file.
@@ -143,6 +148,11 @@ def process_audio_file(audio_file: Path) -> dict:
         artist  : str | None
         song_id : str | None
     """
+    with _ANALYSIS_LOCK:
+        return _process_audio_file(audio_file)
+
+
+def _process_audio_file(audio_file: Path) -> dict:
     from src.analysis.pipeline import run_full_pipeline, _save_to_database, precheck_skip
 
     try:

@@ -10,6 +10,10 @@ RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "120";\n' > /etc/apt/a
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+# yt-dlp solves YouTube's JS challenges with deno. Without a JS runtime it
+# falls back to clients that YouTube answers with a bot check or HTTP 403.
+COPY --from=denoland/deno:bin-2.9.7 /deno /usr/local/bin/deno
+
 # requirements.lock is the pinned pip-freeze snapshot; requirements.txt is
 # the human-edited manifest (see the lock file header for how to regenerate).
 #
@@ -26,6 +30,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-deps -r requirements.lock
 
 COPY src/ ./src/
+# Im Betrieb ist backend/ nicht ins Image gemountet (docker-compose.prod.yml),
+# deshalb muessen die Migrationen mit ins Image - sonst scheitert
+# `alembic upgrade head` mit "No 'script_location' key found".
+COPY alembic.ini ./alembic.ini
+COPY alembic/ ./alembic/
 COPY entrypoint.sh ./entrypoint.sh
 RUN sed -i 's/\r//' entrypoint.sh && chmod +x entrypoint.sh
 

@@ -325,8 +325,8 @@ def extract_other_features(audio_path: Path) -> dict[str, Any]:
     Returns
     -------
     dict with keys:
-      ``gmbi``             — ``{"mean": {dim: float}, "frames": {}}``
-      ``tonal``            — ``{"mean": float, "timeseries": [float]}``
+      ``gmbi``             — ``{"mean": {dim: float}, "frames": {}}`` (only if the model files exist)
+      ``tonal``            — ``{"mean": float, "timeseries": [float]}`` (only if the model files exist)
       ``hpcp_mean``        — list of 12 floats
       ``tristimulus_mean`` — list of 3 floats
     """
@@ -341,6 +341,32 @@ def extract_other_features(audio_path: Path) -> dict[str, Any]:
         filename=str(audio_path), sampleRate=_SR_LOW
     )()
 
+    try:
+        result = _extract_model_features(audio_path, audio_44k, audio_16k)
+    except FileNotFoundError as exc:
+        # HPCP/Tristimulus need no model files, so they are still worth saving.
+        logger.warning("[OtherFeatures] GMBI/Tonal skipped: %s", exc)
+        result = {}
+
+    logger.info("[OtherFeatures] Computing HPCP / Tristimulus")
+    harmony = _extract_hpcp_tristimulus(audio_44k)
+    logger.info("[OtherFeatures] Complete — %s", audio_path.name)
+
+    return {
+        **result,
+        "hpcp_mean":        harmony["hpcp_mean"],
+        "tristimulus_mean": harmony["tristimulus_mean"],
+    }
+
+
+def _extract_model_features(
+    audio_path: Path, audio_44k: np.ndarray, audio_16k: np.ndarray
+) -> dict[str, Any]:
+    """Tonal/Atonal and GMBI, both of which need the audio_process model files.
+
+    Raises:
+        FileNotFoundError: If a MusiCNN or GMBI model file is missing.
+    """
     logger.info("[OtherFeatures] Running MusiCNN classifiers")
     dl_results = _run_dl_models(audio_16k)
 
@@ -357,14 +383,4 @@ def extract_other_features(audio_path: Path) -> dict[str, Any]:
         gmbi["mean"].get("valence", 0),
         gmbi["mean"].get("arousal", 0),
     )
-
-    logger.info("[OtherFeatures] Computing HPCP / Tristimulus")
-    harmony = _extract_hpcp_tristimulus(audio_44k)
-    logger.info("[OtherFeatures] Complete — %s", audio_path.name)
-
-    return {
-        "gmbi":             gmbi,
-        "tonal":            tonal_result,
-        "hpcp_mean":        harmony["hpcp_mean"],
-        "tristimulus_mean": harmony["tristimulus_mean"],
-    }
+    return {"gmbi": gmbi, "tonal": tonal_result}

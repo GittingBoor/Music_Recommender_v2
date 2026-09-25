@@ -1,4 +1,6 @@
 import logging
+import shutil
+import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +10,12 @@ from src.core.config import settings
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://essentia.upf.edu/models"
+
+# essentia.upf.edu sometimes stalls in the TLS handshake. Without a timeout the
+# first song after a fresh install would hang forever waiting for its models.
+_DOWNLOAD_TIMEOUT_SECONDS = 60
+_DOWNLOAD_ATTEMPTS = 4
+_RETRY_BACKOFF_SECONDS = 5
 
 
 @dataclass(frozen=True)
@@ -164,17 +172,25 @@ class ModelManager:
         logger.info("All models ready.")
 
     def _download(self, url: str, dest: Path) -> None:
+        for attempt in range(1, _DOWNLOAD_ATTEMPTS + 1):
+            try:
+                self._download_once(url, dest)
+                return
+            except OSError as exc:
+                if attempt == _DOWNLOAD_ATTEMPTS:
+                    raise
+                logger.warning(
+                    "[Model] Download of %s failed (attempt %d/%d): %s — retrying",
+                    url, attempt, _DOWNLOAD_ATTEMPTS, exc,
+                )
+                time.sleep(_RETRY_BACKOFF_SECONDS * attempt)
+
+    @staticmethod
+    def _download_once(url: str, dest: Path) -> None:
         tmp = dest.with_suffix(".tmp")
         try:
-            def _progress(block_count: int, block_size: int, total_size: int) -> None:
-                if total_size <= 0:
-                    return
-                downloaded = block_count * block_size
-                pct = min(downloaded / total_size * 100, 100)
-                print(f"\r  {pct:5.1f}%  ({downloaded // 1_048_576} / {total_size // 1_048_576} MB)", end="", flush=True)
-
-            urllib.request.urlretrieve(url, tmp, reporthook=_progress)
-            print()
+            with urllib.request.urlopen(url, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as response, tmp.open("wb") as out:
+                shutil.copyfileobj(response, out)
             tmp.rename(dest)
         except Exception:
             if tmp.exists():

@@ -22,5 +22,7 @@ pandas>=2.2.0
 scipy>=1.13.0
 python-multipart>=0.0.9
 yt-dlp>=2024.4.9
+# YouTube's JS challenges; needs deno in the image (see Dockerfile).
+yt-dlp-ejs>=0.8.0
 inaSpeechSegmenter>=0.7.0
 pytest>=8.0.0

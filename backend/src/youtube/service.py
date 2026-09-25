@@ -31,6 +31,12 @@ _TOPIC_SUFFIX = " - topic"
 _DOWNLOAD_ATTEMPTS = 3
 _RETRY_BACKOFF_SECONDS = (2, 6)
 
+# The embedded web player needs neither login nor PO token and serves the
+# audio formats; the default clients follow for videos that forbid embedding.
+# Without it, YouTube answers the server with "confirm you're not a bot" or 403.
+# Requires a JS runtime (deno) and yt-dlp-ejs in the image.
+_PLAYER_CLIENTS = ["web_embedded", "default"]
+
 _CLASSIFY_WORKERS = 8
 # Over-fetch so the music filter can drop hits and still fill the page.
 _SEARCH_OVERFETCH = 3
@@ -56,6 +62,7 @@ class YoutubeErrorKind(str, Enum):
     GEO_BLOCKED = "geo_blocked"
     AGE_RESTRICTED = "age_restricted"
     RATE_LIMITED = "rate_limited"
+    BOT_CHECK = "bot_check"
     NETWORK = "network"
     UNKNOWN = "unknown"
 
@@ -95,6 +102,16 @@ _ERROR_TABLE: dict[YoutubeErrorKind, tuple[str, str, bool, str]] = {
         "es wurde bereits mehrfach automatisch wiederholt. Warte ein bis zwei "
         "Minuten und versuche es erneut.",
         True,
+        "global",
+    ),
+    YoutubeErrorKind.BOT_CHECK: (
+        "YouTube hält den Server für einen Bot",
+        "YouTube verlangt eine Anmeldung, bevor es Videos an diesen Server "
+        "ausliefert. Das liegt nicht am Video und betrifft alle Downloads. Meist "
+        "ist yt-dlp veraltet oder im Container fehlt die JavaScript-Laufzeit "
+        "(deno). Solange das besteht, lassen sich Songs nur per Datei-Upload "
+        "hinzufügen.",
+        False,
         "global",
     ),
     YoutubeErrorKind.NETWORK: (
@@ -150,6 +167,8 @@ def classify_error(exc: Exception) -> YoutubeError:
         kind = YoutubeErrorKind.RATE_LIMITED
     elif "not available in your country" in text or "geo" in text:
         kind = YoutubeErrorKind.GEO_BLOCKED
+    elif "not a bot" in text:
+        kind = YoutubeErrorKind.BOT_CHECK
     elif "age" in text and ("confirm" in text or "restrict" in text or "sign in" in text):
         kind = YoutubeErrorKind.AGE_RESTRICTED
     elif "not available" in text or "private" in text or "removed" in text or "terminated" in text:
@@ -340,6 +359,7 @@ class YoutubeService:
             "extractor_retries": 3,
             # Pace requests so a burst of downloads doesn't trip YouTube's limiter.
             "sleep_interval_requests": 1,
+            "extractor_args": {"youtube": {"player_client": _PLAYER_CLIENTS}},
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",

@@ -1,4 +1,5 @@
 import type { Song } from '../types/song';
+import { FIELD_DESCRIPTIONS } from './fieldDescriptions';
 
 function fmtVal(val: unknown): React.ReactNode {
   if (val == null) return <span className="text-gray-700">null</span>;
@@ -19,6 +20,30 @@ function fmtVal(val: unknown): React.ReactNode {
 
 type Row = [string, unknown];
 
+/** Table names like "track_metadata → similar_tracks" map to "track_metadata.similar_tracks". */
+function describe(table: string, column: string): string | undefined {
+  return FIELD_DESCRIPTIONS[`${table.replace(' → ', '.')}.${column}`];
+}
+
+/** Column name with a one-sentence explanation on hover, keyboard focus or tap. */
+function FieldLabel({ label, description }: { label: string; description?: string }) {
+  if (!description) return <>{label}</>;
+  return (
+    <span
+      tabIndex={0}
+      className="group relative cursor-help underline decoration-dotted decoration-gray-600 underline-offset-2 outline-none focus-visible:text-gray-300"
+    >
+      {label}
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-0 bottom-full z-20 mb-1 w-64 rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 font-sans text-[11px] font-normal leading-snug text-gray-200 opacity-0 shadow-lg transition-opacity duration-100 group-hover:opacity-100 group-focus:opacity-100"
+      >
+        {description}
+      </span>
+    </span>
+  );
+}
+
 function KVTable({ name, rows }: { name: string; rows: Row[] }) {
   return (
     <div>
@@ -27,7 +52,9 @@ function KVTable({ name, rows }: { name: string; rows: Row[] }) {
         <tbody>
           {rows.map(([col, val]) => (
             <tr key={col} className="border-t border-gray-800 first:border-t-0">
-              <td className="text-gray-500 px-2 py-0.5 w-52 shrink-0 align-top select-all">{col}</td>
+              <td className="text-gray-500 px-2 py-0.5 w-52 shrink-0 align-top select-all">
+                <FieldLabel label={col} description={describe(name, col)} />
+              </td>
               <td className="text-gray-200 px-2 py-0.5 break-all">{fmtVal(val)}</td>
             </tr>
           ))}
@@ -45,7 +72,9 @@ function MultiTable({ name, columns, rows }: { name: string; columns: string[]; 
         <thead>
           <tr className="border-b border-gray-700 bg-gray-900">
             {columns.map(col => (
-              <th key={col} className="text-gray-500 px-2 py-0.5 text-left font-normal">{col}</th>
+              <th key={col} className="text-gray-500 px-2 py-0.5 text-left font-normal">
+                <FieldLabel label={col} description={describe(name, col)} />
+              </th>
             ))}
           </tr>
         </thead>

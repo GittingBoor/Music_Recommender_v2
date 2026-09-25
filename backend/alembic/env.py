@@ -3,11 +3,17 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
+from src.core.config import settings
 from src.db.models import Base  # registers all models
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Die Verbindung kommt aus der Umgebung (DATABASE_URL aus .env bzw. .env.prod),
+# nicht aus alembic.ini: im Betrieb auf dem Mini-PC gilt ein anderes Passwort
+# als in der Entwicklung. Der Wert in alembic.ini ist nur noch der Notnagel.
+config.set_main_option("sqlalchemy.url", settings.database_url)
 
 target_metadata = Base.metadata
 
