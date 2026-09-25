@@ -4,6 +4,7 @@ import type { UploadResult, YoutubeErrorDetail } from "../../services/api";
 import { PlayButton } from "../PlayButton";
 import { StatCard } from "../StatCard";
 import { YoutubeSearch } from "./YoutubeSearch";
+import { PipelineList } from "./PipelineList";
 
 // ── types ─────────────────────────────────────────────────────────────────
 type ItemStatus = "pending" | "processing" | "done";
@@ -399,6 +400,9 @@ export function UploadPage() {
             })}
           </div>
         )}
+
+        {/* ── everything the backend is still working on, always last ── */}
+        <PipelineList />
 
       </div>
     </div>
