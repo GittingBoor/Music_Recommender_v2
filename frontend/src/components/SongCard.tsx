@@ -47,7 +47,7 @@ export function SongCard({ song }: { song: Song }) {
       </div>
 
       {expanded && (
-        <div className="border-t border-gray-800 px-4 py-4">
+        <div className="border-t border-gray-800 px-2 py-3 md:px-4 md:py-4">
           <SongDetails song={song} />
         </div>
       )}

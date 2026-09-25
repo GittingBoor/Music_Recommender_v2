@@ -36,7 +36,7 @@ function FieldLabel({ label, description }: { label: string; description?: strin
       {label}
       <span
         role="tooltip"
-        className="pointer-events-none absolute left-0 bottom-full z-20 mb-1 w-64 rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 font-sans text-[11px] font-normal leading-snug text-gray-200 opacity-0 shadow-lg transition-opacity duration-100 group-hover:opacity-100 group-focus:opacity-100"
+        className="pointer-events-none absolute left-0 bottom-full z-20 mb-1 w-56 md:w-64 rounded-md border border-gray-700 bg-gray-950 px-2 py-1.5 font-sans text-[11px] font-normal leading-snug text-gray-200 opacity-0 shadow-lg transition-opacity duration-100 group-hover:opacity-100 group-focus:opacity-100"
       >
         {description}
       </span>
@@ -52,7 +52,7 @@ function KVTable({ name, rows }: { name: string; rows: Row[] }) {
         <tbody>
           {rows.map(([col, val]) => (
             <tr key={col} className="border-t border-gray-800 first:border-t-0">
-              <td className="text-gray-500 px-2 py-0.5 w-52 shrink-0 align-top select-all">
+              <td className="text-gray-500 px-2 py-0.5 w-32 md:w-52 shrink-0 align-top select-all break-all md:break-normal">
                 <FieldLabel label={col} description={describe(name, col)} />
               </td>
               <td className="text-gray-200 px-2 py-0.5 break-all">{fmtVal(val)}</td>

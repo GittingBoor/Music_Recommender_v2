@@ -282,7 +282,7 @@ export function OverviewSection({ songs }: Props) {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6 space-y-8">
+    <div className="max-w-7xl mx-auto px-4 py-4 md:px-6 md:py-6 space-y-8">
 
       {/* ── Stat Cards ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -360,7 +360,7 @@ export function OverviewSection({ songs }: Props) {
                   nameKey="name"
                   cx="50%"
                   cy="50%"
-                  outerRadius={75}
+                  outerRadius={60}
                   innerRadius={35}
                   label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                   labelLine={{ stroke: "#6b7280" }}
@@ -383,7 +383,7 @@ export function OverviewSection({ songs }: Props) {
                   nameKey="mood"
                   cx="50%"
                   cy="50%"
-                  outerRadius={75}
+                  outerRadius={60}
                   innerRadius={32}
                   label={({ mood, percent }) =>
                     percent > 0.04 ? `${mood} ${(percent * 100).toFixed(0)}%` : ""

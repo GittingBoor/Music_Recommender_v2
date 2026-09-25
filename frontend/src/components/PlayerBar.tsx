@@ -120,13 +120,13 @@ export function PlayerBar({ songs }: Props) {
   const fillPct = `${(dragging ? dragValue / (duration || 1) : progress) * 100}%`;
 
   return (
-    <div className="flex-shrink-0 border-t border-gray-800 bg-gray-950">
+    <div className="flex-shrink-0 border-t border-gray-800 bg-gray-950 pb-safe">
 
       {/* controls row: [ track info | transport + seekbar | volume / close ] */}
-      <div className="flex items-center gap-4 px-4 py-2">
+      <div className="flex flex-wrap md:flex-nowrap items-center gap-x-4 gap-y-1 px-3 md:px-4 py-2">
 
         {/* ── left: track info ── */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 order-1">
           <span className="text-sm text-white font-medium truncate block leading-tight">
             {song?.title ?? "Unknown"}
           </span>
@@ -136,8 +136,8 @@ export function PlayerBar({ songs }: Props) {
         </div>
 
         {/* ── center: transport controls + seekbar ── */}
-        <div className="flex flex-col items-center gap-1.5 w-full max-w-md">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col items-center gap-1.5 w-full md:max-w-md order-3 md:order-2">
+          <div className="flex items-center gap-5 md:gap-3">
 
             {/* shuffle: random song from the database */}
             <button
@@ -166,7 +166,7 @@ export function PlayerBar({ songs }: Props) {
             {/* skip back 15s */}
             <button
               onClick={() => skip(-15)}
-              className="text-gray-400 hover:text-white transition-colors"
+              className="hidden sm:block text-gray-400 hover:text-white transition-colors"
               aria-label="Skip back 15 seconds"
               title="Back 15 seconds"
             >
@@ -197,7 +197,7 @@ export function PlayerBar({ songs }: Props) {
             {/* skip forward 15s */}
             <button
               onClick={() => skip(15)}
-              className="text-gray-400 hover:text-white transition-colors"
+              className="hidden sm:block text-gray-400 hover:text-white transition-colors"
               aria-label="Skip forward 15 seconds"
               title="Forward 15 seconds"
             >
@@ -291,10 +291,10 @@ export function PlayerBar({ songs }: Props) {
         </div>
 
         {/* ── right: volume, close ── */}
-        <div className="flex-1 flex items-center justify-end gap-3 min-w-0">
+        <div className="md:flex-1 flex items-center justify-end gap-3 min-w-0 order-2 md:order-3">
 
           {/* volume */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="hidden md:flex items-center gap-2 shrink-0">
             <button
               onClick={toggleMute}
               className="text-gray-400 hover:text-white transition-colors"

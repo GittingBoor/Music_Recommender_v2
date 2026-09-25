@@ -115,6 +115,8 @@ export function FilterPage({ songs }: Props) {
 
   // ── side panels (collapse both for a full-width results table) ───────────
   const [showPanels, togglePanels] = usePersistentFlag("filter.showPanels", true);
+  // Phones get the filters as a full-screen overlay, closed by default.
+  const [mobileFilters, setMobileFilters] = useState(false);
 
   // ── per-chart state ──────────────────────────────────────────────────────
   const [moodThresh, setMoodThresh]     = useState<ThresholdsMap>(() => emptyThresholds(MOOD_AXES.map(a => a.key)));
@@ -299,10 +301,21 @@ export function FilterPage({ songs }: Props) {
     Object.values(instrThresh).some(v => v > 0);
 
   return (
-    <div className="h-full flex">
+    <div className="h-full flex relative">
 
-      {/* ── left: all filters ── */}
-      <aside className={`w-72 xl:w-80 shrink-0 overflow-y-auto border-r border-gray-800 bg-gray-950 ${showPanels ? "" : "hidden"}`}>
+      {/* ── left: all filters (full-screen overlay on phones) ── */}
+      <aside className={`absolute inset-0 z-30 md:static md:z-auto w-full md:w-72 xl:w-80 shrink-0 overflow-y-auto border-r border-gray-800 bg-gray-950 ${mobileFilters ? "block" : "hidden"} ${showPanels ? "md:block" : "md:hidden"}`}>
+        <div className="md:hidden sticky top-0 z-10 flex items-center justify-between px-4 py-2 bg-gray-950 border-b border-gray-800">
+          <span className="text-sm text-gray-300">
+            <span className="text-white font-medium">{filtered.length}</span> / {songs.length} songs
+          </span>
+          <button
+            onClick={() => setMobileFilters(false)}
+            className="px-4 py-1.5 rounded-lg bg-violet-600 text-white text-sm font-medium"
+          >
+            Show results
+          </button>
+        </div>
         <BarSliderFilter
           title="Moods"
           rows={moodRows}
@@ -354,10 +367,10 @@ export function FilterPage({ songs }: Props) {
 
       {/* ── center: search + results (sortable; visible order = play queue) ── */}
       <section className="flex-1 min-w-0 overflow-y-auto">
-        <div className="px-4 py-4 space-y-4">
-          <div className="flex items-center gap-3 flex-wrap">
+        <div className="px-3 py-3 md:px-4 md:py-4 space-y-3 md:space-y-4">
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
             <button
-              onClick={togglePanels}
+              onClick={() => (window.matchMedia("(min-width: 768px)").matches ? togglePanels() : setMobileFilters(true))}
               className={`shrink-0 flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border transition-colors ${
                 showPanels
                   ? "border-gray-700 text-gray-300 hover:border-gray-500"
@@ -376,7 +389,7 @@ export function FilterPage({ songs }: Props) {
               placeholder="Search title or artist…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 min-w-48 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-violet-500"
+              className="flex-1 min-w-0 md:min-w-48 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-violet-500"
             />
             <span className="text-sm text-gray-500 shrink-0">
               <span className="text-white font-medium">{filtered.length}</span>
