@@ -1,4 +1,5 @@
 import type { RadarAxis } from "./featureConfig";
+import { COLOR } from "../../theme";
 
 const W = 200;
 const H = 200;
@@ -31,21 +32,20 @@ interface Props {
   /** Mean normalised value per axis over the currently filtered songs. */
   profile: Record<string, number>;
   enabled: boolean;
-  axisColors?: Record<string, string>;
 }
 
 /** Read-only radar: visualises the filter thresholds set in the sidebar
- *  against the average profile of the songs that pass them. */
+ *  against the average profile of the songs that pass them. Axes with an
+ *  active threshold are set in the signal colour, like their slider rows. */
 export function RadarChart({
   title,
   axes,
   thresholds,
   profile,
   enabled,
-  axisColors = {},
 }: Props) {
   const n = axes.length;
-  const polyColor = enabled ? "#818cf8" : "#374151";
+  const polyColor = enabled ? COLOR.signal : COLOR.ink4;
 
   const toPoints = (values: Record<string, number>) =>
     axes
@@ -58,36 +58,36 @@ export function RadarChart({
   const hasProfile = axes.some((ax) => profile[ax.key] != null);
 
   return (
-    <div className={`bg-gray-900 border border-gray-800 rounded-lg p-3 flex flex-col gap-1 ${enabled ? "" : "opacity-50"}`}>
-      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{title}</span>
+    <div className={`flex flex-col gap-1 pb-4 border-b border-line last:border-b-0 ${enabled ? "" : "opacity-40"}`}>
+      <span className="text-xs font-semibold text-ink">{title}</span>
 
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[220px] mx-auto overflow-visible">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-[82%] max-w-[210px] mx-auto overflow-visible">
         {GRID_LEVELS.map((lvl) => (
           <polygon
             key={lvl}
             points={axes.map((_, i) => { const p = axisPoint(i, n, lvl); return `${p.x},${p.y}`; }).join(" ")}
             fill="none"
-            stroke="#1f2937"
+            stroke={COLOR.line}
             strokeWidth={1}
           />
         ))}
         {axes.map((_, i) => {
           const pt = axisPoint(i, n, 1);
-          return <line key={i} x1={CX} y1={CY} x2={pt.x} y2={pt.y} stroke="#1f2937" strokeWidth={1} />;
+          return <line key={i} x1={CX} y1={CY} x2={pt.x} y2={pt.y} stroke={COLOR.line} strokeWidth={1} />;
         })}
         {axes.map((ax, i) => {
           const angle = axisAngle(i, n);
           const lx = CX + LABEL_R * Math.cos(angle);
           const ly = CY + LABEL_R * Math.sin(angle);
+          const active = (thresholds[ax.key] ?? 0) > 0;
           return (
             <text
               key={ax.key}
               x={lx} y={ly}
               textAnchor={textAnchor(Math.cos(angle))}
               dominantBaseline="central"
-              fill={axisColors[ax.key] ?? "#9ca3af"}
+              fill={active ? COLOR.signal : COLOR.ink3}
               fontSize={8.5}
-              fontWeight={600}
             >
               {ax.label}
             </text>
@@ -98,9 +98,9 @@ export function RadarChart({
         {hasProfile && (
           <polygon
             points={toPoints(profile)}
-            fill="#e5e7eb"
-            fillOpacity={0.06}
-            stroke="#e5e7eb"
+            fill={COLOR.ink}
+            fillOpacity={0.05}
+            stroke={COLOR.ink}
             strokeOpacity={0.6}
             strokeWidth={1}
             strokeDasharray="3 2"
@@ -111,7 +111,7 @@ export function RadarChart({
         <polygon
           points={toPoints(thresholds)}
           fill={polyColor}
-          fillOpacity={0.2}
+          fillOpacity={0.18}
           stroke={polyColor}
           strokeWidth={1.5}
         />
@@ -120,11 +120,10 @@ export function RadarChart({
           if (thresh === 0) return null;
           const pt = axisPoint(i, n, thresh);
           return (
-            <circle
+            <rect
               key={ax.key}
-              cx={pt.x} cy={pt.y} r={3}
-              fill={axisColors[ax.key] ?? "#818cf8"}
-              fillOpacity={0.9}
+              x={pt.x - 2.5} y={pt.y - 2.5} width={5} height={5}
+              fill={COLOR.signal}
             />
           );
         })}

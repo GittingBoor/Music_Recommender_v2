@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { COLOR } from "../../theme";
 
 export interface BarRow {
   key: string;
@@ -7,8 +8,6 @@ export interface BarRow {
   count?: number;
   /** Library value distribution (bin counts over 0–1) — rendered instead of the count bar. */
   histogram?: number[];
-  /** Per-row accent colour; falls back to the filter's accentColor. */
-  color?: string;
 }
 
 interface Props {
@@ -19,7 +18,6 @@ interface Props {
   onReset: () => void;
   enabled: boolean;
   onToggleEnabled: () => void;
-  accentColor?: string;
 }
 
 export function BarSliderFilter({
@@ -30,7 +28,6 @@ export function BarSliderFilter({
   onReset,
   enabled,
   onToggleEnabled,
-  accentColor = "#818cf8",
 }: Props) {
   const [open, setOpen] = useState(true);
   const maxCount = Math.max(1, ...rows.map((r) => r.count ?? 0));
@@ -38,41 +35,42 @@ export function BarSliderFilter({
   const dimmed = !enabled;
 
   return (
-    <div className="border-b border-gray-800 px-4 py-3 flex flex-col gap-3">
+    <div className="border-b border-line px-5 py-3.5 flex flex-col gap-3">
       {/* header */}
       <div className="flex items-center justify-between">
         <button
           onClick={() => setOpen((o) => !o)}
-          className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-gray-200 uppercase tracking-wider transition-colors"
+          className="flex items-center gap-2 text-sm font-semibold text-ink"
           aria-expanded={open}
         >
           <svg
-            className={`w-3 h-3 transition-transform ${open ? "rotate-90" : ""}`}
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}
-            strokeLinecap="round" strokeLinejoin="round"
+            className={`w-2.5 h-2.5 text-ink-3 transition-transform ${open ? "rotate-90" : ""}`}
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.5}
+            strokeLinecap="square"
           >
-            <polyline points="9 6 15 12 9 18" />
+            <polyline points="9 5 16 12 9 19" />
           </svg>
           {title}
           {activeCount > 0 && (
-            <span className="ml-1 px-1.5 rounded-full bg-violet-500/20 text-violet-300 normal-case tracking-normal">
+            <span className="font-mono text-2xs font-medium text-signal">
               {activeCount}
             </span>
           )}
         </button>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button
             onClick={onReset}
-            className="text-xs text-gray-600 hover:text-gray-300 transition-colors px-2 py-0.5 rounded hover:bg-gray-800"
+            className="btn-quiet"
           >
             Reset
           </button>
           <button
             onClick={onToggleEnabled}
-            className={`px-2.5 py-0.5 rounded text-xs font-medium transition-colors border ${
+            aria-pressed={enabled}
+            className={`h-5 w-8 rounded-sm font-mono text-2xs border ${
               enabled
-                ? "border-violet-500 text-violet-400 bg-violet-500/10"
-                : "border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-400"
+                ? "border-signal/70 text-signal"
+                : "border-line-strong text-ink-4 hover:text-ink-2"
             }`}
           >
             {enabled ? "On" : "Off"}
@@ -82,53 +80,52 @@ export function BarSliderFilter({
 
       {/* rows */}
       {open && (
-        <div className={`space-y-2 ${dimmed ? "opacity-50" : ""}`}>
+        <div className={`space-y-2 ${dimmed ? "opacity-40" : ""}`}>
           {rows.map((row) => {
             const thresh = thresholds[row.key] ?? 0;
             const isActive = thresh > 0;
-            const color = row.color ?? accentColor;
             return (
-              <div key={row.key} className="space-y-0.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span
-                    className="truncate max-w-[160px]"
-                    style={{ color: isActive ? color : "#9ca3af" }}
-                  >
+              <div key={row.key} className="space-y-1">
+                <div className="flex items-baseline justify-between text-xs">
+                  <span className={`truncate max-w-[170px] ${isActive ? "text-ink" : "text-ink-2"}`}>
                     {row.label}
                   </span>
-                  <span className="text-gray-600 shrink-0 ml-2">
+                  <span className={`font-mono text-2xs shrink-0 ml-2 tabular-nums ${isActive ? "text-signal" : "text-ink-4"}`}>
                     {isActive ? `≥${(thresh * 100).toFixed(0)}%` : row.count != null ? `${row.count}` : "–"}
                   </span>
                 </div>
-                <div className="relative h-5 bg-gray-800 rounded overflow-hidden">
+                <div className="relative h-5 bg-raised">
                   {row.histogram ? (
-                    /* background: library distribution, bins below the threshold greyed out */
+                    /* background: library distribution, bins below the threshold recede */
                     <div className="absolute inset-0 flex items-end gap-px">
                       {(() => {
                         const maxBin = Math.max(1, ...row.histogram);
                         const n = row.histogram.length;
-                        return row.histogram.map((c, i) => (
-                          <div
-                            key={i}
-                            className="flex-1"
-                            style={{
-                              height: `${(c / maxBin) * 100}%`,
-                              background: isActive && (i + 1) / n > thresh ? color : "#4b5563",
-                              opacity: 0.45,
-                              transition: "background 0.2s",
-                            }}
-                          />
-                        ));
+                        return row.histogram.map((c, i) => {
+                          const passes = isActive && (i + 1) / n > thresh;
+                          return (
+                            <div
+                              key={i}
+                              className="flex-1"
+                              style={{
+                                height: `${(c / maxBin) * 100}%`,
+                                background: passes ? COLOR.signal : COLOR.ink4,
+                                opacity: passes ? 0.75 : isActive ? 0.3 : 0.55,
+                                transition: "background 0.2s, opacity 0.2s",
+                              }}
+                            />
+                          );
+                        });
                       })()}
                     </div>
                   ) : (
                     /* background: library frequency */
                     <div
-                      className="absolute inset-y-0 left-0 rounded"
+                      className="absolute inset-y-0 left-0"
                       style={{
                         width: `${((row.count ?? 0) / maxCount) * 100}%`,
-                        background: isActive ? color : "#374151",
-                        opacity: 0.4,
+                        background: isActive ? COLOR.signal : COLOR.ink4,
+                        opacity: isActive ? 0.45 : 0.4,
                         transition: "background 0.2s",
                       }}
                     />
@@ -147,12 +144,8 @@ export function BarSliderFilter({
                   {/* threshold marker */}
                   {isActive && (
                     <div
-                      className="absolute inset-y-0 w-0.5 rounded pointer-events-none"
-                      style={{
-                        left: `${thresh * 100}%`,
-                        background: color,
-                        opacity: 0.9,
-                      }}
+                      className="absolute inset-y-0 w-[2px] pointer-events-none bg-signal"
+                      style={{ left: `${thresh * 100}%` }}
                     />
                   )}
                 </div>
@@ -160,7 +153,7 @@ export function BarSliderFilter({
             );
           })}
           {rows.length === 0 && (
-            <div className="text-xs text-gray-600">No data.</div>
+            <div className="font-mono text-2xs text-ink-3">No data.</div>
           )}
         </div>
       )}

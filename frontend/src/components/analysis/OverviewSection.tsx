@@ -1,43 +1,32 @@
 import { useMemo } from "react";
 import { StatCard } from "../StatCard";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
-  PieChart, Pie,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from "recharts";
 import type { Song } from "../../types/song";
-
-const COLORS = [
-  "#818cf8","#60a5fa","#34d399","#fbbf24","#f87171",
-  "#a78bfa","#2dd4bf","#fb923c","#e879f9","#4ade80",
-  "#f472b6","#38bdf8","#facc15","#86efac","#c084fc",
-];
-
-const MOOD_COLORS: Record<string, string> = {
-  happy:      "#fbbf24",
-  sad:        "#60a5fa",
-  aggressive: "#f87171",
-  party:      "#e879f9",
-  relaxed:    "#34d399",
-  acoustic:   "#a78bfa",
-  electronic: "#2dd4bf",
-};
+import {
+  COLOR, FONT_MONO, SERIES_EXTENDED,
+  numericAxis, gridProps, tooltipProps,
+} from "../../theme";
+import { Figure, RankedBars, Section } from "./layout";
 
 type InstrumentCategory =
   | "percussion" | "bass" | "guitar" | "piano"
   | "strings" | "brass" | "woodwind" | "voice" | "synth" | "other";
 
-const INSTRUMENT_CATEGORY_DEFS: Array<{ key: InstrumentCategory; label: string; keywords: string[]; palette: readonly string[] }> = [
-  { key: "percussion", label: "Percussion / Drums",   keywords: ["drum","percussion","cymbal","hi-hat","snare","kick","tom","clap"],                     palette: ["#fb923c","#f97316","#ea580c","#c2410c","#fdba74","#fed7aa"] },
-  { key: "bass",       label: "Bass",                 keywords: ["bass"],                                                                                palette: ["#818cf8","#6366f1","#4f46e5","#3730a3","#a5b4fc","#c7d2fe"] },
-  { key: "guitar",     label: "Guitar family",        keywords: ["guitar","banjo","ukulele","mandolin","sitar","lute"],                                   palette: ["#34d399","#10b981","#059669","#047857","#6ee7b7","#a7f3d0"] },
-  { key: "piano",      label: "Piano / Keys",         keywords: ["piano","keyboard","organ","harpsichord","accordion","celesta"],                         palette: ["#c084fc","#a855f7","#9333ea","#7e22ce","#d8b4fe","#e9d5ff"] },
-  { key: "strings",    label: "Orchestral strings",   keywords: ["violin","cello","viola","string","harp","fiddle","contrabass"],                         palette: ["#4ade80","#22c55e","#16a34a","#15803d","#86efac","#bbf7d0"] },
-  { key: "brass",      label: "Brass",                keywords: ["trumpet","trombone","tuba","horn","brass","cornet","flugelhorn"],                       palette: ["#fbbf24","#f59e0b","#d97706","#b45309","#fde68a","#fef3c7"] },
-  { key: "woodwind",   label: "Woodwind",             keywords: ["saxophone","flute","clarinet","oboe","bassoon","wind","piccolo"],                       palette: ["#facc15","#eab308","#ca8a04","#a16207","#fef08a","#fef9c3"] },
-  { key: "voice",      label: "Voice / Vocals",       keywords: ["voice","vocal","choir","singing","chant"],                                              palette: ["#fb7185","#f43f5e","#e11d48","#be123c","#fda4af","#fecdd3"] },
-  { key: "synth",      label: "Electronic / Synth",   keywords: ["synth","electronic","sampler","theremin"],                                              palette: ["#22d3ee","#06b6d4","#0891b2","#0e7490","#67e8f9","#a5f3fc"] },
-  { key: "other",      label: "Other",                keywords: [],                                                                                      palette: ["#9ca3af","#6b7280","#4b5563","#374151","#d1d5db","#e5e7eb"] },
+// One hue per family, in the validated categorical order; "other" stays neutral.
+const INSTRUMENT_CATEGORY_DEFS: Array<{ key: InstrumentCategory; label: string; keywords: string[]; color: string }> = [
+  { key: "percussion", label: "Percussion / Drums",   keywords: ["drum","percussion","cymbal","hi-hat","snare","kick","tom","clap"],                     color: SERIES_EXTENDED[0] },
+  { key: "bass",       label: "Bass",                 keywords: ["bass"],                                                                                color: SERIES_EXTENDED[1] },
+  { key: "guitar",     label: "Guitar family",        keywords: ["guitar","banjo","ukulele","mandolin","sitar","lute"],                                   color: SERIES_EXTENDED[2] },
+  { key: "piano",      label: "Piano / Keys",         keywords: ["piano","keyboard","organ","harpsichord","accordion","celesta"],                         color: SERIES_EXTENDED[3] },
+  { key: "strings",    label: "Orchestral strings",   keywords: ["violin","cello","viola","string","harp","fiddle","contrabass"],                         color: SERIES_EXTENDED[4] },
+  { key: "brass",      label: "Brass",                keywords: ["trumpet","trombone","tuba","horn","brass","cornet","flugelhorn"],                       color: SERIES_EXTENDED[5] },
+  { key: "woodwind",   label: "Woodwind",             keywords: ["saxophone","flute","clarinet","oboe","bassoon","wind","piccolo"],                       color: SERIES_EXTENDED[6] },
+  { key: "voice",      label: "Voice / Vocals",       keywords: ["voice","vocal","choir","singing","chant"],                                              color: SERIES_EXTENDED[7] },
+  { key: "synth",      label: "Electronic / Synth",   keywords: ["synth","electronic","sampler","theremin"],                                              color: SERIES_EXTENDED[8] },
+  { key: "other",      label: "Other",                keywords: [],                                                                                      color: COLOR.ink4 },
 ];
 
 const CATEGORY_ORDER = INSTRUMENT_CATEGORY_DEFS.map((c) => c.key);
@@ -50,29 +39,7 @@ function classifyInstrument(name: string): InstrumentCategory {
   return "other";
 }
 
-const AXIS_STYLE = { fill: "#6b7280", fontSize: 11 };
-const GRID_STYLE = { stroke: "#1f2937" };
-const TOOLTIP_STYLE = {
-  backgroundColor: "#111827",
-  border: "1px solid #374151",
-  borderRadius: 6,
-  color: "#f3f4f6",
-  fontSize: 12,
-};
-const TOOLTIP_LABEL  = { color: "#f3f4f6" };
-const TOOLTIP_ITEM   = { color: "#e5e7eb" };
-
-function ChartCard({ title, children, className = "" }: {
-  title: string; children: React.ReactNode; className?: string;
-}) {
-  return (
-    <div className={`bg-gray-900 border border-gray-800 rounded-lg p-4 ${className}`}>
-      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">{title}</p>
-      {children}
-    </div>
-  );
-}
-
+const BAR_RADIUS: [number, number, number, number] = [1, 1, 0, 0];
 
 function makeHistogram(values: number[], bins: number) {
   if (!values.length) return [];
@@ -90,6 +57,38 @@ function makeHistogram(values: number[], bins: number) {
     result[idx].count++;
   }
   return result;
+}
+
+/** Two-part share as one split bar with the numbers set underneath. */
+function SplitBar({ data }: { data: { name: string; value: number }[] }) {
+  const total = data.reduce((s, d) => s + d.value, 0) || 1;
+  const sorted = [...data].sort((a, b) => b.value - a.value);
+  return (
+    <div>
+      <div className="flex h-7 gap-[2px]">
+        {sorted.map((d) => (
+          <div
+            key={d.name}
+            title={`${d.name}: ${d.value} songs`}
+            style={{
+              width: `${(d.value / total) * 100}%`,
+              background: d.name === "minor" ? COLOR.ink4 : COLOR.data,
+            }}
+          />
+        ))}
+      </div>
+      <div className="flex mt-2.5">
+        {sorted.map((d) => (
+          <div key={d.name} className="min-w-0 pr-3 whitespace-nowrap" style={{ width: `${(d.value / total) * 100}%` }}>
+            <p className="text-xl font-medium text-ink leading-none stretch-condensed tabular-nums">
+              {((d.value / total) * 100).toFixed(0)}%
+            </p>
+            <p className="t-label mt-1">{d.name} · {d.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function fmt(s: number) {
@@ -250,12 +249,9 @@ export function OverviewSection({ songs }: Props) {
         const catDiff = CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category);
         return catDiff !== 0 ? catDiff : b.count - a.count;
       });
-      const catIndexes: Partial<Record<InstrumentCategory, number>> = {};
       return categorized.map((item) => {
-        const idx = catIndexes[item.category] ?? 0;
-        catIndexes[item.category] = idx + 1;
         const def = INSTRUMENT_CATEGORY_DEFS.find((d) => d.key === item.category)!;
-        return { ...item, color: def.palette[idx % def.palette.length] };
+        return { ...item, color: def.color };
       });
     })();
 
@@ -275,17 +271,18 @@ export function OverviewSection({ songs }: Props) {
 
   if (!songs.length) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-600 text-sm">
+      <div className="flex items-center justify-center h-64 font-mono text-xs text-ink-3">
         No songs in the database yet.
       </div>
     );
   }
 
-  return (
-    <div className="max-w-7xl mx-auto px-6 py-6 space-y-8">
 
-      {/* ── Stat Cards ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+  return (
+    <div className="max-w-7xl mx-auto px-6 pt-6 pb-16 space-y-10">
+
+      {/* ── Figures ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 border-y border-line-strong">
         <StatCard label="Total Songs"    value={String(data.songCount)} />
         <StatCard label="Artists"        value={String(data.artistCount)} />
         <StatCard label="Avg BPM"        value={data.avgBpm?.toFixed(1) ?? "–"} />
@@ -298,277 +295,175 @@ export function OverviewSection({ songs }: Props) {
       </div>
 
       {/* ── Audio Features ── */}
-      <section>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-3">
-          Audio Features
-        </h2>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ChartCard title="BPM Distribution">
+      <Section title="Audio Features">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-10">
+          <Figure title="BPM Distribution">
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={data.bpmHist} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-                <CartesianGrid {...GRID_STYLE} vertical={false} />
-                <XAxis dataKey="label" tick={AXIS_STYLE} interval={2} />
-                <YAxis tick={AXIS_STYLE} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM} formatter={(v) => [v, "songs"]} />
-                <Bar dataKey="count" fill="#818cf8" radius={[2, 2, 0, 0]} />
+                <CartesianGrid {...gridProps} vertical={false} />
+                <XAxis dataKey="label" {...numericAxis} interval={2} />
+                <YAxis {...numericAxis} axisLine={false} />
+                <Tooltip {...tooltipProps} formatter={(v) => [v, "songs"]} />
+                <Bar dataKey="count" fill={COLOR.data} radius={BAR_RADIUS} />
               </BarChart>
             </ResponsiveContainer>
-          </ChartCard>
+          </Figure>
 
-          <ChartCard title="Duration Distribution">
+          <Figure title="Duration Distribution">
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={data.durHist} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-                <CartesianGrid {...GRID_STYLE} vertical={false} />
+                <CartesianGrid {...gridProps} vertical={false} />
                 <XAxis
                   dataKey="min"
-                  tick={AXIS_STYLE}
+                  {...numericAxis}
                   tickFormatter={(v) => fmt(v as number)}
                   interval={2}
                 />
-                <YAxis tick={AXIS_STYLE} />
+                <YAxis {...numericAxis} axisLine={false} />
                 <Tooltip
-                  contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM}
+                  {...tooltipProps}
                   formatter={(v) => [v, "songs"]}
                   labelFormatter={(l) => `~${fmt(l as number)}`}
                 />
-                <Bar dataKey="count" fill="#60a5fa" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="count" fill={COLOR.data} radius={BAR_RADIUS} />
               </BarChart>
             </ResponsiveContainer>
-          </ChartCard>
-        </div>
+          </Figure>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-          <ChartCard title="Key Distribution">
-            <ResponsiveContainer width="100%" height={220}>
+          <Figure title="Key Distribution">
+            <ResponsiveContainer width="100%" height={240}>
               <RadarChart data={data.keyData} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
-                <PolarGrid stroke="#1f2937" />
-                <PolarAngleAxis dataKey="subject" tick={{ fill: "#9ca3af", fontSize: 11 }} />
+                <PolarGrid stroke={COLOR.line} />
+                <PolarAngleAxis dataKey="subject" tick={{ fill: COLOR.ink2, fontSize: 11, fontFamily: FONT_MONO }} />
                 <PolarRadiusAxis tick={false} axisLine={false} />
-                <Radar dataKey="value" fill="#818cf8" fillOpacity={0.35} stroke="#818cf8" strokeWidth={1.5} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM} formatter={(v) => [v, "songs"]} />
+                <Radar dataKey="value" fill={COLOR.data} fillOpacity={0.18} stroke={COLOR.data} strokeWidth={1.5} />
+                <Tooltip {...tooltipProps} formatter={(v) => [v, "songs"]} />
               </RadarChart>
             </ResponsiveContainer>
-          </ChartCard>
+          </Figure>
 
-          <ChartCard title="Major vs Minor">
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie
-                  data={data.scaleData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={75}
-                  innerRadius={35}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  labelLine={{ stroke: "#6b7280" }}
-                >
-                  {data.scaleData.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM} formatter={(v) => [v, "songs"]} />
-              </PieChart>
-            </ResponsiveContainer>
-          </ChartCard>
+          <div className="space-y-10">
+            <Figure title="Major vs Minor">
+              <SplitBar data={data.scaleData} />
+            </Figure>
 
-          <ChartCard title="Dominant Mood per Song">
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie
-                  data={data.dominantMoodData}
-                  dataKey="count"
-                  nameKey="mood"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={75}
-                  innerRadius={32}
-                  label={({ mood, percent }) =>
-                    percent > 0.04 ? `${mood} ${(percent * 100).toFixed(0)}%` : ""
-                  }
-                  labelLine={{ stroke: "#6b7280" }}
-                >
-                  {data.dominantMoodData.map((d, i) => (
-                    <Cell key={i} fill={MOOD_COLORS[d.mood] ?? COLORS[i % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM}
-                  formatter={(v, name) => [v, name]}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </ChartCard>
-        </div>
+            <Figure title="Dominant Mood per Song" note="songs · share">
+              <RankedBars
+                labelWidth={88}
+                valueWidth={72}
+                rows={data.dominantMoodData.map((d) => ({ label: d.mood, value: d.count }))}
+                format={(v) => {
+                  const total = data.dominantMoodData.reduce((s, d) => s + d.count, 0) || 1;
+                  return `${v} · ${Math.round((v / total) * 100)}%`;
+                }}
+              />
+            </Figure>
+          </div>
 
-        <div className="mt-4">
-          <ChartCard title="Danceability Distribution">
+          <Figure title="Danceability Distribution" className="lg:col-span-2">
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={data.danceHist} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-                <CartesianGrid {...GRID_STYLE} vertical={false} />
+                <CartesianGrid {...gridProps} vertical={false} />
                 <XAxis
                   dataKey="min"
                   type="number"
                   scale="linear"
                   domain={[0, 1]}
                   ticks={[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]}
-                  tick={AXIS_STYLE}
+                  {...numericAxis}
                   padding={{ left: 15, right: 15 }}
                   tickFormatter={(v) => (v as number).toFixed(1)}
                 />
-                <YAxis tick={AXIS_STYLE} />
+                <YAxis {...numericAxis} axisLine={false} />
                 <Tooltip
-                  contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM}
+                  {...tooltipProps}
                   formatter={(v) => [v, "songs"]}
                   labelFormatter={(l) => `~${(l as number).toFixed(2)}`}
                 />
-                <Bar dataKey="count" fill="#34d399" radius={[2, 2, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="count" fill={COLOR.data} radius={BAR_RADIUS} maxBarSize={28} />
               </BarChart>
             </ResponsiveContainer>
-          </ChartCard>
+          </Figure>
         </div>
-      </section>
+      </Section>
 
       {/* ── Timeline ── */}
-      <section>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-3">
-          Timeline
-        </h2>
-        <ChartCard title="Songs by Release Year">
+      <Section title="Timeline">
+        <Figure title="Songs by Release Year">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={data.releaseYears} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-              <CartesianGrid {...GRID_STYLE} vertical={false} />
+              <CartesianGrid {...gridProps} vertical={false} />
               <XAxis
                 dataKey="year"
                 type="number"
                 scale="linear"
                 domain={data.yearDomain ?? ["dataMin", "dataMax"]}
                 ticks={data.yearTicks}
-                tick={AXIS_STYLE}
+                {...numericAxis}
                 padding={{ left: 15, right: 15 }}
                 tickFormatter={(v) => String(v)}
               />
-              <YAxis tick={AXIS_STYLE} />
+              <YAxis {...numericAxis} axisLine={false} />
               <Tooltip
-                contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM}
-                formatter={(v) => [v, "songs"]}
+                {...tooltipProps}
+                  formatter={(v) => [v, "songs"]}
                 labelFormatter={(l) => String(l)}
               />
-              <Bar dataKey="count" fill="#fbbf24" radius={[2, 2, 0, 0]} maxBarSize={28} />
+              <Bar dataKey="count" fill={COLOR.data} radius={BAR_RADIUS} maxBarSize={28} />
             </BarChart>
           </ResponsiveContainer>
-        </ChartCard>
-      </section>
+        </Figure>
+      </Section>
 
       {/* ── Artists ── */}
-      <section>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-3">
-          Artists
-        </h2>
-        <ChartCard title="Top 15 Artists by Song Count">
-          <ResponsiveContainer width="100%" height={Math.max(240, data.topArtists.length * 26)}>
-            <BarChart
-              data={data.topArtists}
-              layout="vertical"
-              margin={{ top: 0, right: 40, left: 8, bottom: 0 }}
-            >
-              <CartesianGrid {...GRID_STYLE} horizontal={false} />
-              <XAxis type="number" tick={AXIS_STYLE} />
-              <YAxis type="category" dataKey="name" tick={{ fill: "#9ca3af", fontSize: 11 }} width={140} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM} formatter={(v) => [v, "songs"]} />
-              <Bar dataKey="count" radius={[0, 3, 3, 0]}>
-                {data.topArtists.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-      </section>
+      <Section title="Artists">
+        <Figure title="Top 15 Artists by Song Count" note="songs">
+          <RankedBars
+            className="max-w-3xl"
+            labelWidth={180}
+            rows={data.topArtists.map((a) => ({ label: a.name, value: a.count }))}
+          />
+        </Figure>
+      </Section>
 
       {/* ── Genres ── */}
-      <section>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-3">
-          Genres
-        </h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ChartCard title="Parent Genres — songs featuring genre (top 3 per song)">
-            <ResponsiveContainer width="100%" height={Math.max(200, data.parentGenres.length * 26)}>
-              <BarChart
-                data={data.parentGenres}
-                layout="vertical"
-                margin={{ top: 0, right: 50, left: 8, bottom: 0 }}
-              >
-                <CartesianGrid {...GRID_STYLE} horizontal={false} />
-                <XAxis type="number" tick={AXIS_STYLE} />
-                <YAxis type="category" dataKey="genre" tick={{ fill: "#9ca3af", fontSize: 11 }} width={100} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM} formatter={(v) => [v, "songs"]} />
-                <Bar dataKey="count" radius={[0, 3, 3, 0]}>
-                  {data.parentGenres.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartCard>
+      <Section title="Genres">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-10">
+          <Figure title="Parent Genres" note="songs featuring genre (top 3 per song)">
+            <RankedBars
+              labelWidth={120}
+              rows={data.parentGenres.map((g) => ({ label: g.genre, value: g.count }))}
+            />
+          </Figure>
 
-          <ChartCard title="Detailed Genres — songs featuring genre (top 5 per song)">
-            <ResponsiveContainer width="100%" height={Math.max(200, Math.min(data.detailedGenres.length, 30) * 22)}>
-              <BarChart
-                data={data.detailedGenres.slice(0, 30)}
-                layout="vertical"
-                margin={{ top: 0, right: 50, left: 8, bottom: 0 }}
-              >
-                <CartesianGrid {...GRID_STYLE} horizontal={false} />
-                <XAxis type="number" tick={AXIS_STYLE} />
-                <YAxis type="category" dataKey="genre" tick={{ fill: "#9ca3af", fontSize: 10 }} width={130} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM} formatter={(v) => [v, "songs"]} />
-                <Bar dataKey="count" fill="#a78bfa" radius={[0, 3, 3, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartCard>
+          <Figure title="Detailed Genres" note="songs featuring genre (top 5 per song)">
+            <RankedBars
+              labelWidth={140}
+              rows={data.detailedGenres.slice(0, 30).map((g) => ({ label: g.genre, value: g.count }))}
+            />
+          </Figure>
         </div>
-      </section>
+      </Section>
 
       {/* ── Instruments ── */}
-      <section>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-3">
-          Instruments
-        </h2>
-        <ChartCard title="Instruments — songs featuring instrument (top 10 per song)">
-          <div className="flex flex-wrap gap-3 mb-4 text-xs">
-            {INSTRUMENT_CATEGORY_DEFS.map(({ key, label, palette }) => (
-              <span key={key} className="flex items-center gap-1 text-gray-500">
-                <span className="flex gap-px flex-shrink-0">
-                  {palette.slice(0, 3).map((c) => (
-                    <span key={c} className="w-2 h-2.5 rounded-sm inline-block" style={{ background: c }} />
-                  ))}
-                </span>
+      <Section title="Instruments">
+        <Figure title="Instruments" note="songs featuring instrument (top 10 per song)">
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-4">
+            {INSTRUMENT_CATEGORY_DEFS.map(({ key, label, color }) => (
+              <span key={key} className="flex items-center gap-1.5 text-xs text-ink-3">
+                <span className="w-2 h-2 flex-shrink-0" style={{ background: color }} />
                 {label}
               </span>
             ))}
           </div>
-          <ResponsiveContainer width="100%" height={Math.max(300, data.allInstruments.length * 22)}>
-            <BarChart
-              data={data.allInstruments}
-              layout="vertical"
-              margin={{ top: 0, right: 50, left: 8, bottom: 0 }}
-            >
-              <CartesianGrid {...GRID_STYLE} horizontal={false} />
-              <XAxis type="number" tick={AXIS_STYLE} />
-              <YAxis type="category" dataKey="name" tick={{ fill: "#9ca3af", fontSize: 11 }} width={120} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM} formatter={(v) => [v, "songs"]} />
-              <Bar dataKey="count" radius={[0, 3, 3, 0]}>
-                {data.allInstruments.map((d) => (
-                  <Cell key={d.name} fill={d.color} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-      </section>
+          <RankedBars
+            className="xl:columns-2 gap-x-10"
+            labelWidth={132}
+            max={Math.max(1, ...data.allInstruments.map((d) => d.count))}
+            rows={data.allInstruments.map((d) => ({ label: d.name, value: d.count, color: d.color }))}
+          />
+        </Figure>
+      </Section>
 
     </div>
   );

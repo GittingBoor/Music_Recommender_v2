@@ -1,3 +1,5 @@
+/** One figure in a figure row: label above, number below, no box.
+ *  Siblings are separated by a hairline — place several in a grid. */
 export function StatCard({
   label,
   value,
@@ -8,10 +10,10 @@ export function StatCard({
   sub?: string;
 }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-      <p className="text-xs text-gray-500 uppercase tracking-wider">{label}</p>
-      <p className="text-2xl font-bold text-white mt-1">{value}</p>
-      {sub && <p className="text-xs text-gray-600 mt-0.5">{sub}</p>}
+    <div className="py-3 pr-4 sm:[&:not(:first-child)]:border-l sm:[&:not(:first-child)]:pl-5 border-line">
+      <p className="t-label">{label}</p>
+      <p className="t-figure mt-2.5">{value}</p>
+      {sub && <p className="font-mono text-2xs text-ink-3 mt-1.5">{sub}</p>}
     </div>
   );
 }

@@ -59,41 +59,38 @@ export default function App() {
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="h-screen flex flex-col bg-gray-950 text-white overflow-hidden">
-      <header className="flex-shrink-0 border-b border-gray-800 px-6 py-3 flex items-center gap-6">
-        <div className="min-w-0">
-          <h1 className="text-lg font-bold tracking-tight leading-none">
-            Music Recommender
-          </h1>
-          {!loading && !error && (
-            <p className="text-xs text-gray-500 mt-0.5">{songs.length} songs</p>
-          )}
-        </div>
-        <nav className="flex gap-1">
+    <div className="h-screen flex flex-col bg-ground text-ink overflow-hidden">
+      <header className="flex-shrink-0 h-11 border-b border-line flex items-stretch px-5">
+        <h1 className="flex items-center pr-5 mr-2 border-r border-line text-[15px] font-bold leading-none stretch-expanded tracking-[-0.01em] whitespace-nowrap">
+          Music Recommender
+        </h1>
+        <nav className="flex">
           {(["cards", "umap", "analysis", "filter", "upload"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                tab === t
-                  ? "bg-gray-800 text-white"
-                  : "text-gray-500 hover:text-gray-300 hover:bg-gray-900"
-              }`}
+              aria-current={tab === t ? "page" : undefined}
+              className="tab"
             >
               {t === "cards" ? "Cards" : t === "umap" ? "UMAP" : t === "analysis" ? "Analysis" : t === "filter" ? "Filter" : "Upload"}
             </button>
           ))}
         </nav>
+        {!loading && !error && (
+          <p className="ml-auto self-center pl-4 font-mono text-2xs text-ink-3 whitespace-nowrap">
+            <span className="text-ink">{songs.length}</span> songs
+          </p>
+        )}
       </header>
 
       <main className="flex-1 overflow-hidden">
         {loading && (
-          <div className="h-full flex items-center justify-center text-gray-500 text-sm">
+          <div className="h-full flex items-center justify-center font-mono text-xs text-ink-3">
             Loading songs…
           </div>
         )}
         {error && (
-          <div className="h-full flex items-center justify-center text-red-400 text-sm">
+          <div className="h-full flex items-center justify-center font-mono text-xs text-bad">
             Error: {error}
           </div>
         )}

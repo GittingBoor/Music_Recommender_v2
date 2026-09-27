@@ -1,57 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
-  PieChart, Pie,
+  XAxis, YAxis, CartesianGrid, Tooltip,
   LineChart, Line,
 } from "recharts";
 import { fetchSongDetail } from "../../services/api";
 import { ResultsTable } from "../filter/ResultsTable";
+import { StatCard } from "../StatCard";
 import type { Song } from "../../types/song";
 import type { SongDetail } from "../../types/analysis";
+import { COLOR, FONT_MONO, SERIES_EXTENDED as S, gridProps, numericAxis, tooltipProps } from "../../theme";
+import { Figure, RankedBars } from "./layout";
 
-const TOOLTIP_STYLE = {
-  backgroundColor: "#111827",
-  border: "1px solid #374151",
-  borderRadius: 6,
-  color: "#f3f4f6",
-  fontSize: 12,
-};
-const AXIS_STYLE = { fill: "#6b7280", fontSize: 11 };
-const GRID_STYLE = { stroke: "#1f2937" };
-const TOOLTIP_LABEL = { color: "#f3f4f6" };
-const TOOLTIP_ITEM  = { color: "#e5e7eb" };
-
-const MOOD_COLORS: Record<string, string> = {
-  happy:      "#fbbf24",
-  sad:        "#60a5fa",
-  aggressive: "#f87171",
-  party:      "#e879f9",
-  relaxed:    "#34d399",
-  acoustic:   "#a78bfa",
-  electronic: "#2dd4bf",
-};
-
+// Fixed colour per feature (never by selection order). The default selection
+// — loudness, arousal, valence, happy — takes the first four validated slots.
 const TS_COLORS: Record<string, string> = {
-  loudness:           "#60a5fa",
-  spectral_centroid:  "#34d399",
-  spectral_rolloff:   "#fbbf24",
-  spectral_flux:      "#f87171",
-  zero_crossing_rate: "#a78bfa",
-  dissonance:         "#f472b6",
-  arousal:            "#fb923c",
-  valence:            "#38bdf8",
-  approachability:    "#818cf8",
-  engagement:         "#4ade80",
-  voice:              "#2dd4bf",
-  gender:             "#e879f9",
-  happy:              "#fbbf24",
-  sad:                "#60a5fa",
-  aggressive:         "#f87171",
-  party:              "#e879f9",
-  relaxed:            "#34d399",
-  acoustic:           "#a78bfa",
-  electronic:         "#2dd4bf",
+  loudness:           S[0],
+  arousal:            S[1],
+  valence:            S[2],
+  happy:              S[3],
+  spectral_centroid:  S[4],
+  spectral_rolloff:   S[5],
+  spectral_flux:      S[6],
+  zero_crossing_rate: S[7],
+  dissonance:         S[8],
+  approachability:    S[9],
+  engagement:         S[10],
+  voice:              S[11],
+  gender:             S[12],
+  sad:                S[13],
+  aggressive:         S[7],
+  party:              S[4],
+  relaxed:            S[5],
+  acoustic:           S[6],
+  electronic:         S[8],
 };
 
 const TS_LABEL: Record<string, string> = {
@@ -64,11 +46,6 @@ const TS_LABEL: Record<string, string> = {
   happy: "Happy", sad: "Sad", aggressive: "Aggressive",
   party: "Party", relaxed: "Relaxed", acoustic: "Acoustic", electronic: "Electronic",
 };
-
-const GENRE_COLORS = [
-  "#818cf8","#60a5fa","#34d399","#fbbf24","#f87171",
-  "#a78bfa","#2dd4bf","#fb923c","#e879f9","#4ade80",
-];
 
 function fmt(s: number | null | undefined) {
   if (s == null) return "–";
@@ -89,44 +66,33 @@ function normalizeAV(v: number): number {
   return Math.max(0, Math.min(1, (v - 1) / 8));
 }
 
-
-function ChartCard({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`bg-gray-900 border border-gray-800 rounded-lg p-4 ${className}`}>
-      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">{title}</p>
-      {children}
-    </div>
-  );
-}
-
-function StatPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col items-center bg-gray-800 rounded-lg px-4 py-2 min-w-0">
-      <span className="text-xs text-gray-500">{label}</span>
-      <span className="text-base font-bold text-white mt-0.5 truncate">{value}</span>
-    </div>
-  );
-}
-
-function DualBar({ leftLabel, leftVal, rightLabel, rightVal, leftColor, rightColor }: {
+/** Two opposing scores of one ML head, one row each. */
+function DualBar({ leftLabel, leftVal, rightLabel, rightVal }: {
   leftLabel: string; leftVal: number; rightLabel: string; rightVal: number;
-  leftColor: string; rightColor: string;
 }) {
   return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-500 w-20 text-right truncate">{leftLabel}</span>
-        <div className="flex-1 flex h-4 rounded overflow-hidden bg-gray-800 gap-px">
-          <div className="h-full transition-all" style={{ width: `${leftVal * 100}%`, background: leftColor }} />
-        </div>
-        <span className="text-xs font-mono text-gray-400 w-10">{(leftVal * 100).toFixed(0)}%</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-500 w-20 text-right truncate">{rightLabel}</span>
-        <div className="flex-1 flex h-4 rounded overflow-hidden bg-gray-800">
-          <div className="h-full transition-all" style={{ width: `${rightVal * 100}%`, background: rightColor }} />
-        </div>
-        <span className="text-xs font-mono text-gray-400 w-10">{(rightVal * 100).toFixed(0)}%</span>
+    <RankedBars
+      labelWidth={92}
+      max={1}
+      format={(v) => `${(v * 100).toFixed(0)}%`}
+      rows={[
+        { label: leftLabel, value: leftVal },
+        { label: rightLabel, value: rightVal },
+      ]}
+    />
+  );
+}
+
+/** One normalised 0–1 value as a figure over a hairline meter. */
+function Meter({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <p className="t-label">{label}</p>
+      <p className="text-xl font-medium text-ink leading-none stretch-condensed tabular-nums mt-2">
+        {(value * 100).toFixed(1)}%
+      </p>
+      <div className="mt-2 h-[3px] bg-line">
+        <div className="h-full bg-ink-2" style={{ width: `${value * 100}%` }} />
       </div>
     </div>
   );
@@ -242,11 +208,11 @@ export function SongDetailSection({ songs }: Props) {
     : [];
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+    <div className="max-w-7xl mx-auto px-6 pt-6 pb-16 space-y-6">
 
       {/* Search bar */}
       <div>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-3">
+        <h2 className="t-section mb-3">
           Song Detail
         </h2>
         <div className="relative max-w-lg" ref={dropRef}>
@@ -258,29 +224,30 @@ export function SongDetailSection({ songs }: Props) {
               : search}
             onFocus={() => { setShowDrop(true); if (selectedSong) setSearch(""); }}
             onChange={(e) => { setSearch(e.target.value); setSelectedId(""); setShowDrop(true); }}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-violet-500"
+            className="field w-full h-9 pr-9"
           />
           {selectedId && (
             <button
               onClick={() => { setSelectedId(""); setSearch(""); setDetail(null); }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs"
+              aria-label="Clear selection"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-ink-3 hover:text-ink text-xs"
             >
               ✕
             </button>
           )}
           {showDrop && (
-            <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-gray-900 border border-gray-700 rounded-lg shadow-xl max-h-64 overflow-y-auto">
+            <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-raised border border-line-strong rounded-sm max-h-64 overflow-y-auto">
               {filteredSongs.length === 0 && (
-                <p className="px-4 py-3 text-xs text-gray-600">No songs match</p>
+                <p className="px-3 py-2.5 font-mono text-2xs text-ink-3">No songs match</p>
               )}
               {filteredSongs.map((s) => (
                 <button
                   key={s.id}
                   onClick={() => { setSelectedId(s.id); setSearch(""); setShowDrop(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-800 flex flex-col"
+                  className="w-full text-left px-3 py-2 hover:bg-line flex flex-col border-b border-line last:border-b-0"
                 >
-                  <span className="text-gray-100 font-medium truncate">{s.title ?? "Unknown"}</span>
-                  <span className="text-gray-500 text-xs truncate">{s.artist ?? "Unknown artist"}</span>
+                  <span className="text-sm text-ink truncate">{s.title ?? "Unknown"}</span>
+                  <span className="text-xs text-ink-3 truncate">{s.artist ?? "Unknown artist"}</span>
                 </button>
               ))}
             </div>
@@ -291,7 +258,7 @@ export function SongDetailSection({ songs }: Props) {
       {/* Song list — pick a song directly instead of searching */}
       {!selectedId && (
         <div>
-          <p className="text-xs text-gray-600 mb-2">
+          <p className="t-label mb-2">
             Search above or click a song to see its detailed analysis
           </p>
           <ResultsTable
@@ -303,49 +270,51 @@ export function SongDetailSection({ songs }: Props) {
 
       {/* Loading */}
       {loading && (
-        <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
+        <div className="flex items-center justify-center h-48 font-mono text-xs text-ink-3">
           Loading…
         </div>
       )}
 
       {/* Error */}
       {error && !loading && (
-        <div className="text-red-400 text-sm p-4 bg-red-950 border border-red-800 rounded-lg">
+        <div className="border-l-2 border-bad bg-bad/5 px-4 py-3 text-sm text-bad">
           {error}
         </div>
       )}
 
       {/* Detail view */}
       {detail && !loading && (
-        <div className="space-y-5">
+        <div className="space-y-10 pt-2">
 
-          {/* Header */}
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
-            <h3 className="text-xl font-bold text-white truncate">{detail.title ?? "Unknown"}</h3>
-            <p className="text-gray-400 text-sm mt-0.5 truncate">{detail.artist ?? "Unknown artist"}</p>
-            <div className="flex flex-wrap gap-2 mt-3">
+          {/* Header — the song is the subject of the page */}
+          <div>
+            <h3 className="text-3xl font-semibold text-ink stretch-semi tracking-[-0.02em] leading-[1.05] break-words">
+              {detail.title ?? "Unknown"}
+            </h3>
+            <p className="text-lg text-ink-2 mt-2 truncate">{detail.artist ?? "Unknown artist"}</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 border-y border-line-strong mt-6 max-w-3xl">
               {detail.file_metadata?.duration_seconds != null && (
-                <StatPill label="Duration" value={fmt(detail.file_metadata.duration_seconds)} />
+                <StatCard label="Duration" value={fmt(detail.file_metadata.duration_seconds)} />
               )}
               {detail.track_metadata?.release_date && (
-                <StatPill label="Released" value={detail.track_metadata.release_date.slice(0, 4)} />
+                <StatCard label="Released" value={detail.track_metadata.release_date.slice(0, 4)} />
               )}
               {detail.track_metadata?.playcount != null && (
-                <StatPill label="Last.fm Plays" value={detail.track_metadata.playcount.toLocaleString()} />
+                <StatCard label="Last.fm Plays" value={detail.track_metadata.playcount.toLocaleString()} />
               )}
               {detail.dsp?.danceability != null && (
-                <StatPill label="Danceability" value={`${(detail.dsp.danceability * 100).toFixed(0)}%`} />
+                <StatCard label="Danceability" value={`${(detail.dsp.danceability * 100).toFixed(0)}%`} />
               )}
             </div>
           </div>
 
           {/* Mood + Profile */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-10 border-t border-line-strong pt-5">
 
-            <ChartCard title="Mood Profile">
-              <ResponsiveContainer width="100%" height={260}>
+            <Figure title="Mood Profile">
+              <ResponsiveContainer width="100%" height={280}>
                 <RadarChart data={moodRadarData} margin={{ top: 30, right: 55, bottom: 30, left: 55 }}>
-                  <PolarGrid stroke="#1f2937" />
+                  <PolarGrid stroke={COLOR.line} />
                   <PolarAngleAxis
                     dataKey="subject"
                     tick={(props: Record<string, unknown>) => {
@@ -368,9 +337,9 @@ export function SongDetailSection({ songs }: Props) {
                             y={ny}
                             textAnchor="middle"
                             dominantBaseline="central"
-                            fill={MOOD_COLORS[payload.value] ?? "#9ca3af"}
+                            fill={COLOR.ink2}
                             fontSize={11}
-                            fontWeight={600}
+                            fontWeight={500}
                           >
                             {payload.value}
                           </text>
@@ -378,8 +347,9 @@ export function SongDetailSection({ songs }: Props) {
                             x={nx}
                             y={ny + 14}
                             textAnchor="middle"
-                            fill="#6b7280"
-                            fontSize={9}
+                            fill={COLOR.ink3}
+                            fontSize={10}
+                            fontFamily={FONT_MONO}
                           >
                             {(val * 100).toFixed(0)}%
                           </text>
@@ -390,261 +360,181 @@ export function SongDetailSection({ songs }: Props) {
                   <PolarRadiusAxis domain={[0, 1]} tick={false} axisLine={false} />
                   <Radar
                     dataKey="value"
-                    fill="#fbbf24"
-                    fillOpacity={0.25}
-                    stroke="#fbbf24"
-                    strokeWidth={2}
+                    fill={COLOR.signal}
+                    fillOpacity={0.16}
+                    stroke={COLOR.signal}
+                    strokeWidth={1.5}
                     activeDot={false}
                   />
                 </RadarChart>
               </ResponsiveContainer>
-            </ChartCard>
+            </Figure>
 
-            <ChartCard title="ML Profile Scores">
+            <Figure title="ML Profile Scores">
               {detail.ml_profile ? (
-                <div className="space-y-3 pt-1">
+                <div className="space-y-4">
                   <DualBar
                     leftLabel="Niche"
                     leftVal={detail.ml_profile.niche_score ?? 0}
                     rightLabel="Mainstream"
                     rightVal={detail.ml_profile.mainstream_score ?? 0}
-                    leftColor="#818cf8"
-                    rightColor="#60a5fa"
                   />
                   <DualBar
                     leftLabel="Background"
                     leftVal={detail.ml_profile.background_score ?? 0}
                     rightLabel="Active"
                     rightVal={detail.ml_profile.active_score ?? 0}
-                    leftColor="#6b7280"
-                    rightColor="#34d399"
                   />
                   <DualBar
                     leftLabel="Instrumental"
                     leftVal={detail.ml_profile.instrumental_score ?? 0}
                     rightLabel="Vocal"
                     rightVal={detail.ml_profile.vocal_score ?? 0}
-                    leftColor="#a78bfa"
-                    rightColor="#2dd4bf"
                   />
                   <DualBar
                     leftLabel="Female"
                     leftVal={detail.ml_profile.female_score ?? 0}
                     rightLabel="Male"
                     rightVal={detail.ml_profile.male_score ?? 0}
-                    leftColor="#f472b6"
-                    rightColor="#60a5fa"
                   />
-                  <div className="grid grid-cols-2 gap-2 pt-2">
-                    <div className="bg-gray-800 rounded p-3">
-                      <p className="text-xs text-gray-500">Arousal</p>
-                      <div className="mt-1 h-2 bg-gray-700 rounded overflow-hidden">
-                        <div
-                          className="h-full bg-orange-400 rounded transition-all"
-                          style={{ width: `${normalizeAV(detail.ml_profile.arousal ?? 1) * 100}%` }}
-                        />
-                      </div>
-                      <p className="text-sm font-mono font-bold text-orange-400 mt-1">
-                        {(normalizeAV(detail.ml_profile.arousal ?? 1) * 100).toFixed(1)}%
-                      </p>
-                    </div>
-                    <div className="bg-gray-800 rounded p-3">
-                      <p className="text-xs text-gray-500">Valence</p>
-                      <div className="mt-1 h-2 bg-gray-700 rounded overflow-hidden">
-                        <div
-                          className="h-full bg-sky-400 rounded transition-all"
-                          style={{ width: `${normalizeAV(detail.ml_profile.valence ?? 1) * 100}%` }}
-                        />
-                      </div>
-                      <p className="text-sm font-mono font-bold text-sky-400 mt-1">
-                        {(normalizeAV(detail.ml_profile.valence ?? 1) * 100).toFixed(1)}%
-                      </p>
-                    </div>
+                  <div className="grid grid-cols-2 gap-8 pt-4 border-t border-line">
+                    <Meter label="Arousal" value={normalizeAV(detail.ml_profile.arousal ?? 1)} />
+                    <Meter label="Valence" value={normalizeAV(detail.ml_profile.valence ?? 1)} />
                   </div>
                 </div>
               ) : (
-                <p className="text-gray-600 text-xs">No ML profile data</p>
+                <p className="font-mono text-2xs text-ink-3">No ML profile data</p>
               )}
-            </ChartCard>
+            </Figure>
           </div>
 
           {/* Genres + Instruments */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-10 border-t border-line-strong pt-5">
 
-            <ChartCard title="Genre Distribution">
+            <Figure title="Genre Distribution" note="share">
               {genreData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie
-                      data={genreData}
-                      dataKey="percentage"
-                      nameKey="genre"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={80}
-                      innerRadius={30}
-                      labelLine={false}
-                      label={(props: Record<string, unknown>) => {
-                        const percent = props.percent as number;
-                        if (percent <= 0.05) return null;
-                        const cx = props.cx as number;
-                        const cy = props.cy as number;
-                        const midAngle = props.midAngle as number;
-                        const outerRadius = props.outerRadius as number;
-                        const genre = props.genre as string;
-                        const RADIAN = Math.PI / 180;
-                        const radius = outerRadius + 22;
-                        const lx = cx + radius * Math.cos(-midAngle * RADIAN);
-                        const ly = cy + radius * Math.sin(-midAngle * RADIAN);
-                        return (
-                          <text
-                            x={lx}
-                            y={ly}
-                            fill="#9ca3af"
-                            textAnchor={lx > cx ? "start" : "end"}
-                            dominantBaseline="central"
-                            fontSize={10}
-                          >
-                            {genre} {(percent * 100).toFixed(0)}%
-                          </text>
-                        );
-                      }}
-                    >
-                      {genreData.map((_, i) => (
-                        <Cell key={i} fill={GENRE_COLORS[i % GENRE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM}
-                      formatter={(v) => [`${(v as number).toFixed(1)}%`, "share"]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                <RankedBars
+                  labelWidth={120}
+                  rows={genreData.map((g) => ({ label: g.genre, value: g.percentage }))}
+                  format={(v) => `${(v * 100).toFixed(0)}%`}
+                />
               ) : (
-                <p className="text-gray-600 text-xs pt-2">No genre data</p>
+                <p className="font-mono text-2xs text-ink-3">No genre data</p>
               )}
-            </ChartCard>
+            </Figure>
 
-            <ChartCard title="Top Instruments">
+            <Figure title="Top Instruments" note="probability">
               {instrData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={Math.max(180, instrData.length * 26)}>
-                  <BarChart
-                    data={instrData}
-                    layout="vertical"
-                    margin={{ top: 0, right: 50, left: 8, bottom: 0 }}
-                  >
-                    <CartesianGrid {...GRID_STYLE} horizontal={false} />
-                    <XAxis type="number" tick={AXIS_STYLE} domain={[0, 1]} />
-                    <YAxis
-                      type="category"
-                      dataKey="instrument"
-                      tick={{ fill: "#9ca3af", fontSize: 11 }}
-                      width={100}
-                    />
-                    <Tooltip
-                      contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM}
-                      formatter={(v) => [(v as number).toFixed(3), "probability"]}
-                    />
-                    <Bar dataKey="probability" radius={[0, 3, 3, 0]}>
-                      {instrData.map((_, i) => (
-                        <Cell key={i} fill={GENRE_COLORS[i % GENRE_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <RankedBars
+                  labelWidth={120}
+                  max={1}
+                  rows={instrData.map((i) => ({ label: i.instrument, value: i.probability }))}
+                  format={(v) => v.toFixed(2)}
+                />
               ) : (
-                <p className="text-gray-600 text-xs pt-2">No instrument data</p>
+                <p className="font-mono text-2xs text-ink-3">No instrument data</p>
               )}
-            </ChartCard>
+            </Figure>
           </div>
 
           {/* Audio details */}
           {detail.dsp && (
-            <ChartCard title="Audio Details">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {[
-                  { label: "BPM",           val: detail.dsp.bpm?.toFixed(1) },
-                  { label: "Beat Confidence", val: detail.dsp.beat_confidence ? `${(detail.dsp.beat_confidence * 100).toFixed(0)}%` : null },
-                  { label: "Key",           val: detail.dsp.key ? `${detail.dsp.key} ${detail.dsp.scale}` : null },
-                  { label: "Key Strength",  val: detail.dsp.key_strength?.toFixed(3) },
-                  { label: "Tuning Hz",     val: detail.dsp.tuning_frequency_hz?.toFixed(1) },
-                  { label: "LUFS",          val: detail.dsp.integrated_lufs?.toFixed(1) },
-                  { label: "Loudness dB",   val: detail.dsp.loudness_db?.toFixed(1) },
-                  { label: "Dyn. Complexity", val: detail.dsp.dynamic_complexity?.toFixed(3) },
-                  { label: "Dissonance",    val: detail.dsp.dissonance?.toFixed(3) },
-                  { label: "Spec. Centroid", val: detail.dsp.spectral_centroid_mean?.toFixed(0) },
-                  { label: "Chord Change",  val: detail.dsp.chord_change_rate?.toFixed(3) },
-                  { label: "Top Chord",     val: detail.dsp.most_common_chord },
-                ].map(({ label, val }) => (
-                  val != null ? (
-                    <div key={label} className="bg-gray-800 rounded p-2">
-                      <p className="text-xs text-gray-500">{label}</p>
-                      <p className="text-sm font-mono font-bold text-gray-100 mt-0.5">{val}</p>
-                    </div>
-                  ) : null
-                ))}
-              </div>
-            </ChartCard>
+            <div className="border-t border-line-strong pt-5">
+              <Figure title="Audio Details">
+                <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 border-t border-line">
+                  {[
+                    { label: "BPM",           val: detail.dsp.bpm?.toFixed(1) },
+                    { label: "Beat Confidence", val: detail.dsp.beat_confidence ? `${(detail.dsp.beat_confidence * 100).toFixed(0)}%` : null },
+                    { label: "Key",           val: detail.dsp.key ? `${detail.dsp.key} ${detail.dsp.scale}` : null },
+                    { label: "Key Strength",  val: detail.dsp.key_strength?.toFixed(3) },
+                    { label: "Tuning Hz",     val: detail.dsp.tuning_frequency_hz?.toFixed(1) },
+                    { label: "LUFS",          val: detail.dsp.integrated_lufs?.toFixed(1) },
+                    { label: "Loudness dB",   val: detail.dsp.loudness_db?.toFixed(1) },
+                    { label: "Dyn. Complexity", val: detail.dsp.dynamic_complexity?.toFixed(3) },
+                    { label: "Dissonance",    val: detail.dsp.dissonance?.toFixed(3) },
+                    { label: "Spec. Centroid", val: detail.dsp.spectral_centroid_mean?.toFixed(0) },
+                    { label: "Chord Change",  val: detail.dsp.chord_change_rate?.toFixed(3) },
+                    { label: "Top Chord",     val: detail.dsp.most_common_chord },
+                  ].map(({ label, val }) => (
+                    val != null ? (
+                      <div key={label} className="py-2.5 pr-4 border-b border-line min-w-0">
+                        <dt className="t-label">{label}</dt>
+                        <dd className="font-mono text-sm text-ink mt-1 truncate">{val}</dd>
+                      </div>
+                    ) : null
+                  ))}
+                </dl>
+              </Figure>
+            </div>
           )}
 
           {/* Timeseries */}
-          <ChartCard title="Feature Timeseries">
-            {/* Toggle buttons */}
-            <div className="flex flex-wrap gap-1.5 mb-4">
-              {allTsKeys.map((k) => (
-                <button
-                  key={k}
-                  onClick={() => toggleTs(k)}
-                  className="px-2 py-0.5 rounded text-xs transition-colors border"
-                  style={{
-                    borderColor: visibleTs.has(k) ? (TS_COLORS[k] ?? "#818cf8") : "#374151",
-                    color:       visibleTs.has(k) ? (TS_COLORS[k] ?? "#818cf8") : "#6b7280",
-                    background:  visibleTs.has(k) ? `${TS_COLORS[k] ?? "#818cf8"}15` : "transparent",
-                  }}
-                >
-                  {TS_LABEL[k] ?? k}
-                </button>
-              ))}
-            </div>
-
-            {tsChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={tsChartData} margin={{ top: 4, right: 16, left: -16, bottom: 8 }}>
-                  <CartesianGrid {...GRID_STYLE} />
-                  <XAxis
-                    dataKey="sec"
-                    tick={AXIS_STYLE}
-                    label={{ value: "seconds", position: "insideBottom", offset: -4, fill: "#6b7280", fontSize: 10 }}
-                  />
-                  <YAxis tick={AXIS_STYLE} domain={[0, 1]} />
-                  <Tooltip
-                    contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL} itemStyle={TOOLTIP_ITEM}
-                    labelFormatter={(l) => `${l}s`}
-                    formatter={(v, name) => [
-                      typeof v === "number" ? v.toFixed(3) : v,
-                      TS_LABEL[name as string] ?? name,
-                    ]}
-                  />
-                  {[...visibleTs].map((k) => (
-                    <Line
+          <div className="border-t border-line-strong pt-5">
+            <Figure title="Feature Timeseries" note="each series min-max normalised">
+              {/* Toggle buttons */}
+              <div className="flex flex-wrap gap-x-1 gap-y-0.5 mb-5">
+                {allTsKeys.map((k) => {
+                  const on = visibleTs.has(k);
+                  const color = TS_COLORS[k] ?? COLOR.data;
+                  return (
+                    <button
                       key={k}
-                      type="monotone"
-                      dataKey={k}
-                      stroke={TS_COLORS[k] ?? "#818cf8"}
-                      strokeWidth={1.5}
-                      dot={false}
-                      connectNulls
-                      isAnimationActive={false}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-48 text-gray-600 text-sm">
-                Select at least one feature above
+                      onClick={() => toggleTs(k)}
+                      aria-pressed={on}
+                      className={`flex items-center gap-1.5 px-2 h-6 rounded-sm text-xs ${
+                        on ? "text-ink bg-raised" : "text-ink-3 hover:text-ink"
+                      }`}
+                    >
+                      <span
+                        className="w-2 h-2 shrink-0"
+                        style={{ background: on ? color : "transparent", boxShadow: `inset 0 0 0 1px ${color}` }}
+                      />
+                      {TS_LABEL[k] ?? k}
+                    </button>
+                  );
+                })}
               </div>
-            )}
-          </ChartCard>
+
+              {tsChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={tsChartData} margin={{ top: 4, right: 16, left: -16, bottom: 8 }}>
+                    <CartesianGrid {...gridProps} vertical={false} />
+                    <XAxis
+                      dataKey="sec"
+                      {...numericAxis}
+                      label={{ value: "seconds", position: "insideBottom", offset: -4, fill: COLOR.ink3, fontSize: 10, fontFamily: FONT_MONO }}
+                    />
+                    <YAxis {...numericAxis} axisLine={false} domain={[0, 1]} />
+                    <Tooltip
+                      {...tooltipProps}
+                      cursor={{ stroke: COLOR.lineStrong }}
+                      labelFormatter={(l) => `${l}s`}
+                      formatter={(v, name) => [
+                        typeof v === "number" ? v.toFixed(3) : v,
+                        TS_LABEL[name as string] ?? name,
+                      ]}
+                    />
+                    {[...visibleTs].map((k) => (
+                      <Line
+                        key={k}
+                        type="monotone"
+                        dataKey={k}
+                        stroke={TS_COLORS[k] ?? COLOR.data}
+                        strokeWidth={1.5}
+                        dot={false}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-48 font-mono text-xs text-ink-3">
+                  Select at least one feature above
+                </div>
+              )}
+            </Figure>
+          </div>
 
         </div>
       )}
