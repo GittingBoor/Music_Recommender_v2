@@ -15,13 +15,14 @@ const STAGE_LABEL: Record<PipelineStage, string> = {
   queued:      "In der Warteschlange",
 };
 
+// Signal marks the one song being analysed; everything else stays quiet.
 const STAGE_CLASS: Record<PipelineStage, string> = {
-  analyzing:   "bg-violet-500/15 text-violet-300 border-violet-500/40",
-  trimming:    "bg-sky-500/15 text-sky-300 border-sky-500/40",
-  downloading: "bg-sky-500/15 text-sky-300 border-sky-500/40",
-  searching:   "bg-sky-500/15 text-sky-300 border-sky-500/40",
-  waiting:     "bg-gray-800 text-gray-400 border-gray-700",
-  queued:      "bg-gray-900 text-gray-500 border-gray-800",
+  analyzing:   "text-signal",
+  trimming:    "text-ink-2",
+  downloading: "text-ink-2",
+  searching:   "text-ink-2",
+  waiting:     "text-ink-3",
+  queued:      "text-ink-4",
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -55,53 +56,51 @@ export function PipelineList() {
   const queued = (jobs?.length ?? 0) - active;
 
   return (
-    <section className="space-y-2 pt-2">
+    <section className="space-y-3">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-          In der Pipeline
-        </h2>
+        <h2 className="t-section">In der Pipeline</h2>
         {jobs && jobs.length > 0 && (
-          <span className="text-xs text-gray-500">
+          <span className="font-mono text-2xs text-ink-3 tabular-nums">
             {active} aktiv · {queued} wartend
           </span>
         )}
       </div>
 
       {failed && jobs === null && (
-        <p className="text-xs text-red-400">Pipeline-Status nicht erreichbar.</p>
+        <p className="font-mono text-xs text-bad">Pipeline-Status nicht erreichbar.</p>
       )}
       {jobs && jobs.length === 0 && (
-        <p className="text-xs text-gray-600">Gerade wird nichts heruntergeladen oder analysiert.</p>
+        <p className="font-mono text-xs text-ink-4">Gerade wird nichts heruntergeladen oder analysiert.</p>
       )}
 
       {jobs && jobs.length > 0 && (
-        <div className="space-y-1">
+        <div className="border-t border-line">
           {jobs.slice(0, MAX_ROWS).map((job) => (
             <div
               key={job.id}
-              className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-900 border border-gray-800"
+              className="flex items-center gap-3 py-1.5 border-b border-line"
             >
               <span className="w-7 h-7 flex items-center justify-center shrink-0">
                 {job.stage === "queued" || job.stage === "waiting" ? (
-                  <span className="w-2.5 h-2.5 rounded-full bg-gray-700" />
+                  <span className="w-1.5 h-1.5 bg-ink-4" />
                 ) : (
-                  <span className="w-3 h-3 rounded-full bg-violet-500 animate-pulse" />
+                  <span className="w-2 h-2 bg-signal animate-pulse" />
                 )}
               </span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-gray-300 truncate">{job.label}</p>
-                <p className="text-[11px] text-gray-600">
+                <p className="text-sm text-ink truncate">{job.label}</p>
+                <p className="font-mono text-2xs text-ink-3">
                   {SOURCE_LABEL[job.source] ?? job.source}
                   {job.stage !== "queued" && ` · seit ${fmtSeconds(job.seconds_in_stage)}`}
                 </p>
               </div>
-              <span className={`shrink-0 text-[11px] px-2 py-0.5 rounded border whitespace-nowrap ${STAGE_CLASS[job.stage]}`}>
+              <span className={`shrink-0 font-mono text-2xs whitespace-nowrap ${STAGE_CLASS[job.stage]}`}>
                 {STAGE_LABEL[job.stage]}
               </span>
             </div>
           ))}
           {jobs.length > MAX_ROWS && (
-            <p className="text-xs text-gray-600 text-center pt-1">
+            <p className="font-mono text-2xs text-ink-4 pt-2">
               … und {jobs.length - MAX_ROWS} weitere in der Warteschlange
             </p>
           )}

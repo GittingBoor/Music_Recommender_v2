@@ -17,22 +17,22 @@ export function PlayButton({ songId, className = "" }: Props) {
         toggle(songId);
       }}
       aria-label={isActive ? "Pause" : "Play"}
-      className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+      className={`relative shrink-0 w-7 h-7 rounded-sm flex max-md:before:absolute max-md:before:-inset-1.5 max-md:before:content-[''] items-center justify-center ${
         isActive
-          ? "bg-violet-600 hover:bg-violet-700 text-white"
-          : "bg-gray-800 hover:bg-gray-700 text-gray-300"
+          ? "bg-signal text-ground"
+          : "text-ink-3 hover:text-ink hover:bg-line"
       } ${className}`}
     >
       {isActive ? (
         // Pause icon
-        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-          <rect x="6" y="5" width="4" height="14" rx="1" />
-          <rect x="14" y="5" width="4" height="14" rx="1" />
+        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+          <rect x="5" y="4" width="5" height="16" />
+          <rect x="14" y="4" width="5" height="16" />
         </svg>
       ) : (
         // Play icon (offset slightly to visually center)
-        <svg className="w-3.5 h-3.5 translate-x-px" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M8 5v14l11-7z" />
+        <svg className="w-3 h-3 translate-x-px" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M6 4v16l14-8z" />
         </svg>
       )}
     </button>

@@ -61,41 +61,39 @@ export default function App() {
   return (
     // 100dvh instead of 100vh: on phones 100vh ignores the browser toolbar,
     // which would push the player bar below the visible area.
-    <div className="h-screen h-[100dvh] flex flex-col bg-gray-950 text-white overflow-hidden">
-      <header className="flex-shrink-0 border-b border-gray-800 px-3 pt-2 pb-1.5 md:px-6 md:py-3 flex flex-col md:flex-row md:items-center gap-1.5 md:gap-6">
-        <div className="min-w-0 flex items-baseline gap-2 md:block px-1 md:px-0">
-          <h1 className="text-base md:text-lg font-bold tracking-tight leading-none whitespace-nowrap">
-            Music Recommender
-          </h1>
-          {!loading && !error && (
-            <p className="text-xs text-gray-500 md:mt-0.5 whitespace-nowrap">{songs.length} songs</p>
-          )}
-        </div>
-        <nav className="grid grid-cols-5 gap-1 md:flex">
+    // Phones: title and song count on the first row, the tabs span a second row.
+    <div className="h-screen h-[100dvh] flex flex-col bg-ground text-ink overflow-hidden">
+      <header className="flex-shrink-0 md:h-11 border-b border-line flex flex-wrap md:flex-nowrap items-stretch px-3 md:px-5">
+        <h1 className="flex items-center h-10 md:h-auto md:pr-5 md:mr-2 md:border-r border-line text-[15px] font-bold leading-none stretch-expanded tracking-[-0.01em] whitespace-nowrap">
+          Music Recommender
+        </h1>
+        <nav className="order-last md:order-none w-full md:w-auto h-10 md:h-auto flex border-t border-line md:border-t-0 overflow-x-auto no-scrollbar">
           {(["cards", "umap", "analysis", "filter", "upload"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-1 md:px-3 py-2 md:py-1.5 rounded text-[13px] md:text-sm font-medium transition-colors ${
-                tab === t
-                  ? "bg-gray-800 text-white"
-                  : "text-gray-500 hover:text-gray-300 hover:bg-gray-900"
-              }`}
+              aria-current={tab === t ? "page" : undefined}
+              className="tab flex-1 justify-center md:flex-none"
             >
               {t === "cards" ? "Cards" : t === "umap" ? "UMAP" : t === "analysis" ? "Analysis" : t === "filter" ? "Filter" : "Upload"}
             </button>
           ))}
         </nav>
+        {!loading && !error && (
+          <p className="ml-auto self-center pl-4 font-mono text-2xs text-ink-3 whitespace-nowrap">
+            <span className="text-ink">{songs.length}</span> songs
+          </p>
+        )}
       </header>
 
       <main className="flex-1 overflow-hidden">
         {loading && (
-          <div className="h-full flex items-center justify-center text-gray-500 text-sm">
+          <div className="h-full flex items-center justify-center font-mono text-xs text-ink-3">
             Loading songs…
           </div>
         )}
         {error && (
-          <div className="h-full flex items-center justify-center text-red-400 text-sm">
+          <div className="h-full flex items-center justify-center font-mono text-xs text-bad">
             Error: {error}
           </div>
         )}

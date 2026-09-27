@@ -6,6 +6,7 @@ import type { PreviewSegment } from "../services/api";
 import { fetchPreviewSegment, fetchUmap } from "../services/api";
 import { getSnapshot, playPreview, subscribe, toggle } from "../audio/player";
 import { UmapCanvas2D } from "./UmapCanvas2D";
+import { COLOR, SERIES_EXTENDED } from "../theme";
 
 // ─── Feature definitions ──────────────────────────────────────────────────────
 
@@ -49,11 +50,7 @@ const FEATURE_LABEL: Record<string, string> = Object.fromEntries(
 );
 const FEATURE_GROUPS = [...new Set(FEATURE_OPTIONS.map((o) => o.group))];
 
-const GENRE_PALETTE = [
-  "#6366f1", "#ef4444", "#ec4899", "#f59e0b", "#10b981",
-  "#06b6d4", "#8b5cf6", "#84cc16", "#22c55e", "#3b82f6",
-  "#f97316", "#14b8a6", "#a855f7", "#6b7280",
-];
+const GENRE_PALETTE: readonly string[] = SERIES_EXTENDED;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -78,11 +75,25 @@ function normalizeAV(v: number | null | undefined): number {
 function Bar({ value }: { value: number }) {
   const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
   return (
-    <div className="flex items-center gap-1.5 min-w-0 mt-0.5">
-      <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-        <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${pct}%` }} />
+    <div className="flex items-center gap-2 min-w-0">
+      <div className="flex-1 h-[3px] bg-line">
+        <div className="h-full bg-ink-2" style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-gray-400 text-[10px] w-7 text-right flex-shrink-0">{pct}%</span>
+      <span className="font-mono text-2xs text-ink-2 tabular-nums w-8 text-right flex-shrink-0">{pct}%</span>
+    </div>
+  );
+}
+
+/** Label | bar | percentage — one line per score. */
+function ScoreRow({ label, value }: { label: React.ReactNode; value: number | null | undefined }) {
+  return (
+    <div className="grid grid-cols-[84px_1fr] items-center gap-2 min-h-[18px]">
+      <span className="text-xs text-ink-3 truncate">{label}</span>
+      {value != null ? (
+        <Bar value={value} />
+      ) : (
+        <span className="font-mono text-2xs text-ink-4 text-right">—</span>
+      )}
     </div>
   );
 }
@@ -107,12 +118,19 @@ function Tip({ text, children, set }: { text: string; children: React.ReactNode;
   );
 }
 
+// Half the tooltip's max width (220px) plus a margin: keeps it on-screen near the edges.
+const TIP_EDGE_PX = 118;
+
 function TooltipPortal({ tip }: { tip: TooltipState | null }) {
   if (!tip) return null;
   return createPortal(
     <div
-      className="fixed z-50 px-2 py-1.5 rounded text-[11px] text-gray-200 bg-gray-800 border border-gray-700 shadow-xl leading-snug pointer-events-none max-w-[220px]"
-      style={{ left: tip.x, top: tip.y, transform: "translate(-50%, -100%)" }}
+      className="fixed z-50 px-2 py-1.5 rounded-sm text-xs text-ink-2 bg-raised border border-line-strong leading-snug pointer-events-none max-w-[220px]"
+      style={{
+        left: `clamp(${TIP_EDGE_PX}px, ${tip.x}px, calc(100vw - ${TIP_EDGE_PX}px))`,
+        top: tip.y,
+        transform: "translate(-50%, -100%)",
+      }}
     >
       {tip.text}
     </div>,
@@ -128,14 +146,14 @@ function AxisSelect({ label, value, onChange }: {
   onChange: (v: FeatureValue) => void;
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+    <div className="flex flex-col gap-1.5">
+      <span className="t-label">
         {label} axis
       </span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as FeatureValue)}
-        className="w-full bg-gray-900 border border-gray-700 text-gray-200 text-xs rounded px-2 py-1.5 focus:outline-none focus:border-indigo-500"
+        className="field-select w-full h-7 text-xs"
       >
         {FEATURE_GROUPS.map((group) => (
           <optgroup key={group} label={group}>
@@ -178,10 +196,14 @@ const TIPS: Record<string, string> = {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+    <p className="text-xs font-semibold text-ink mb-2.5">
       {children}
     </p>
   );
+}
+
+function Rule() {
+  return <div className="border-t border-line" />;
 }
 
 const MOODS: [string, keyof NonNullable<Song["ml_moods"]>][] = [
@@ -238,60 +260,63 @@ function SongInfoPanel({ song }: { song: Song }) {
   return (
     <>
       <TooltipPortal tip={tip} />
-      <div className="flex flex-col gap-3 text-sm pb-2">
+      <div className="flex flex-col gap-4 text-sm pb-2">
 
-        {/* Title / Artist */}
-        <div>
-          <p className="font-bold text-white text-base leading-tight">{song.title ?? "Unknown"}</p>
-          <p className="text-indigo-400 text-sm mt-0.5 truncate">{song.artist ?? "Unknown Artist"}</p>
+        {/* Title / Artist — right padding keeps clear of the phone close button */}
+        <div className="pr-10 md:pr-0">
+          <p className="text-xl font-semibold text-ink leading-[1.1] stretch-semi tracking-[-0.01em]">
+            {song.title ?? "Unknown"}
+          </p>
+          <p className="text-base text-ink-2 mt-1.5 truncate">{song.artist ?? "Unknown Artist"}</p>
           {featuredArtists.length > 0 && (
-            <p className="text-gray-500 text-xs mt-0.5">feat. {featuredArtists.join(", ")}</p>
+            <p className="text-ink-3 text-xs mt-0.5">feat. {featuredArtists.join(", ")}</p>
           )}
         </div>
 
-        <div className="border-t border-gray-800" />
-
         {/* Chorus preview */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <div className="relative group">
             <button
               onClick={togglePreview}
               disabled={segment === null}
-              className={`flex items-center justify-center w-8 h-8 rounded-full border transition-colors
-                ${segment !== null
-                  ? "border-indigo-500 text-indigo-400 hover:bg-indigo-500/20 cursor-pointer"
-                  : "border-gray-700 text-gray-700 cursor-not-allowed"}`}
+              aria-label={isPreviewing ? "Pause preview" : "Play preview"}
+              className={`flex items-center justify-center w-8 h-8 rounded-sm border
+                ${segment === null
+                  ? "border-line text-ink-4 cursor-not-allowed"
+                  : isPreviewing
+                    ? "border-signal bg-signal text-ground"
+                    : "border-line-strong text-ink hover:border-signal hover:text-signal cursor-pointer"}`}
             >
               {isPreviewing ? (
-                <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor">
-                  <rect x="3" y="2" width="4" height="12" rx="1" />
-                  <rect x="9" y="2" width="4" height="12" rx="1" />
+                <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="currentColor">
+                  <rect x="3" y="2" width="4" height="12" />
+                  <rect x="9" y="2" width="4" height="12" />
                 </svg>
               ) : (
-                <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor">
+                <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="currentColor">
                   <path d="M4 2.5l10 5.5-10 5.5V2.5z" />
                 </svg>
               )}
             </button>
             {segment === null && (
-              <div className="pointer-events-none absolute left-10 top-1/2 -translate-y-1/2 hidden group-hover:flex z-20 whitespace-nowrap px-2 py-1 rounded text-xs text-gray-300 bg-gray-800 border border-gray-700 shadow-lg">
+              <div className="pointer-events-none absolute left-10 top-1/2 -translate-y-1/2 hidden group-hover:flex z-20 whitespace-nowrap px-2 py-1 rounded-sm text-xs text-ink-2 bg-raised border border-line-strong">
                 {song.has_preview ? "Locating chorus…" : "No audio file available"}
               </div>
             )}
           </div>
-          <span className="text-[11px] text-gray-500">
+          <span className="font-mono text-2xs text-ink-3">
             {segment
               ? `${segment.duration_seconds}s hook from ${fmtDuration(segment.start_seconds)}`
               : song.has_preview ? "Locating chorus…" : "No preview"}
           </span>
         </div>
 
-        <div className="border-t border-gray-800" />
+        <Rule />
 
-        {/* Audio — fixed 4 rows, single column */}
+        {/* Audio — four figures */}
         <div>
           <SectionTitle>Audio</SectionTitle>
-          <div className="space-y-1.5 text-xs">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             {(
               [
                 ["BPM",         fmt(dsp?.bpm, 1),  "bpm"],
@@ -300,108 +325,74 @@ function SongInfoPanel({ song }: { song: Song }) {
                 ["Danceability", danceabilityPct,   "danceability"],
               ] as [string, string, string][]
             ).map(([label, value, tipKey]) => (
-              <div key={label} className="flex justify-between items-center">
+              <div key={label} className="min-w-0">
                 <Tip text={TIPS[tipKey]} set={setTip}>
-                  <span className="text-gray-500">{label}</span>
+                  <span className="t-label">{label}</span>
                 </Tip>
-                <span className="text-gray-200 font-mono">{value}</span>
+                <p className="text-lg font-medium text-ink leading-none stretch-condensed tabular-nums mt-1.5 truncate">
+                  {value}
+                </p>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="border-t border-gray-800" />
+        <Rule />
 
         {/* Moods — all 7, bar or dash */}
         <div>
           <SectionTitle>Moods</SectionTitle>
-          <div className="space-y-2">
-            {MOODS.map(([label, key]) => {
-              const val = moods?.[key];
-              return (
-                <div key={key}>
-                  <Tip text={TIPS[key as string]} set={setTip}>
-                    <span className="text-gray-500 text-xs">{label}</span>
-                  </Tip>
-                  {val != null ? <Bar value={val} /> : (
-                    <div className="mt-0.5 text-gray-700 text-[10px]">—</div>
-                  )}
-                </div>
-              );
-            })}
+          <div className="space-y-1.5">
+            {MOODS.map(([label, key]) => (
+              <ScoreRow
+                key={key}
+                label={<Tip text={TIPS[key as string]} set={setTip}><span>{label}</span></Tip>}
+                value={moods?.[key]}
+              />
+            ))}
           </div>
         </div>
 
-        <div className="border-t border-gray-800" />
+        <Rule />
 
         {/* Profile — arousal + valence + all profile fields */}
         <div>
           <SectionTitle>Profile</SectionTitle>
-          <div className="space-y-2">
-            {/* Arousal */}
-            <div>
-              <Tip text={TIPS.arousal} set={setTip}>
-                <span className="text-gray-500 text-xs">Arousal</span>
-              </Tip>
-              {profile ? <Bar value={normalizeAV(profile.arousal)} /> : (
-                <div className="mt-0.5 text-gray-700 text-[10px]">—</div>
-              )}
-            </div>
-            {/* Valence */}
-            <div>
-              <Tip text={TIPS.valence} set={setTip}>
-                <span className="text-gray-500 text-xs">Valence</span>
-              </Tip>
-              {profile ? <Bar value={normalizeAV(profile.valence)} /> : (
-                <div className="mt-0.5 text-gray-700 text-[10px]">—</div>
-              )}
-            </div>
-            {/* Approachability */}
-            <div>
-              <div className="text-xs text-gray-500 mb-0.5">
-                <Tip text={TIPS.approachability} set={setTip}><span>Approachability</span></Tip>
-              </div>
-              <div className="flex justify-between text-xs text-gray-400 mb-0.5"><span>niche</span><span>{profile?.niche_score != null ? (profile.niche_score * 100).toFixed(0) + "%" : "—"}</span></div>
-              {profile ? <Bar value={profile.niche_score ?? 0} /> : null}
-              <div className="flex justify-between text-xs text-gray-400 mt-1 mb-0.5"><span>mainstream</span><span>{profile?.mainstream_score != null ? (profile.mainstream_score * 100).toFixed(0) + "%" : "—"}</span></div>
-              {profile ? <Bar value={profile.mainstream_score ?? 0} /> : null}
-            </div>
-            {/* Engagement */}
-            <div>
-              <div className="text-xs text-gray-500 mb-0.5">
-                <Tip text={TIPS.engagement} set={setTip}><span>Engagement</span></Tip>
-              </div>
-              <div className="flex justify-between text-xs text-gray-400 mb-0.5"><span>background</span><span>{profile?.background_score != null ? (profile.background_score * 100).toFixed(0) + "%" : "—"}</span></div>
-              {profile ? <Bar value={profile.background_score ?? 0} /> : null}
-              <div className="flex justify-between text-xs text-gray-400 mt-1 mb-0.5"><span>active</span><span>{profile?.active_score != null ? (profile.active_score * 100).toFixed(0) + "%" : "—"}</span></div>
-              {profile ? <Bar value={profile.active_score ?? 0} /> : null}
-            </div>
-            {/* Voice */}
-            <div>
-              <div className="text-xs text-gray-500 mb-0.5">
-                <Tip text={TIPS.voice} set={setTip}><span>Voice</span></Tip>
-              </div>
-              <div className="flex justify-between text-xs text-gray-400 mb-0.5"><span>instrumental</span><span>{profile?.instrumental_score != null ? (profile.instrumental_score * 100).toFixed(0) + "%" : "—"}</span></div>
-              {profile ? <Bar value={profile.instrumental_score ?? 0} /> : null}
-              <div className="flex justify-between text-xs text-gray-400 mt-1 mb-0.5"><span>vocal</span><span>{profile?.vocal_score != null ? (profile.vocal_score * 100).toFixed(0) + "%" : "—"}</span></div>
-              {profile ? <Bar value={profile.vocal_score ?? 0} /> : null}
-            </div>
-            {/* Gender */}
-            <div>
-              <div className="text-xs text-gray-500 mb-0.5">
-                <Tip text={TIPS.gender} set={setTip}><span>Gender</span></Tip>
-              </div>
-              <div className="flex justify-between text-xs text-gray-400 mb-0.5"><span>female</span><span>{profile?.female_score != null ? (profile.female_score * 100).toFixed(0) + "%" : "—"}</span></div>
-              {profile ? <Bar value={profile.female_score ?? 0} /> : null}
-              <div className="flex justify-between text-xs text-gray-400 mt-1 mb-0.5"><span>male</span><span>{profile?.male_score != null ? (profile.male_score * 100).toFixed(0) + "%" : "—"}</span></div>
-              {profile ? <Bar value={profile.male_score ?? 0} /> : null}
-            </div>
+          <div className="space-y-1.5">
+            <ScoreRow
+              label={<Tip text={TIPS.arousal} set={setTip}><span>Arousal</span></Tip>}
+              value={profile ? normalizeAV(profile.arousal) : null}
+            />
+            <ScoreRow
+              label={<Tip text={TIPS.valence} set={setTip}><span>Valence</span></Tip>}
+              value={profile ? normalizeAV(profile.valence) : null}
+            />
           </div>
+
+          {(
+            [
+              ["Approachability", TIPS.approachability, [["niche", profile?.niche_score], ["mainstream", profile?.mainstream_score]]],
+              ["Engagement",      TIPS.engagement,      [["background", profile?.background_score], ["active", profile?.active_score]]],
+              ["Voice",           TIPS.voice,           [["instrumental", profile?.instrumental_score], ["vocal", profile?.vocal_score]]],
+              ["Gender",          TIPS.gender,          [["female", profile?.female_score], ["male", profile?.male_score]]],
+            ] as [string, string, [string, number | null | undefined][]][]
+          ).map(([title, tipText, pair]) => (
+            <div key={title} className="mt-3.5">
+              <Tip text={tipText} set={setTip}>
+                <span className="t-label">{title}</span>
+              </Tip>
+              <div className="space-y-1.5 mt-1.5">
+                {pair.map(([sub, value]) => (
+                  <ScoreRow key={sub} label={sub} value={value} />
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* Genres */}
         {(topGenres.length > 0 || topDetailedGenres.length > 0 || mbGenres.length > 0) && (
-          <div className="border-t border-gray-800" />
+          <Rule />
         )}
 
         {topGenres.length > 0 && (
@@ -411,9 +402,9 @@ function SongInfoPanel({ song }: { song: Song }) {
             </Tip>
             <div className="space-y-1">
               {topGenres.map((g) => (
-                <div key={g.genre} className="flex justify-between text-xs">
-                  <span className="text-gray-300 truncate">{g.genre}</span>
-                  <span className="text-gray-500 ml-2 flex-shrink-0">
+                <div key={g.genre} className="flex justify-between gap-2 text-xs">
+                  <span className="text-ink truncate">{g.genre}</span>
+                  <span className="font-mono text-2xs text-ink-3 flex-shrink-0 tabular-nums">
                     {Math.round(g.percentage * 100)}%
                   </span>
                 </div>
@@ -429,9 +420,9 @@ function SongInfoPanel({ song }: { song: Song }) {
             </Tip>
             <div className="space-y-1">
               {topDetailedGenres.map((g) => (
-                <div key={g.genre} className="flex justify-between text-xs">
-                  <span className="text-gray-400 truncate">{g.genre}</span>
-                  <span className="text-gray-500 ml-2 flex-shrink-0">
+                <div key={g.genre} className="flex justify-between gap-2 text-xs">
+                  <span className="text-ink-2 truncate">{g.genre}</span>
+                  <span className="font-mono text-2xs text-ink-3 flex-shrink-0 tabular-nums">
                     {Math.round(g.probability * 100)}%
                   </span>
                 </div>
@@ -445,13 +436,14 @@ function SongInfoPanel({ song }: { song: Song }) {
             <Tip text={TIPS.mb_tags} set={setTip}>
               <SectionTitle>MB Tags</SectionTitle>
             </Tip>
-            <div className="flex flex-wrap gap-1">
-              {mbGenres.slice(0, 8).map((g) => (
-                <span key={g} className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 text-[10px]">
+            <p className="text-xs text-ink-2 leading-relaxed">
+              {mbGenres.slice(0, 8).map((g, i) => (
+                <span key={g}>
+                  {i > 0 && <span className="text-ink-4"> / </span>}
                   {g}
                 </span>
               ))}
-            </div>
+            </p>
           </div>
         )}
 
@@ -531,37 +523,34 @@ export function UmapView({ songs }: Props) {
       const top = s ? [...s.parent_genres].sort((a, b) => b.percentage - a.percentage)[0] : null;
       if (top) present.add(top.genre);
     });
-    return [...present].map((g) => ({ genre: g, color: genreColorMap[g] ?? "#6b7280" }));
+    return [...present].map((g) => ({ genre: g, color: genreColorMap[g] ?? COLOR.ink4 }));
   }, [umapData, songMap, genreColorMap]);
 
   return (
     <div className="h-full flex overflow-hidden relative">
 
       {/* ── Left controls panel (overlay on phones) ── */}
-      <div className={`${showControls ? "flex" : "hidden"} md:flex absolute md:static inset-0 z-30 bg-gray-950 md:bg-transparent w-full md:w-64 flex-shrink-0 border-r border-gray-800 flex-col`}>
+      <div className={`${showControls ? "flex" : "hidden"} md:flex absolute md:static inset-0 z-30 w-full md:w-64 flex-shrink-0 border-r border-line bg-panel flex-col`}>
         <button
           onClick={() => setShowControls(false)}
-          className="md:hidden self-end m-2 px-3 py-1.5 rounded-lg border border-gray-700 text-xs text-gray-300"
+          className="btn md:hidden self-end m-2"
         >
           Close
         </button>
 
         {/* Feature mode + selectors — scrollable */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        <div className="flex-1 overflow-y-auto px-5 py-4">
           <div>
-            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+            <p className="t-label mb-2">
               Features
             </p>
-            <div className="flex rounded overflow-hidden border border-gray-700 mb-3">
+            <div className="seg w-full mb-4">
               {(["all", "custom"] as FeatureMode[]).map((m) => (
                 <button
                   key={m}
                   onClick={() => setFeatureMode(m)}
-                  className={`flex-1 py-1 text-xs font-medium transition-colors capitalize ${
-                    featureMode === m
-                      ? "bg-indigo-600 text-white"
-                      : "bg-gray-900 text-gray-400 hover:text-gray-200"
-                  }`}
+                  aria-pressed={featureMode === m}
+                  className={`seg-item capitalize ${featureMode === m ? "seg-item-on" : ""}`}
                 >
                   {m}
                 </button>
@@ -569,13 +558,13 @@ export function UmapView({ songs }: Props) {
             </div>
             {featureMode === "all" ? (
               <>
-                <p className="text-xs font-medium text-gray-300 mb-1.5">
+                <p className="text-sm font-semibold text-ink mb-1.5">
                   UMAP projection
                 </p>
-                <ul className="list-disc pl-4 space-y-1 text-xs text-gray-400 leading-relaxed marker:text-gray-600">
+                <ul className="list-[square] pl-4 space-y-1 text-xs text-ink-2 leading-relaxed marker:text-ink-4">
                   <li>All 28 audio features squeezed into a 2D map</li>
                   <li>
-                    <span className="text-gray-300">Distance = similarity</span> —
+                    <span className="text-ink">Distance = similarity</span> —
                     dots close together sound alike
                   </li>
                   <li>Axes have no unit, don't read values off them</li>
@@ -583,13 +572,13 @@ export function UmapView({ songs }: Props) {
               </>
             ) : (
               <>
-                <p className="text-xs font-medium text-gray-300 mb-1.5">
+                <p className="text-sm font-semibold text-ink mb-1.5">
                   Scatter plot — not a UMAP
                 </p>
-                <ul className="list-disc pl-4 space-y-1 text-xs text-gray-400 leading-relaxed marker:text-gray-600">
+                <ul className="list-[square] pl-4 space-y-1 text-xs text-ink-2 leading-relaxed marker:text-ink-4">
                   <li>Each song sits at its raw value for the two features you pick</li>
                   <li>
-                    <span className="text-gray-300">Both axes are readable</span> —
+                    <span className="text-ink">Both axes are readable</span> —
                     unlike in UMAP mode
                   </li>
                 </ul>
@@ -598,34 +587,34 @@ export function UmapView({ songs }: Props) {
           </div>
 
           {featureMode === "custom" && (
-            <>
+            <div className="space-y-3 mt-4">
               <AxisSelect label="X" value={customX} onChange={setCustomX} />
               <AxisSelect label="Y" value={customY} onChange={setCustomY} />
-            </>
+            </div>
           )}
 
-          <div>
-            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+          <div className="mt-5 pt-4 border-t border-line">
+            <p className="text-xs font-semibold text-ink mb-1.5">
               Lines = Similarity
             </p>
-            <ul className="list-disc pl-4 space-y-1 text-xs text-gray-400 leading-relaxed marker:text-gray-600">
+            <ul className="list-[square] pl-4 space-y-1 text-xs text-ink-2 leading-relaxed marker:text-ink-4">
               <li>Each song links to its 5 nearest neighbours</li>
               <li>Measured on all features, before the 2D projection</li>
-              <li><span className="text-gray-300">Hover</span> a dot for a faint preview</li>
-              <li><span className="text-gray-300">Click</span> it to pin the lines</li>
+              <li><span className="text-ink">Hover</span> a dot for a faint preview</li>
+              <li><span className="text-ink">Click</span> it to pin the lines</li>
             </ul>
           </div>
 
           {legendEntries.length > 0 && (
-            <div>
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+            <div className="mt-5 pt-4 border-t border-line">
+              <p className="text-xs font-semibold text-ink mb-2">
                 Color = Genre
               </p>
               <div className="space-y-1">
                 {legendEntries.map(({ genre, color }) => (
                   <div key={genre} className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                    <span className="text-xs text-gray-400 truncate">{genre}</span>
+                    <div className="w-2 h-2 flex-shrink-0" style={{ backgroundColor: color }} />
+                    <span className="text-xs text-ink-2 truncate">{genre}</span>
                   </div>
                 ))}
               </div>
@@ -636,10 +625,10 @@ export function UmapView({ songs }: Props) {
       </div>
 
       {/* ── Center plot ── */}
-      <div className="flex-1 overflow-hidden relative bg-gray-950">
+      <div className="flex-1 overflow-hidden relative bg-ground">
         <button
           onClick={() => setShowControls(true)}
-          className="md:hidden absolute top-2 left-2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-700 bg-gray-900/90 text-xs text-gray-200"
+          className="btn md:hidden absolute top-2 left-2 z-20 bg-panel/90"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
             <line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" />
@@ -647,19 +636,23 @@ export function UmapView({ songs }: Props) {
           {featureMode === "all" ? "UMAP" : "Custom"} · Legend
         </button>
         {loading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-gray-950/80">
-            <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-3" />
-            <p className="text-gray-400 text-sm">Computing UMAP…</p>
-          </div>
+          <>
+            <div className="absolute inset-x-0 top-0 h-[2px] overflow-hidden z-20">
+              <div className="sweep h-full w-1/4 bg-signal" />
+            </div>
+            <div className="absolute inset-0 flex items-center justify-center z-10 bg-ground/70">
+              <p className="font-mono text-xs text-ink-2">Computing UMAP…</p>
+            </div>
+          </>
         )}
         {error && !loading && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <p className="text-red-400 text-sm">Error: {error}</p>
+            <p className="font-mono text-xs text-bad">Error: {error}</p>
           </div>
         )}
         {!umapData && !loading && !error && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <p className="text-gray-600 text-sm">No data</p>
+            <p className="font-mono text-xs text-ink-3">No data</p>
           </div>
         )}
 
@@ -676,11 +669,11 @@ export function UmapView({ songs }: Props) {
       </div>
 
       {/* ── Right song info panel — scrollable ── */}
-      <div className={`${selectedSong ? "block" : "hidden"} md:block absolute md:static inset-x-0 bottom-0 z-20 max-h-[55%] md:max-h-none rounded-t-2xl md:rounded-none bg-gray-950 border-t md:border-t-0 md:border-l border-gray-800 shadow-2xl md:shadow-none md:w-72 flex-shrink-0 px-4 py-4 overflow-y-auto`}>
+      <div className={`${selectedSong ? "block" : "hidden"} md:block absolute md:static inset-x-0 bottom-0 z-20 max-h-[55%] md:max-h-none bg-panel border-t md:border-t-0 md:border-l border-line shadow-2xl md:shadow-none md:w-72 flex-shrink-0 px-4 py-4 md:px-5 md:py-5 overflow-y-auto`}>
         {selectedSong && (
           <button
             onClick={() => setSelectedSongId(null)}
-            className="md:hidden float-right -mt-1 ml-2 w-8 h-8 flex items-center justify-center rounded-full bg-gray-800 text-gray-300"
+            className="btn md:hidden absolute top-3 right-3 z-10 w-8 h-8 px-0"
             aria-label="Close song details"
           >
             ✕
@@ -689,12 +682,8 @@ export function UmapView({ songs }: Props) {
         {selectedSong ? (
           <SongInfoPanel song={selectedSong} />
         ) : (
-          <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-            <svg viewBox="0 0 24 24" className="w-8 h-8 text-gray-700" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="12" cy="12" r="9" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-            <p className="text-gray-600 text-xs leading-relaxed">Click a point<br />to see song details</p>
+          <div className="h-full flex items-center justify-center text-center">
+            <p className="font-mono text-2xs text-ink-3 leading-relaxed">Click a point<br />to see song details</p>
           </div>
         )}
       </div>

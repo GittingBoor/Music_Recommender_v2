@@ -234,25 +234,25 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
   const showingExamples = showExamples && results.length === 0 && examples.length > 0;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <form onSubmit={onSubmit} className="flex gap-2">
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Song suchen oder Playlist-Link einfügen…"
-          className="flex-1 px-3 py-2 rounded-lg bg-gray-900 border border-gray-800 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-violet-600"
+          className="field flex-1 h-9"
         />
         <button
           type="submit"
           disabled={searching || !query.trim()}
-          className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-sm font-medium text-white transition-colors"
+          className="btn btn-primary h-9 px-4 text-sm"
         >
           {searching ? "Sucht…" : isPlaylistUrl(query) ? "Playlist laden" : "Suchen"}
         </button>
       </form>
 
-      <p className="text-xs text-gray-600">
+      <p className="text-xs text-ink-3 leading-relaxed max-w-2xl">
         Angezeigt werden Videos zwischen 45 Sekunden und 10 Minuten, keine Livestreams
         und keine Mixes. Treffer, die YouTube nicht als Musik führt, verschwinden nach
         der Prüfung wieder.
@@ -260,8 +260,8 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
 
       {/* ── heading above the list ─────────────────────────────────── */}
       {showingExamples && !loadingExamples && (
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+        <div className="flex items-center justify-between pt-2">
+          <p className="t-label">
             Vorschläge — noch nicht in der Bibliothek
           </p>
           <button
@@ -274,7 +274,7 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
                 .finally(() => setLoadingExamples(false));
             }}
             disabled={busy || loadingExamples}
-            className="text-xs text-violet-400 hover:text-violet-300 disabled:opacity-40 transition-colors"
+            className="btn-quiet"
           >
             Andere zeigen
           </button>
@@ -282,19 +282,19 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
       )}
 
       {loadingExamples && showExamples && results.length === 0 && (
-        <p className="text-xs text-gray-600 animate-pulse">Sucht Vorschläge…</p>
+        <p className="font-mono text-2xs text-ink-3 animate-pulse pt-2">Sucht Vorschläge…</p>
       )}
 
       {listTitle && (
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider truncate">
-            Playlist: {listTitle} · {results.length} Songs
+        <div className="flex items-center justify-between gap-4 pt-2">
+          <p className="t-label truncate">
+            Playlist: <span className="text-ink">{listTitle}</span> · {results.length} Songs
             {knownCount > 0 && ` · ${knownCount} bereits vorhanden`}
           </p>
           <button
             onClick={onDownloadAll}
             disabled={busy || results.length === knownCount}
-            className="px-3 py-1 rounded bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-xs font-medium text-white transition-colors shrink-0"
+            className="btn btn-primary"
           >
             {batchLeft > 0 ? `Lädt… (${batchLeft} übrig)` : "Alle herunterladen"}
           </button>
@@ -303,54 +303,55 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
 
       {/* ── result list ────────────────────────────────────────────── */}
       {visible.length > 0 && (
-        <div className="space-y-1">
+        <div className="border-t border-line">
           {visible.map((item) => {
             const isDownloading = downloading === item.video_id;
             return (
               <div
                 key={item.video_id}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-900 border border-gray-800"
+                className="flex items-center gap-3 py-2 border-b border-line"
               >
                 {item.thumbnail ? (
                   <img
                     src={item.thumbnail}
                     alt=""
-                    className="w-16 h-9 object-cover rounded shrink-0 bg-gray-800"
+                    className="w-16 h-9 object-cover shrink-0 bg-raised"
                   />
                 ) : (
-                  <div className="w-16 h-9 rounded shrink-0 bg-gray-800" />
+                  <div className="w-16 h-9 shrink-0 bg-raised" />
                 )}
 
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-200 truncate">{item.title}</p>
-                  <p className="text-xs text-gray-500 truncate">
+                  <p className="text-sm text-ink truncate">{item.title}</p>
+                  <p className="text-xs text-ink-3 truncate">
                     {item.uploader ?? "Unbekannt"}
-                    {item.duration ? ` · ${formatDuration(item.duration)}` : ""}
+                    {item.duration ? <span className="font-mono text-2xs"> · {formatDuration(item.duration)}</span> : ""}
                   </p>
                 </div>
 
                 {isDownloading ? (
                   <div className="w-24 md:w-44 shrink-0">
-                    <div className="flex justify-between text-xs text-gray-400 mb-1">
+                    <div className="flex justify-between text-xs text-ink-2 mb-1.5">
                       <span>{STAGE_LABEL[stage]}</span>
-                      <span className="font-mono">{elapsed.toFixed(1)}s</span>
+                      <span className="font-mono text-2xs text-ink-3 tabular-nums">{elapsed.toFixed(1)}s</span>
                     </div>
-                    <div className="h-1 bg-gray-800 rounded-full overflow-hidden">
+                    <div className="h-[2px] bg-line">
                       <div
-                        className="h-full bg-violet-500 transition-all duration-500"
+                        className="h-full bg-signal transition-all duration-500"
                         style={{ width: `${progress * 100}%` }}
                       />
                     </div>
                   </div>
                 ) : isInLibrary(item) ? (
-                  <span className="px-3 py-1.5 rounded bg-emerald-900/40 text-xs font-medium text-emerald-300 shrink-0">
+                  <span className="flex items-center gap-1.5 font-mono text-2xs text-ink-2 shrink-0">
+                    <span className="w-1.5 h-1.5 bg-ok" />
                     Bereits vorhanden
                   </span>
                 ) : (
                   <button
                     onClick={() => runDownload(item)}
                     disabled={busy}
-                    className="px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-xs font-medium text-gray-200 transition-colors shrink-0"
+                    className="btn"
                   >
                     Download
                   </button>
@@ -364,28 +365,28 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
       {/* ── playlists found by the search ──────────────────────────── */}
       {/* Held back until the songs are in, so playlists always sit below them. */}
       {playlists.length > 0 && !searching && (
-        <div className="space-y-1">
-          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider pt-2">
+        <div>
+          <p className="t-label pt-4 pb-1.5 border-b border-line">
             Playlists
           </p>
           {playlists.map((hit) => (
             <div
               key={hit.playlist_id}
-              className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-900 border border-gray-800"
+              className="flex items-center gap-3 py-2 border-b border-line"
             >
               {hit.thumbnail ? (
                 <img
                   src={hit.thumbnail}
                   alt=""
-                  className="w-16 h-9 object-cover rounded shrink-0 bg-gray-800"
+                  className="w-16 h-9 object-cover shrink-0 bg-raised"
                 />
               ) : (
-                <div className="w-16 h-9 rounded shrink-0 bg-gray-800" />
+                <div className="w-16 h-9 shrink-0 bg-raised" />
               )}
 
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-gray-200 truncate">{hit.title}</p>
-                <p className="text-xs text-gray-500 truncate">
+                <p className="text-sm text-ink truncate">{hit.title}</p>
+                <p className="text-xs text-ink-3 truncate">
                   Playlist · {hit.uploader ?? "Unbekannt"}
                 </p>
               </div>
@@ -393,7 +394,7 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
               <button
                 onClick={() => onOpenPlaylist(hit)}
                 disabled={busy || searching}
-                className="px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-xs font-medium text-gray-200 transition-colors shrink-0"
+                className="btn"
               >
                 Öffnen
               </button>
