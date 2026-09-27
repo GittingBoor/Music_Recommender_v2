@@ -23,12 +23,12 @@ export function AnalysisPage({ songs }: Props) {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      <div className="flex-shrink-0 border-b border-gray-800 px-6 flex items-center gap-1 pt-2">
+      <div className="flex-shrink-0 border-b border-gray-800 px-3 md:px-6 flex items-center gap-1 pt-2 overflow-x-auto no-scrollbar">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-3 py-2 text-sm font-medium rounded-t transition-colors border-b-2 -mb-px ${
+            className={`shrink-0 whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t transition-colors border-b-2 -mb-px ${
               tab === t.id
                 ? "border-violet-500 text-violet-400 bg-gray-900"
                 : "border-transparent text-gray-500 hover:text-gray-300 hover:border-gray-600"

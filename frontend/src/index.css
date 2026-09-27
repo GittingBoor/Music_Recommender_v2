@@ -21,3 +21,37 @@
 *::-webkit-scrollbar-thumb:hover {
   background-color: #4b5563;
 }
+
+/* Phones: iOS zooms into any focused field with a font smaller than 16px,
+   and a tap should not flash grey or double-tap-zoom. */
+@media (max-width: 767px) {
+  input[type="text"],
+  input[type="search"],
+  input:not([type]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+button,
+select,
+input[type="range"] {
+  touch-action: manipulation;
+}
+
+/* Horizontal tab strips that scroll instead of wrapping. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Space for the home indicator on notched phones. */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}

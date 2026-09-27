@@ -476,6 +476,8 @@ export function UmapView({ songs }: Props) {
   const [loading,        setLoading]        = useState(false);
   const [error,          setError]          = useState<string | null>(null);
   const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
+  // Phones only: the legend panel is an overlay, the song panel a bottom sheet.
+  const [showControls,   setShowControls]   = useState(false);
 
   const songMap = useMemo(() => new Map(songs.map((s) => [s.id, s])), [songs]);
 
@@ -533,10 +535,16 @@ export function UmapView({ songs }: Props) {
   }, [umapData, songMap, genreColorMap]);
 
   return (
-    <div className="h-full flex overflow-hidden">
+    <div className="h-full flex overflow-hidden relative">
 
-      {/* ── Left controls panel ── */}
-      <div className="w-64 flex-shrink-0 border-r border-gray-800 flex flex-col">
+      {/* ── Left controls panel (overlay on phones) ── */}
+      <div className={`${showControls ? "flex" : "hidden"} md:flex absolute md:static inset-0 z-30 bg-gray-950 md:bg-transparent w-full md:w-64 flex-shrink-0 border-r border-gray-800 flex-col`}>
+        <button
+          onClick={() => setShowControls(false)}
+          className="md:hidden self-end m-2 px-3 py-1.5 rounded-lg border border-gray-700 text-xs text-gray-300"
+        >
+          Close
+        </button>
 
         {/* Feature mode + selectors — scrollable */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
@@ -629,6 +637,15 @@ export function UmapView({ songs }: Props) {
 
       {/* ── Center plot ── */}
       <div className="flex-1 overflow-hidden relative bg-gray-950">
+        <button
+          onClick={() => setShowControls(true)}
+          className="md:hidden absolute top-2 left-2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-700 bg-gray-900/90 text-xs text-gray-200"
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+            <line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" />
+          </svg>
+          {featureMode === "all" ? "UMAP" : "Custom"} · Legend
+        </button>
         {loading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-gray-950/80">
             <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-3" />
@@ -659,7 +676,16 @@ export function UmapView({ songs }: Props) {
       </div>
 
       {/* ── Right song info panel — scrollable ── */}
-      <div className="w-72 flex-shrink-0 border-l border-gray-800 px-4 py-4 overflow-y-auto">
+      <div className={`${selectedSong ? "block" : "hidden"} md:block absolute md:static inset-x-0 bottom-0 z-20 max-h-[55%] md:max-h-none rounded-t-2xl md:rounded-none bg-gray-950 border-t md:border-t-0 md:border-l border-gray-800 shadow-2xl md:shadow-none md:w-72 flex-shrink-0 px-4 py-4 overflow-y-auto`}>
+        {selectedSong && (
+          <button
+            onClick={() => setSelectedSongId(null)}
+            className="md:hidden float-right -mt-1 ml-2 w-8 h-8 flex items-center justify-center rounded-full bg-gray-800 text-gray-300"
+            aria-label="Close song details"
+          >
+            ✕
+          </button>
+        )}
         {selectedSong ? (
           <SongInfoPanel song={selectedSong} />
         ) : (

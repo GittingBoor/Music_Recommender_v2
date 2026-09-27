@@ -209,7 +209,7 @@ export function TimeseriesSection({ songs }: Props) {
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6 space-y-5">
+    <div className="max-w-7xl mx-auto px-4 py-4 md:px-6 md:py-6 space-y-5">
       <div>
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-widest">
           Timeseries Analysis
@@ -221,9 +221,9 @@ export function TimeseriesSection({ songs }: Props) {
       </div>
 
       {/* Controls — 3 visually distinct sections */}
-      <div className="flex rounded-lg border border-gray-700 text-sm">
+      <div className="flex flex-col md:flex-row rounded-lg border border-gray-700 text-sm">
         {/* Section 1: Feature */}
-        <div className="flex-1 min-w-0 px-4 py-3 bg-gray-900 rounded-l-lg">
+        <div className="flex-1 min-w-0 px-4 py-3 bg-gray-900 rounded-t-lg md:rounded-tr-none md:rounded-l-lg">
           <label className="block text-xs text-gray-500 mb-1.5 uppercase tracking-wider">
             Feature
           </label>
@@ -243,7 +243,7 @@ export function TimeseriesSection({ songs }: Props) {
         </div>
 
         {/* Divider */}
-        <div className="w-px bg-gray-700 shrink-0" />
+        <div className="h-px md:h-auto md:w-px bg-gray-700 shrink-0" />
 
         {/* Section 2: Group avg filter */}
         <div className="flex-[2] min-w-0 px-4 py-3 bg-gray-900/40">
@@ -287,10 +287,10 @@ export function TimeseriesSection({ songs }: Props) {
         </div>
 
         {/* Divider */}
-        <div className="w-px bg-gray-700 shrink-0" />
+        <div className="h-px md:h-auto md:w-px bg-gray-700 shrink-0" />
 
         {/* Section 3: Individual song overlay */}
-        <div className="flex-1 min-w-0 px-4 py-3 bg-gray-900 rounded-r-lg" ref={dropRef}>
+        <div className="flex-1 min-w-0 px-4 py-3 bg-gray-900 rounded-b-lg md:rounded-bl-none md:rounded-r-lg" ref={dropRef}>
           <label className="block text-xs text-gray-500 mb-1.5 uppercase tracking-wider">
             Individual song overlay
           </label>
@@ -361,7 +361,7 @@ export function TimeseriesSection({ songs }: Props) {
 
       {/* Chart */}
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-        <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-3">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
             {featureLabel} — normalized (0–1)
           </p>
@@ -370,7 +370,7 @@ export function TimeseriesSection({ songs }: Props) {
               <button
                 key={option.mode}
                 onClick={() => setMode(option.mode)}
-                className={`px-2.5 py-1 transition-colors ${
+                className={`px-2.5 py-1 whitespace-nowrap transition-colors ${
                   mode === option.mode
                     ? "bg-violet-600 text-white"
                     : "bg-gray-800 text-gray-400 hover:bg-gray-700"

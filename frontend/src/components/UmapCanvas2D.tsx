@@ -355,11 +355,11 @@ export function UmapCanvas2D({ points, selectedSongId, getColor, onSelect, xLabe
     <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-gray-950">
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 cursor-default"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
+        className="absolute inset-0 cursor-default touch-none"
+        onPointerDown={handleMouseDown}
+        onPointerMove={handleMouseMove}
+        onPointerUp={handleMouseUp}
+        onPointerLeave={handleMouseLeave}
         onContextMenu={(e) => e.preventDefault()}
       />
 
