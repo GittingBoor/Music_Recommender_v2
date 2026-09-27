@@ -32,19 +32,19 @@ const COLUMNS: Column[] = [
   {
     key: "title", label: "Title", defaultDir: "asc",
     get: (s) => s.title,
-    cellClass: "font-medium text-white text-xs",
+    cellClass: "font-medium text-ink",
     widthClass: "max-w-40",
   },
   {
     key: "artist", label: "Artist", defaultDir: "asc",
     get: (s) => s.artist,
-    cellClass: "text-gray-400 text-xs",
+    cellClass: "text-ink-2",
     widthClass: "max-w-32",
   },
   {
     key: "key", label: "Key", defaultDir: "asc",
     get: (s) => (s.dsp_features?.key ? `${s.dsp_features.key} ${s.dsp_features.scale ?? ""}`.trim() : null),
-    cellClass: "font-mono text-gray-400",
+    cellClass: "font-mono text-xs text-ink-2",
   },
   {
     key: "duration", label: "Length", defaultDir: "desc", align: "right",
@@ -131,33 +131,37 @@ export function ResultsTable({ songs, onVisibleOrderChange, onSelect, expandable
 
   if (songs.length === 0) {
     return (
-      <div className="text-gray-600 text-sm text-center py-12 border border-dashed border-gray-800 rounded-lg">
+      <div className="font-mono text-xs text-ink-3 text-center py-12 border-y border-line">
         No songs match the current filters.
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-gray-800">
+    <div className="overflow-x-auto" style={{ containerType: "inline-size" }}>
       <table className="w-full text-sm whitespace-nowrap">
         <thead>
-          <tr className="bg-gray-900/60">
-            <th className="w-10 px-2.5 py-2" />
+          <tr className="border-b border-line-strong">
+            <th className="w-10 px-2.5 h-8" />
             {COLUMNS.map((col) => (
               <th
                 key={col.key}
-                className={`px-2.5 py-2 ${col.align === "right" ? "text-right" : "text-left"}`}
+                className={`px-2.5 h-8 font-normal ${col.align === "right" ? "text-right" : "text-left"}`}
               >
                 <button
                   onClick={() => handleHeaderClick(col)}
-                  className={`inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider transition-colors ${
-                    sortKey === col.key ? "text-violet-400" : "text-gray-500 hover:text-gray-200"
+                  className={`inline-flex items-center gap-1 max-md:h-8 font-mono text-2xs ${
+                    sortKey === col.key ? "text-ink" : "text-ink-3 hover:text-ink"
                   }`}
                   title={`Sort by ${col.label}`}
                 >
                   {col.label}
-                  <span className="w-3 inline-block text-[0.6rem]">
-                    {sortKey === col.key ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  <span className="w-2 inline-flex text-signal">
+                    {sortKey === col.key && (
+                      <svg className="w-2 h-2" viewBox="0 0 8 8" fill="currentColor">
+                        <path d={sortDir === "asc" ? "M4 1l3.5 5h-7z" : "M4 7L.5 2h7z"} />
+                      </svg>
+                    )}
                   </span>
                 </button>
               </th>
@@ -177,7 +181,7 @@ export function ResultsTable({ songs, onVisibleOrderChange, onSelect, expandable
               <Fragment key={song.id}>
                 <tr
                   onClick={rowClick}
-                  className={`border-t border-gray-800 hover:bg-gray-800/60 transition-colors ${rowClick ? "cursor-pointer" : ""} ${isExpanded ? "bg-gray-800/60" : ""}`}
+                  className={`border-b border-line ${rowClick ? "cursor-pointer" : ""} ${isExpanded ? "bg-panel" : "hover:bg-raised/70"}`}
                 >
                   <td className="px-2.5 py-1.5">
                     <PlayButton songId={song.id} />
@@ -196,7 +200,7 @@ export function ResultsTable({ songs, onVisibleOrderChange, onSelect, expandable
                     return (
                       <td
                         key={col.key}
-                        className={`px-2.5 py-1.5 ${numeric ? "text-right font-mono text-gray-300" : "text-left"} ${col.cellClass ?? ""}`}
+                        className={`px-2.5 py-1.5 ${numeric ? "text-right font-mono text-xs text-ink-2 tabular-nums" : "text-left"} ${col.cellClass ?? ""} ${v == null ? "!text-ink-4" : ""}`}
                       >
                         <div className={`truncate ${col.widthClass ?? "max-w-56"}`}>{text}</div>
                       </td>
@@ -205,18 +209,21 @@ export function ResultsTable({ songs, onVisibleOrderChange, onSelect, expandable
                   {expandable && !onSelect && (
                     <td className="px-2 py-1.5 text-right">
                       <svg
-                        className={`w-3.5 h-3.5 inline text-gray-600 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                        className={`w-3 h-3 inline transition-transform ${isExpanded ? "rotate-180 text-ink-2" : "text-ink-4"}`}
                         fill="none" viewBox="0 0 24 24" stroke="currentColor"
                       >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        <path strokeLinecap="square" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
                     </td>
                   )}
                 </tr>
                 {isExpanded && (
-                  <tr className="bg-gray-900/40">
-                    <td colSpan={COLUMNS.length + 2} className="px-4 py-4 whitespace-normal">
-                      <SongDetails song={song} />
+                  <tr className="bg-panel border-b border-line">
+                    <td colSpan={COLUMNS.length + 2} className="p-0 whitespace-normal">
+                      {/* Pinned to the visible part of the horizontally scrolling table */}
+                      <div className="sticky left-0 pl-12 pr-4 pt-4 pb-6" style={{ width: "100cqw" }}>
+                        <SongDetails song={song} />
+                      </div>
                     </td>
                   </tr>
                 )}

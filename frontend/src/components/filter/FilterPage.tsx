@@ -11,37 +11,6 @@ import { BarSliderFilter } from "./BarSliderFilter";
 import type { BarRow } from "./BarSliderFilter";
 import { ResultsTable } from "./ResultsTable";
 
-// ── colours ──────────────────────────────────────────────────────────────
-const MOOD_COLORS: Record<string, string> = {
-  happy:      "#fbbf24",
-  sad:        "#60a5fa",
-  aggressive: "#f87171",
-  party:      "#e879f9",
-  relaxed:    "#34d399",
-  acoustic:   "#a78bfa",
-  electronic: "#2dd4bf",
-};
-
-const DSP_COLORS: Record<string, string> = {
-  danceability:          "#34d399",
-  beat_confidence:       "#60a5fa",
-  key_strength:          "#818cf8",
-  dynamic_complexity:    "#fbbf24",
-  onset_rate:            "#fb923c",
-  dissonance:            "#f87171",
-  bpm:                   "#f472b6",
-  spectral_centroid_mean:"#2dd4bf",
-};
-
-const OTHER_COLORS: Record<string, string> = {
-  gmbi_valence:      "#818cf8",
-  gmbi_arousal:      "#fb923c",
-  gmbi_authenticity: "#34d399",
-  gmbi_timeliness:   "#60a5fa",
-  gmbi_complexity:   "#f87171",
-  tonal:             "#2dd4bf",
-};
-
 type ThresholdsMap = Record<string, number>;
 
 function emptyThresholds(keys: string[]): ThresholdsMap {
@@ -55,7 +24,6 @@ function axisRows(
   songs: Song[],
   axes: RadarAxis[],
   stats: AxisStatsMap,
-  colors: Record<string, string>,
 ): BarRow[] {
   return axes.map((ax) => {
     const histogram = new Array<number>(HIST_BINS).fill(0);
@@ -65,7 +33,7 @@ function axisRows(
       const v = ax.norm(raw, stats[ax.key]);
       histogram[Math.min(HIST_BINS - 1, Math.floor(v * HIST_BINS))]++;
     }
-    return { key: ax.key, label: ax.label, histogram, color: colors[ax.key] };
+    return { key: ax.key, label: ax.label, histogram };
   });
 }
 
@@ -140,9 +108,9 @@ export function FilterPage({ songs }: Props) {
   const moodStats  = useMemo(() => computeAxisStats(songs, MOOD_AXES),  [songs]);
 
   // ── slider rows for the radar axes ───────────────────────────────────────
-  const moodRows  = useMemo(() => axisRows(songs, MOOD_AXES,  moodStats,  MOOD_COLORS),  [songs, moodStats]);
-  const dspRows   = useMemo(() => axisRows(songs, DSP_AXES,   dspStats,   DSP_COLORS),   [songs, dspStats]);
-  const otherRows = useMemo(() => axisRows(songs, OTHER_AXES, otherStats, OTHER_COLORS), [songs, otherStats]);
+  const moodRows  = useMemo(() => axisRows(songs, MOOD_AXES,  moodStats),  [songs, moodStats]);
+  const dspRows   = useMemo(() => axisRows(songs, DSP_AXES,   dspStats),   [songs, dspStats]);
+  const otherRows = useMemo(() => axisRows(songs, OTHER_AXES, otherStats), [songs, otherStats]);
 
   // ── genre rows ────────────────────────────────────────────────────────────
   const genreRows = useMemo<BarRow[]>(() => {
@@ -304,14 +272,14 @@ export function FilterPage({ songs }: Props) {
     <div className="h-full flex relative">
 
       {/* ── left: all filters (full-screen overlay on phones) ── */}
-      <aside className={`absolute inset-0 z-30 md:static md:z-auto w-full md:w-72 xl:w-80 shrink-0 overflow-y-auto border-r border-gray-800 bg-gray-950 ${mobileFilters ? "block" : "hidden"} ${showPanels ? "md:block" : "md:hidden"}`}>
-        <div className="md:hidden sticky top-0 z-10 flex items-center justify-between px-4 py-2 bg-gray-950 border-b border-gray-800">
-          <span className="text-sm text-gray-300">
-            <span className="text-white font-medium">{filtered.length}</span> / {songs.length} songs
+      <aside className={`absolute inset-0 z-30 md:static md:z-auto w-full md:w-72 xl:w-80 shrink-0 overflow-y-auto border-r border-line bg-panel ${mobileFilters ? "block" : "hidden"} ${showPanels ? "md:block" : "md:hidden"}`}>
+        <div className="md:hidden sticky top-0 z-10 flex items-center justify-between px-4 py-2 bg-panel border-b border-line">
+          <span className="font-mono text-2xs text-ink-3 tabular-nums">
+            <span className="text-sm text-ink">{filtered.length}</span> / {songs.length} songs
           </span>
           <button
             onClick={() => setMobileFilters(false)}
-            className="px-4 py-1.5 rounded-lg bg-violet-600 text-white text-sm font-medium"
+            className="btn btn-primary h-8"
           >
             Show results
           </button>
@@ -351,7 +319,6 @@ export function FilterPage({ songs }: Props) {
           onReset={() => setGenreThresh({})}
           enabled={genreEnabled}
           onToggleEnabled={() => setGenreEnabled(e => !e)}
-          accentColor="#fbbf24"
         />
         <BarSliderFilter
           title="Instruments"
@@ -361,21 +328,16 @@ export function FilterPage({ songs }: Props) {
           onReset={() => setInstrThresh({})}
           enabled={instrEnabled}
           onToggleEnabled={() => setInstrEnabled(e => !e)}
-          accentColor="#2dd4bf"
         />
       </aside>
 
       {/* ── center: search + results (sortable; visible order = play queue) ── */}
       <section className="flex-1 min-w-0 overflow-y-auto">
-        <div className="px-3 py-3 md:px-4 md:py-4 space-y-3 md:space-y-4">
+        <div className="px-3 py-3 md:px-5 md:py-4 space-y-3 md:space-y-4">
           <div className="flex items-center gap-2 md:gap-3 flex-wrap">
             <button
               onClick={() => (window.matchMedia("(min-width: 768px)").matches ? togglePanels() : setMobileFilters(true))}
-              className={`shrink-0 flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border transition-colors ${
-                showPanels
-                  ? "border-gray-700 text-gray-300 hover:border-gray-500"
-                  : "border-violet-500 text-violet-400 bg-violet-500/10"
-              }`}
+              className={`btn h-8 ${showPanels ? "" : "border-signal text-signal"}`}
               aria-pressed={!showPanels}
               title={showPanels ? "Hide filters and charts" : "Show filters and charts"}
             >
@@ -389,16 +351,16 @@ export function FilterPage({ songs }: Props) {
               placeholder="Search title or artist…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 min-w-0 md:min-w-48 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-violet-500"
+              className="field flex-1 min-w-0 md:min-w-48"
             />
-            <span className="text-sm text-gray-500 shrink-0">
-              <span className="text-white font-medium">{filtered.length}</span>
+            <span className="font-mono text-2xs text-ink-3 shrink-0 tabular-nums">
+              <span className="text-sm text-ink">{filtered.length}</span>
               {" "}/ {songs.length} songs
             </span>
             {hasActiveFilters && (
               <button
                 onClick={resetAll}
-                className="text-xs text-gray-500 hover:text-gray-200 border border-gray-700 hover:border-gray-500 px-3 py-2 rounded-lg transition-colors shrink-0"
+                className="btn-quiet shrink-0"
               >
                 Clear all filters
               </button>
@@ -414,13 +376,13 @@ export function FilterPage({ songs }: Props) {
       </section>
 
       {/* ── right: radar visualisation of thresholds vs. filtered average ── */}
-      <aside className={`w-64 xl:w-72 shrink-0 overflow-y-auto border-l border-gray-800 flex-col gap-3 p-3 ${showPanels ? "hidden lg:flex" : "hidden"}`}>
-        <div className="flex items-center gap-3 text-[0.65rem] text-gray-500">
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-2 rounded-sm bg-violet-400/40 border border-violet-400" /> Filter
+      <aside className={`w-64 xl:w-72 shrink-0 overflow-y-auto border-l border-line bg-panel flex-col gap-4 px-4 py-4 ${showPanels ? "hidden lg:flex" : "hidden"}`}>
+        <div className="flex items-center gap-4 font-mono text-2xs text-ink-3 pb-3 border-b border-line">
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-2 bg-signal/25 border border-signal" /> Filter
           </span>
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-2 rounded-sm border border-dashed border-gray-300/70" /> Ø filtered songs
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-2 border border-dashed border-ink/70" /> Ø filtered songs
           </span>
         </div>
         <RadarChart
@@ -429,7 +391,6 @@ export function FilterPage({ songs }: Props) {
           thresholds={moodThresh}
           profile={moodProfile}
           enabled={moodEnabled}
-          axisColors={MOOD_COLORS}
         />
         <RadarChart
           title="DSP Features"
@@ -437,7 +398,6 @@ export function FilterPage({ songs }: Props) {
           thresholds={dspThresh}
           profile={dspProfile}
           enabled={dspEnabled}
-          axisColors={DSP_COLORS}
         />
         <RadarChart
           title="Other Features"
@@ -445,7 +405,6 @@ export function FilterPage({ songs }: Props) {
           thresholds={otherThresh}
           profile={otherProfile}
           enabled={otherEnabled}
-          axisColors={OTHER_COLORS}
         />
       </aside>
     </div>

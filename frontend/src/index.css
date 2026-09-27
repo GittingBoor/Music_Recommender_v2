@@ -2,24 +2,230 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Thin dark scrollbars matching the app theme */
+/* ── Type ─────────────────────────────────────────────────────────────────
+   Archivo (variable width + weight) carries the interface; IBM Plex Mono
+   carries data: values, units, field names, labels. Both self-hosted (OFL). */
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  src: url("./assets/fonts/archivo-latin-wdth-normal.woff2") format("woff2-variations");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("./assets/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("./assets/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+}
+
+/* ── Colour tokens ────────────────────────────────────────────────────────
+   Warm black ground, paper-coloured ink, one signal colour. Signal marks
+   what is active, selected or playing — nothing else. Keep in sync with
+   src/theme.ts (charts and the canvas need the same values as hex). */
+:root {
+  color-scheme: dark;
+  --ground: 17 16 14;       /* #11100e  page */
+  --panel: 22 21 19;        /* #161513  side panels, player */
+  --raised: 30 28 25;       /* #1e1c19  fields, hover, menus */
+  --line: 42 39 35;         /* #2a2723  hairlines */
+  --line-strong: 61 57 51;  /* #3d3933  control borders */
+  --ink: 237 233 225;       /* #ede9e1  primary text */
+  --ink-2: 176 170 159;     /* #b0aa9f  secondary text */
+  --ink-3: 138 133 123;     /* #8a857b  labels, metadata */
+  --ink-4: 102 98 90;       /* #66625a  disabled, placeholders */
+  --signal: 255 106 43;     /* #ff6a2b  active / selected / playing */
+  --ok: 127 191 134;        /* #7fbf86 */
+  --warn: 227 178 90;       /* #e3b25a */
+  --bad: 240 106 106;       /* #f06a6a */
+}
+
+@layer base {
+  html,
+  body {
+    background: rgb(var(--ground));
+    color: rgb(var(--ink));
+  }
+  body {
+    @apply font-sans text-sm antialiased;
+    font-feature-settings: "kern";
+  }
+  ::selection {
+    background: rgb(var(--signal) / 0.35);
+    color: rgb(var(--ink));
+  }
+  :focus-visible {
+    outline: 1px solid rgb(var(--signal));
+    outline-offset: 1px;
+  }
+  button {
+    @apply transition-colors;
+  }
+  optgroup {
+    font-style: normal;
+    color: rgb(var(--ink-3));
+  }
+  option {
+    color: rgb(var(--ink));
+    background: rgb(var(--raised));
+  }
+}
+
+@layer components {
+  /* Small data label: field names, axis names, units. Mono, normal case. */
+  .t-label {
+    @apply font-mono text-2xs text-ink-3;
+  }
+  /* Section heading — semi-condensed, carries the page structure. */
+  .t-section {
+    @apply text-md font-semibold text-ink leading-tight;
+    font-stretch: 87.5%;
+    letter-spacing: -0.005em;
+  }
+  /* Large standalone number. */
+  .t-figure {
+    @apply text-2xl font-medium text-ink leading-none tabular-nums;
+    font-stretch: 75%;
+    letter-spacing: -0.02em;
+  }
+
+  .btn {
+    @apply inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-sm border border-line-strong px-2.5
+      text-xs font-medium text-ink-2 hover:border-ink-4 hover:text-ink
+      disabled:pointer-events-none disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply border-signal bg-signal text-ground hover:border-ink hover:bg-ink hover:text-ground;
+  }
+  .btn-quiet {
+    @apply text-xs text-ink-3 underline-offset-4 hover:text-ink hover:underline disabled:opacity-40 disabled:no-underline;
+  }
+
+  .field {
+    @apply h-8 rounded-sm border border-line-strong bg-raised px-2.5 text-sm text-ink
+      placeholder:text-ink-4 hover:border-ink-4 focus:border-signal focus:outline-none;
+  }
+  .field-select {
+    @apply field cursor-pointer appearance-none pr-7 bg-no-repeat;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%238a857b' stroke-width='1.4'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+    background-size: 9px 6px;
+    background-position: right 9px center;
+  }
+
+  /* Segmented switch: selection is shown inverted, not coloured. */
+  .seg {
+    @apply inline-flex rounded-sm border border-line-strong p-px;
+  }
+  .seg-item {
+    @apply h-6 flex-1 whitespace-nowrap rounded-[1px] px-2.5 text-xs text-ink-3 hover:text-ink;
+  }
+  .seg-item-on {
+    @apply bg-ink text-ground hover:text-ground;
+  }
+
+  /* Primary navigation: the active tab carries a signal rule. */
+  .tab {
+    @apply relative flex h-full items-center px-3 text-sm font-medium text-ink-3 hover:text-ink;
+  }
+  .tab[aria-current="page"] {
+    @apply text-ink;
+    box-shadow: inset 0 -2px 0 rgb(var(--signal));
+  }
+  /* Secondary navigation: ink rule, one step quieter. */
+  .subtab {
+    @apply relative flex h-full items-center text-sm text-ink-3 hover:text-ink;
+  }
+  .subtab[aria-current="page"] {
+    @apply text-ink;
+    box-shadow: inset 0 -1px 0 rgb(var(--ink));
+  }
+
+  /* Visible range input: hairline track, square thumb. */
+  .range {
+    @apply h-4 cursor-pointer appearance-none bg-transparent disabled:cursor-default disabled:opacity-30;
+  }
+  .range::-webkit-slider-runnable-track {
+    height: 2px;
+    background: rgb(var(--line-strong));
+  }
+  .range::-moz-range-track {
+    height: 2px;
+    background: rgb(var(--line-strong));
+  }
+  .range::-moz-range-progress {
+    height: 2px;
+    background: rgb(var(--ink-2));
+  }
+  .range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px;
+    height: 10px;
+    margin-top: -4px;
+    border-radius: 1px;
+    background: rgb(var(--ink));
+  }
+  .range::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border: 0;
+    border-radius: 1px;
+    background: rgb(var(--ink));
+  }
+  .range:hover::-webkit-slider-thumb {
+    background: rgb(var(--signal));
+  }
+  .range:hover::-moz-range-thumb {
+    background: rgb(var(--signal));
+  }
+}
+
+@layer utilities {
+  .stretch-condensed {
+    font-stretch: 75%;
+  }
+  .stretch-semi {
+    font-stretch: 87.5%;
+  }
+  .stretch-expanded {
+    font-stretch: 112.5%;
+  }
+}
+
+/* Indeterminate progress rule (long-running requests). */
+@keyframes sweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(400%); }
+}
+.sweep {
+  animation: sweep 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Thin scrollbars in the line colour */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #374151 transparent;
+  scrollbar-color: rgb(var(--line-strong)) transparent;
 }
 *::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background-color: #374151;
-  border-radius: 2px;
+  background-color: rgb(var(--line-strong));
 }
 *::-webkit-scrollbar-thumb:hover {
-  background-color: #4b5563;
+  background-color: rgb(var(--ink-4));
 }
 
 /* Phones: iOS zooms into any focused field with a font smaller than 16px,

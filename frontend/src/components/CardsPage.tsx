@@ -66,20 +66,20 @@ export function CardsPage({ songs }: Props) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-5xl mx-auto px-4 py-6">
+      <div className="max-w-5xl mx-auto px-6 pt-4 pb-10">
         {songs.length === 0 ? (
-          <div className="text-gray-500 text-center py-16 text-sm">
+          <div className="font-mono text-xs text-ink-3 text-center py-16">
             No songs in the database yet.
           </div>
         ) : (
           <>
             {/* ── sort bar ── */}
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Sort</span>
+            <div className="flex items-center gap-2 pb-3 border-b border-line-strong">
+              <span className="t-label mr-1">Sort</span>
               <select
                 value={sortKey}
                 onChange={(e) => onSortKeyChange(e.target.value)}
-                className="bg-gray-900 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-violet-500"
+                className="field-select h-7 text-xs"
               >
                 <option value="">Database order</option>
                 {SORT_OPTIONS.map((o) => (
@@ -89,14 +89,20 @@ export function CardsPage({ songs }: Props) {
               <button
                 onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
                 disabled={sortKey === ""}
-                className="px-2.5 py-1.5 rounded-lg border border-gray-800 text-xs text-gray-300 hover:border-gray-600 transition-colors disabled:opacity-40 disabled:hover:border-gray-800"
+                className="btn w-7 px-0"
                 title={sortDir === "asc" ? "Ascending — click for descending" : "Descending — click for ascending"}
+                aria-label={sortDir === "asc" ? "Ascending" : "Descending"}
               >
-                {sortDir === "asc" ? "▲" : "▼"}
+                <svg
+                  className={`w-3 h-3 ${sortDir === "desc" ? "rotate-180" : ""}`}
+                  viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={1.5}
+                >
+                  <path d="M6 10.5V1.5M2 5.5l4-4 4 4" />
+                </svg>
               </button>
             </div>
 
-            <div className="space-y-2">
+            <div>
               {sorted.map((song) => (
                 <SongCard key={song.id} song={song} />
               ))}

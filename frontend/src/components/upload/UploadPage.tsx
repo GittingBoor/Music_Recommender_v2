@@ -40,10 +40,10 @@ function reasonLabel(reason: string | null): string {
   return REASON_LABEL[reason] ?? reason;
 }
 
-const BADGE_CLASS: Record<string, string> = {
-  saved:   "bg-emerald-900 text-emerald-300",
-  skipped: "bg-yellow-900/60 text-yellow-300",
-  error:   "bg-red-900/60 text-red-300",
+const BADGE_DOT: Record<string, string> = {
+  saved:   "bg-ok",
+  skipped: "bg-warn",
+  error:   "bg-bad",
 };
 
 const SCOPE_LABEL: Record<string, string> = {
@@ -59,25 +59,19 @@ function ErrorBanner({ detail, onDismiss }: {
   const [showRaw, setShowRaw] = useState(false);
 
   return (
-    <div className="rounded-lg border border-red-900 bg-red-950/40 px-4 py-3">
+    <div className="border-l-2 border-bad bg-bad/[0.06] pl-4 pr-3 py-3">
       <div className="flex items-start gap-3">
-        <svg className="w-5 h-5 text-red-400 shrink-0 mt-0.5" viewBox="0 0 24 24"
-          fill="none" stroke="currentColor" strokeWidth={1.8}>
-          <circle cx="12" cy="12" r="9" />
-          <path strokeLinecap="round" d="M12 7.5v5M12 16h.01" />
-        </svg>
-
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-semibold text-red-200">{detail.title}</p>
+          <div className="flex items-baseline gap-3 flex-wrap">
+            <p className="text-sm font-semibold text-ink">{detail.title}</p>
             {SCOPE_LABEL[detail.scope] && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-900/60 text-red-300 font-medium">
+              <span className="font-mono text-2xs text-bad">
                 {SCOPE_LABEL[detail.scope]}
               </span>
             )}
           </div>
 
-          <p className="text-xs text-red-200/80 leading-relaxed mt-1.5">
+          <p className="text-xs text-ink-2 leading-relaxed mt-1.5 max-w-2xl">
             {detail.explanation}
           </p>
 
@@ -85,12 +79,12 @@ function ErrorBanner({ detail, onDismiss }: {
             <>
               <button
                 onClick={() => setShowRaw((v) => !v)}
-                className="text-[11px] text-red-400 hover:text-red-300 mt-2 transition-colors"
+                className="btn-quiet mt-2"
               >
                 {showRaw ? "Originalmeldung ausblenden" : "Originalmeldung anzeigen"}
               </button>
               {showRaw && (
-                <pre className="mt-1.5 p-2 rounded bg-black/40 text-[10px] text-red-300/90 whitespace-pre-wrap break-all">
+                <pre className="mt-1.5 p-2 bg-ground border border-line font-mono text-2xs text-ink-2 whitespace-pre-wrap break-all">
                   {detail.raw_message}
                 </pre>
               )}
@@ -101,11 +95,11 @@ function ErrorBanner({ detail, onDismiss }: {
         <button
           onClick={onDismiss}
           aria-label="Schließen"
-          className="text-red-400 hover:text-red-200 shrink-0 transition-colors"
+          className="text-ink-3 hover:text-ink shrink-0 w-6 h-6 flex items-center justify-center"
         >
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none"
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+            <path strokeLinecap="square" d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
       </div>
@@ -231,175 +225,186 @@ export function UploadPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+      <div className="max-w-6xl mx-auto px-6 pt-6 pb-16 space-y-8">
 
         {/* ── error banner, always at the top ──────────────────────── */}
         {error && <ErrorBanner detail={error} onDismiss={() => setError(null)} />}
 
-        {/* ── youtube search ───────────────────────────────────────── */}
-        <YoutubeSearch onDownloaded={addYoutubeResult} onError={setError} />
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-x-12 gap-y-12">
 
-        <div className="flex items-center gap-3 text-xs text-gray-600">
-          <span className="h-px flex-1 bg-gray-800" />
-          oder Datei hochladen
-          <span className="h-px flex-1 bg-gray-800" />
-        </div>
+          {/* ── youtube search ─────────────────────────────────────── */}
+          <section className="min-w-0">
+            <h2 className="t-section mb-4">YouTube</h2>
+            <YoutubeSearch onDownloaded={addYoutubeResult} onError={setError} />
+          </section>
 
-        {/* ── drop zone ────────────────────────────────────────────── */}
-        <div
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-          onClick={() => !running && inputRef.current?.click()}
-          className={`
-            border-2 border-dashed rounded-xl px-8 py-14 flex flex-col items-center
-            gap-3 cursor-pointer select-none transition-colors
-            ${dragOver
-              ? "border-violet-500 bg-violet-950/30"
-              : "border-gray-700 bg-gray-900/40 hover:border-gray-600 hover:bg-gray-900/60"}
-            ${running ? "pointer-events-none opacity-60" : ""}
-          `}
-        >
-          <svg
-            className={`w-10 h-10 ${dragOver ? "text-violet-400" : "text-gray-600"} transition-colors`}
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round"
-              d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-          </svg>
-          <p className="text-sm text-gray-400 text-center">
-            MP3-Dateien hier ablegen oder klicken zum Auswählen
-          </p>
-          <p className="text-xs text-gray-600">
-            mp3 · wav · flac · ogg · aiff · m4a
-          </p>
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            accept="audio/*"
-            className="hidden"
-            onChange={(e) => e.target.files && addFiles(e.target.files)}
-          />
-        </div>
+          {/* ── file upload + everything processed in this session ── */}
+          <section className="min-w-0 space-y-6 lg:border-l lg:border-line lg:pl-12">
+            <h2 className="t-section">Datei hochladen</h2>
 
-        {/* ── action bar ───────────────────────────────────────────── */}
-        {queue.length > 0 && (
-          <div className="flex items-center gap-3">
-            {!running && !allDone && (
-              <button
-                onClick={() => processQueue(displayQueue)}
-                className="px-4 py-1.5 rounded bg-violet-600 hover:bg-violet-500 text-sm font-medium text-white transition-colors"
-              >
-                {queue.filter((q) => !q.result).length} Dateien verarbeiten
-              </button>
-            )}
-            {running && (
-              <span className="text-sm text-gray-400 animate-pulse">
-                Verarbeite…
-              </span>
-            )}
-            <button
-              onClick={() => { setQueue([]); setRunning(false); }}
-              disabled={running}
-              className="px-4 py-1.5 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-sm font-medium text-gray-300 transition-colors"
+            {/* ── drop zone ────────────────────────────────────────── */}
+            <div
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+              onClick={() => !running && inputRef.current?.click()}
+              className={`
+                border border-dashed px-6 py-10 flex flex-col items-center
+                gap-2 cursor-pointer select-none transition-colors
+                ${dragOver
+                  ? "border-signal bg-signal/5"
+                  : "border-line-strong hover:border-ink-4 hover:bg-raised/40"}
+                ${running ? "pointer-events-none opacity-60" : ""}
+              `}
             >
-              Zurücksetzen
-            </button>
-          </div>
-        )}
-
-        {/* ── progress bar ─────────────────────────────────────────── */}
-        {queue.length > 0 && (
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>{doneCount} / {totalCount} erledigt</span>
-              {allDone && <span className="text-emerald-400">Fertig</span>}
-            </div>
-            <div className="h-1 bg-gray-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-violet-500 transition-all duration-300"
-                style={{ width: `${progress}%` }}
+              <svg
+                className={`w-6 h-6 mb-1 ${dragOver ? "text-signal" : "text-ink-3"} transition-colors`}
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}
+              >
+                <path strokeLinecap="square"
+                  d="M3 16.5v4.5h18v-4.5M7.5 7.5L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+              <p className="text-sm text-ink-2 text-center">
+                MP3-Dateien hier ablegen oder klicken zum Auswählen
+              </p>
+              <p className="font-mono text-2xs text-ink-3">
+                mp3 · wav · flac · ogg · aiff · m4a
+              </p>
+              <input
+                ref={inputRef}
+                type="file"
+                multiple
+                accept="audio/*"
+                className="hidden"
+                onChange={(e) => e.target.files && addFiles(e.target.files)}
               />
             </div>
-          </div>
-        )}
 
-        {/* ── statistics (shown once all done) ─────────────────────── */}
-        {allDone && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <StatCard label="Gesamt"     value={String(totalCount)} />
-              <StatCard label="Gespeichert" value={String(saved)}
-                sub={saved > 0 ? "in datasets/" : undefined} />
-              <StatCard label="Verworfen"  value={String(skipped)} />
-              <StatCard label="Fehler"     value={String(errors)} />
-            </div>
-
-            {Object.keys(reasonCounts).length > 0 && (
-              <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-2">
-                <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">
-                  Aufschlüsselung nach Grund
-                </p>
-                {Object.entries(reasonCounts).map(([reason, count]) => (
-                  <div key={reason} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-400">{reasonLabel(reason)}</span>
-                    <span className="font-mono text-gray-300">{count}</span>
-                  </div>
-                ))}
+            {/* ── action bar ───────────────────────────────────────── */}
+            {queue.length > 0 && (
+              <div className="flex items-center gap-3">
+                {!running && !allDone && (
+                  <button
+                    onClick={() => processQueue(displayQueue)}
+                    className="btn btn-primary h-8 px-3"
+                  >
+                    {queue.filter((q) => !q.result).length} Dateien verarbeiten
+                  </button>
+                )}
+                {running && (
+                  <span className="font-mono text-xs text-ink-2 animate-pulse">
+                    Verarbeite…
+                  </span>
+                )}
+                <button
+                  onClick={() => { setQueue([]); setRunning(false); }}
+                  disabled={running}
+                  className="btn h-8 px-3"
+                >
+                  Zurücksetzen
+                </button>
               </div>
             )}
-          </div>
-        )}
 
-        {/* ── file list ────────────────────────────────────────────── */}
-        {displayQueue.length > 0 && (
-          <div className="space-y-1">
-            {displayQueue.map((item, i) => {
-              const r = item.result;
-              const displayName = r?.title
-                ? `${r.title}${r.artist ? ` — ${r.artist}` : ""}`
-                : item.name;
-
-              return (
-                <div
-                  key={i}
-                  className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-900 border border-gray-800"
-                >
-                  {/* status indicator / play button */}
-                  {item.status === "done" && r?.status === "saved" && r.song_id ? (
-                    <PlayButton songId={r.song_id} />
-                  ) : item.status === "processing" ? (
-                    <div className="w-7 h-7 flex items-center justify-center shrink-0">
-                      <span className="w-3 h-3 rounded-full bg-violet-500 animate-pulse" />
-                    </div>
-                  ) : (
-                    <div className="w-7 h-7 flex items-center justify-center shrink-0">
-                      <span className="w-2.5 h-2.5 rounded-full bg-gray-700" />
-                    </div>
-                  )}
-
-                  {/* name */}
-                  <span className="flex-1 min-w-0 text-sm text-gray-300 truncate">
-                    {displayName}
-                  </span>
-
-                  {/* badge */}
-                  {item.status === "done" && r && (
-                    <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 font-medium ${BADGE_CLASS[r.status] ?? ""}`}>
-                      {r.status === "saved"
-                        ? "gespeichert"
-                        : reasonLabel(r.reason)}
-                    </span>
-                  )}
-                  {item.status === "pending" && !r && (
-                    <span className="text-xs text-gray-600 shrink-0">ausstehend</span>
-                  )}
+            {/* ── progress bar ─────────────────────────────────────── */}
+            {queue.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex justify-between font-mono text-2xs text-ink-3">
+                  <span><span className="text-ink">{doneCount}</span> / {totalCount} erledigt</span>
+                  {allDone && <span className="text-ok">Fertig</span>}
                 </div>
-              );
-            })}
-          </div>
-        )}
+                <div className="h-[2px] bg-line">
+                  <div
+                    className="h-full bg-signal transition-all duration-300"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* ── statistics (shown once all done) ─────────────────── */}
+            {allDone && (
+              <div className="space-y-5">
+                <div className="grid grid-cols-4 border-y border-line-strong">
+                  <StatCard label="Gesamt"     value={String(totalCount)} />
+                  <StatCard label="Gespeichert" value={String(saved)}
+                    sub={saved > 0 ? "in datasets/" : undefined} />
+                  <StatCard label="Verworfen"  value={String(skipped)} />
+                  <StatCard label="Fehler"     value={String(errors)} />
+                </div>
+
+                {Object.keys(reasonCounts).length > 0 && (
+                  <div>
+                    <p className="t-label mb-1.5">
+                      Aufschlüsselung nach Grund
+                    </p>
+                    {Object.entries(reasonCounts).map(([reason, count]) => (
+                      <div key={reason} className="flex items-center justify-between text-sm py-1.5 border-b border-line">
+                        <span className="text-ink-2">{reasonLabel(reason)}</span>
+                        <span className="font-mono text-xs text-ink">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── file list ────────────────────────────────────────── */}
+            {displayQueue.length > 0 && (
+              <div>
+                <p className="t-label mb-1.5">Warteschlange</p>
+                <div className="border-t border-line">
+                  {displayQueue.map((item, i) => {
+                    const r = item.result;
+                    const displayName = r?.title
+                      ? `${r.title}${r.artist ? ` — ${r.artist}` : ""}`
+                      : item.name;
+
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-center gap-3 py-1.5 border-b border-line"
+                      >
+                        {/* status indicator / play button */}
+                        {item.status === "done" && r?.status === "saved" && r.song_id ? (
+                          <PlayButton songId={r.song_id} />
+                        ) : item.status === "processing" ? (
+                          <div className="w-7 h-7 flex items-center justify-center shrink-0">
+                            <span className="w-2 h-2 bg-signal animate-pulse" />
+                          </div>
+                        ) : (
+                          <div className="w-7 h-7 flex items-center justify-center shrink-0">
+                            <span className="w-1.5 h-1.5 bg-ink-4" />
+                          </div>
+                        )}
+
+                        {/* name */}
+                        <span className="flex-1 min-w-0 text-sm text-ink truncate">
+                          {displayName}
+                        </span>
+
+                        {/* status */}
+                        {item.status === "done" && r && (
+                          <span className="flex items-center gap-1.5 font-mono text-2xs text-ink-2 shrink-0 max-w-[45%]">
+                            <span className={`w-1.5 h-1.5 shrink-0 ${BADGE_DOT[r.status] ?? "bg-ink-4"}`} />
+                            <span className="truncate">
+                              {r.status === "saved"
+                                ? "gespeichert"
+                                : reasonLabel(r.reason)}
+                            </span>
+                          </span>
+                        )}
+                        {item.status === "pending" && !r && (
+                          <span className="font-mono text-2xs text-ink-4 shrink-0">ausstehend</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
 
         {/* ── everything the backend is still working on, always last ── */}
         <PipelineList />
