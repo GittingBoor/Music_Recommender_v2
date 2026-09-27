@@ -59,22 +59,24 @@ export default function App() {
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="h-screen flex flex-col bg-gray-950 text-white overflow-hidden">
-      <header className="flex-shrink-0 border-b border-gray-800 px-6 py-3 flex items-center gap-6">
-        <div className="min-w-0">
-          <h1 className="text-lg font-bold tracking-tight leading-none">
+    // 100dvh instead of 100vh: on phones 100vh ignores the browser toolbar,
+    // which would push the player bar below the visible area.
+    <div className="h-screen h-[100dvh] flex flex-col bg-gray-950 text-white overflow-hidden">
+      <header className="flex-shrink-0 border-b border-gray-800 px-3 pt-2 pb-1.5 md:px-6 md:py-3 flex flex-col md:flex-row md:items-center gap-1.5 md:gap-6">
+        <div className="min-w-0 flex items-baseline gap-2 md:block px-1 md:px-0">
+          <h1 className="text-base md:text-lg font-bold tracking-tight leading-none whitespace-nowrap">
             Music Recommender
           </h1>
           {!loading && !error && (
-            <p className="text-xs text-gray-500 mt-0.5">{songs.length} songs</p>
+            <p className="text-xs text-gray-500 md:mt-0.5 whitespace-nowrap">{songs.length} songs</p>
           )}
         </div>
-        <nav className="flex gap-1">
+        <nav className="grid grid-cols-5 gap-1 md:flex">
           {(["cards", "umap", "analysis", "filter", "upload"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              className={`px-1 md:px-3 py-2 md:py-1.5 rounded text-[13px] md:text-sm font-medium transition-colors ${
                 tab === t
                   ? "bg-gray-800 text-white"
                   : "text-gray-500 hover:text-gray-300 hover:bg-gray-900"
