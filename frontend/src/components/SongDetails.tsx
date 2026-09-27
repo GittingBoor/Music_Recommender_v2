@@ -1,7 +1,7 @@
 import type { Song } from '../types/song';
 
 function fmtVal(val: unknown): React.ReactNode {
-  if (val == null) return <span className="text-gray-700">null</span>;
+  if (val == null) return <span className="text-ink-4">null</span>;
   if (typeof val === 'number') {
     if (Number.isInteger(val)) return val.toString();
     return parseFloat(val.toFixed(6)).toString();
@@ -19,16 +19,23 @@ function fmtVal(val: unknown): React.ReactNode {
 
 type Row = [string, unknown];
 
+/** Table name set as a heading over a hairline — the block itself has no box. */
+function BlockName({ name }: { name: string }) {
+  return (
+    <div className="font-mono text-2xs font-medium text-ink pb-1 border-b border-line-strong">{name}</div>
+  );
+}
+
 function KVTable({ name, rows }: { name: string; rows: Row[] }) {
   return (
-    <div>
-      <div className="text-xs font-mono font-semibold text-indigo-400 mb-1 mt-5 first:mt-0">{name}</div>
-      <table className="w-full text-xs font-mono border border-gray-800">
+    <div className="break-inside-avoid mb-7">
+      <BlockName name={name} />
+      <table className="w-full font-mono text-2xs">
         <tbody>
           {rows.map(([col, val]) => (
-            <tr key={col} className="border-t border-gray-800 first:border-t-0">
-              <td className="text-gray-500 px-2 py-0.5 w-52 shrink-0 align-top select-all">{col}</td>
-              <td className="text-gray-200 px-2 py-0.5 break-all">{fmtVal(val)}</td>
+            <tr key={col} className="border-b border-line">
+              <td className="text-ink-3 py-1 pr-4 w-48 align-top select-all">{col}</td>
+              <td className="text-ink py-1 break-all">{fmtVal(val)}</td>
             </tr>
           ))}
         </tbody>
@@ -39,21 +46,21 @@ function KVTable({ name, rows }: { name: string; rows: Row[] }) {
 
 function MultiTable({ name, columns, rows }: { name: string; columns: string[]; rows: unknown[][] }) {
   return (
-    <div>
-      <div className="text-xs font-mono font-semibold text-indigo-400 mb-1 mt-5">{name}</div>
-      <table className="w-full text-xs font-mono border border-gray-800">
+    <div className="break-inside-avoid mb-7">
+      <BlockName name={name} />
+      <table className="w-full font-mono text-2xs">
         <thead>
-          <tr className="border-b border-gray-700 bg-gray-900">
+          <tr className="border-b border-line">
             {columns.map(col => (
-              <th key={col} className="text-gray-500 px-2 py-0.5 text-left font-normal">{col}</th>
+              <th key={col} className="text-ink-3 py-1 pr-4 text-left font-normal">{col}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="border-t border-gray-800">
+            <tr key={i} className="border-b border-line">
               {row.map((val, j) => (
-                <td key={j} className="text-gray-200 px-2 py-0.5 break-all">{fmtVal(val)}</td>
+                <td key={j} className="text-ink py-1 pr-4 break-all">{fmtVal(val)}</td>
               ))}
             </tr>
           ))}
@@ -74,7 +81,9 @@ export function SongDetails({ song }: { song: Song }) {
   const track = song.track_metadata;
 
   return (
-    <div>
+    // Up to two columns, but only when each gets at least 340px of the
+    // container — works inside the tracklist and the wide results table alike.
+    <div className="gap-12" style={{ columns: "340px 2" }}>
 
       <KVTable name="songs" rows={[
         ['id', song.id],

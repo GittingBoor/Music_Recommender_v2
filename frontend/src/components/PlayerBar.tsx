@@ -119,34 +119,36 @@ export function PlayerBar({ songs }: Props) {
 
   const fillPct = `${(dragging ? dragValue / (duration || 1) : progress) * 100}%`;
 
+  const iconBtn = "text-ink-3 hover:text-ink";
+
   return (
-    <div className="flex-shrink-0 border-t border-gray-800 bg-gray-950">
+    <div className="flex-shrink-0 border-t border-line bg-panel">
 
       {/* controls row: [ track info | transport + seekbar | volume / close ] */}
-      <div className="flex items-center gap-4 px-4 py-2">
+      <div className="flex items-center gap-6 px-5 py-2">
 
         {/* ── left: track info ── */}
         <div className="flex-1 min-w-0">
-          <span className="text-sm text-white font-medium truncate block leading-tight">
+          <span className="text-sm text-ink font-medium truncate block">
             {song?.title ?? "Unknown"}
           </span>
-          <span className="text-xs text-gray-500 truncate block leading-tight">
+          <span className="text-xs text-ink-3 truncate block">
             {song?.artist ?? ""}
           </span>
         </div>
 
         {/* ── center: transport controls + seekbar ── */}
-        <div className="flex flex-col items-center gap-1.5 w-full max-w-md">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col items-center gap-1 w-full max-w-md">
+          <div className="flex items-center gap-4">
 
             {/* shuffle: random song from the database */}
             <button
               onClick={shuffle}
-              className="text-gray-400 hover:text-white transition-colors"
+              className={iconBtn}
               aria-label="Play a random song"
               title="Shuffle — play a random song"
             >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+              <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.66 6.83l-1.41 1.41 3.13 3.13L14.5 16H20v-5.5l-2.04 2.04-2.81-2.81z" />
               </svg>
             </button>
@@ -154,11 +156,11 @@ export function PlayerBar({ songs }: Props) {
             {/* previous song */}
             <button
               onClick={previous}
-              className="text-gray-300 hover:text-white transition-colors"
+              className="text-ink-2 hover:text-ink"
               aria-label="Previous song"
               title="Previous song"
             >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+              <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
               </svg>
             </button>
@@ -166,11 +168,11 @@ export function PlayerBar({ songs }: Props) {
             {/* skip back 15s */}
             <button
               onClick={() => skip(-15)}
-              className="text-gray-400 hover:text-white transition-colors"
+              className={iconBtn}
               aria-label="Skip back 15 seconds"
               title="Back 15 seconds"
             >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+              <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" />
                 <text x="12" y="14" textAnchor="middle" fontSize="5.5" fill="currentColor" fontWeight="700">15</text>
               </svg>
@@ -179,16 +181,16 @@ export function PlayerBar({ songs }: Props) {
             {/* play / pause */}
             <button
               onClick={() => currentId && toggle(currentId)}
-              className="w-9 h-9 rounded-full bg-white text-gray-900 flex items-center justify-center hover:bg-gray-200 transition-colors shrink-0"
+              className="w-8 h-8 rounded-sm bg-ink text-ground flex items-center justify-center hover:bg-signal shrink-0"
               aria-label={playing ? "Pause" : "Play"}
             >
               {playing ? (
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="5" width="4" height="14" rx="1" />
-                  <rect x="14" y="5" width="4" height="14" rx="1" />
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="5" y="4" width="5" height="16" />
+                  <rect x="14" y="4" width="5" height="16" />
                 </svg>
               ) : (
-                <svg className="w-4 h-4 translate-x-px" viewBox="0 0 24 24" fill="currentColor">
+                <svg className="w-3.5 h-3.5 translate-x-px" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M8 5v14l11-7z" />
                 </svg>
               )}
@@ -197,11 +199,11 @@ export function PlayerBar({ songs }: Props) {
             {/* skip forward 15s */}
             <button
               onClick={() => skip(15)}
-              className="text-gray-400 hover:text-white transition-colors"
+              className={iconBtn}
               aria-label="Skip forward 15 seconds"
               title="Forward 15 seconds"
             >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+              <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z" />
                 <text x="12" y="14" textAnchor="middle" fontSize="5.5" fill="currentColor" fontWeight="700">15</text>
               </svg>
@@ -210,25 +212,21 @@ export function PlayerBar({ songs }: Props) {
             {/* next song */}
             <button
               onClick={next}
-              className="text-gray-300 hover:text-white transition-colors"
+              className="text-ink-2 hover:text-ink"
               aria-label="Next song"
               title="Next song"
             >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+              <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
               </svg>
             </button>
 
             {/* nearest-neighbour radio: next song is the most similar one */}
-            <div className="relative">
+            <div className="relative flex">
               <button
                 onClick={onNearestNeighbour}
                 aria-pressed={nnMode}
-                className={`transition-colors ${
-                  nnMode
-                    ? "text-violet-400 hover:text-violet-300"
-                    : "text-gray-500 hover:text-gray-300"
-                }`}
+                className={nnMode ? "text-signal hover:text-ink" : iconBtn}
                 aria-label={
                   nnMode
                     ? "Similar-song radio is on"
@@ -240,7 +238,7 @@ export function PlayerBar({ songs }: Props) {
                     : "Similar-song radio off — tracks play in library order"
                 }
               >
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="18" cy="5" r="3" />
                   <circle cx="6" cy="12" r="3" />
                   <circle cx="18" cy="19" r="3" />
@@ -249,10 +247,10 @@ export function PlayerBar({ songs }: Props) {
                 </svg>
               </button>
               {nnMode && (
-                <span className="pointer-events-none absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-violet-400" />
+                <span className="pointer-events-none absolute -top-1 -right-1.5 w-1 h-1 bg-signal" />
               )}
               {nnHint && (
-                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-800 px-2 py-1 text-xs text-gray-200 shadow-lg border border-gray-700">
+                <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm bg-raised border border-line-strong px-2 py-1 font-mono text-2xs text-ink-2">
                   {nnMode
                     ? "Similar-song radio on — next track is the closest match"
                     : "Similar-song radio off — playing in library order"}
@@ -262,8 +260,8 @@ export function PlayerBar({ songs }: Props) {
           </div>
 
           {/* seekbar */}
-          <div className="flex items-center gap-2 w-full">
-            <span className="text-xs font-mono text-gray-500 tabular-nums w-10 text-right shrink-0">
+          <div className="flex items-center gap-2.5 w-full">
+            <span className="font-mono text-2xs text-ink-3 tabular-nums w-10 text-right shrink-0">
               {fmt(displayTime)}
             </span>
             <div
@@ -273,40 +271,40 @@ export function PlayerBar({ songs }: Props) {
               onPointerMove={onSeekPointerMove}
               onPointerUp={onSeekPointerUp}
             >
-              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-gray-800 overflow-hidden">
+              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] bg-line-strong">
                 <div
-                  className="absolute inset-y-0 left-0 bg-violet-500 group-hover:bg-violet-400 transition-colors"
+                  className="absolute inset-y-0 left-0 bg-signal"
                   style={{ width: fillPct }}
                 />
               </div>
               <div
-                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-[3px] h-3 bg-ink opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
                 style={{ left: fillPct }}
               />
             </div>
-            <span className="text-xs font-mono text-gray-500 tabular-nums w-10 shrink-0">
+            <span className="font-mono text-2xs text-ink-3 tabular-nums w-10 shrink-0">
               {fmt(duration)}
             </span>
           </div>
         </div>
 
         {/* ── right: volume, close ── */}
-        <div className="flex-1 flex items-center justify-end gap-3 min-w-0">
+        <div className="flex-1 flex items-center justify-end gap-4 min-w-0">
 
           {/* volume */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={toggleMute}
-              className="text-gray-400 hover:text-white transition-colors"
+              className={iconBtn}
               aria-label={volume === 0 ? "Unmute" : "Mute"}
               title={volume === 0 ? "Unmute" : "Mute"}
             >
               {volume === 0 ? (
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" />
                 </svg>
               ) : (
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
                 </svg>
               )}
@@ -318,7 +316,7 @@ export function PlayerBar({ songs }: Props) {
               step={0.01}
               value={volume}
               onChange={onVolumeChange}
-              className="w-20 sm:w-24 accent-violet-500 cursor-pointer"
+              className="range w-20 sm:w-24"
               aria-label="Volume"
             />
           </div>
@@ -326,11 +324,11 @@ export function PlayerBar({ songs }: Props) {
           {/* close: stop playback and hide the bar */}
           <button
             onClick={stop}
-            className="text-gray-400 hover:text-white transition-colors shrink-0"
+            className={`${iconBtn} shrink-0`}
             aria-label="Close player"
             title="Close player"
           >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="square">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>

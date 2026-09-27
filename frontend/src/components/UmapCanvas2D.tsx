@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UmapPoint2D } from "../types/umap";
+import { COLOR } from "../theme";
 
 interface Props {
   points: UmapPoint2D[];
@@ -27,10 +28,11 @@ const PAN_MARGIN = 0.35; // fraction of canvas that must still show data
 const DATA_PAD = 0.15; // fractional padding added around the data cloud
 const MAX_ZOOM_FACTOR = 40; // how much you can zoom in relative to fit-all view
 const POINT_RADIUS = 7;
-const SELECTED_RADIUS = 11;
+const SELECTED_RADIUS = 8;
+const SELECTED_RING = 13;
 // Neighbour links: hinted on hover, committed on selection.
-// White reads as "connection" against every genre colour on the dark ground.
-const LINK_COLOR = "#ffffff";
+// Paper-white reads as "connection" against every genre colour on the dark ground.
+const LINK_COLOR = COLOR.ink;
 const LINK_ALPHA_HOVER = 0.22;
 const LINK_ALPHA_SELECTED = 0.8;
 const LINK_WIDTH_HOVER = 1;
@@ -170,30 +172,39 @@ export function UmapCanvas2D({ points, selectedSongId, getColor, onSelect, xLabe
       drawLinks(selId, LINK_ALPHA_SELECTED, LINK_WIDTH_SELECTED);
     }
 
-    // Regular points
+    // Regular points — a thin ground-coloured ring keeps overlapping dots apart
+    ctx.lineWidth = 1 * DPR;
+    ctx.strokeStyle = COLOR.ground;
     for (const p of points) {
       if (p.song_id === selId) continue;
       const [sx, sy] = toScreen(p.x, p.y);
       ctx.beginPath();
       ctx.arc(sx * DPR, sy * DPR, POINT_RADIUS * DPR, 0, Math.PI * 2);
       ctx.fillStyle = getColor(p.song_id);
-      ctx.globalAlpha = 0.82;
+      ctx.globalAlpha = 0.9;
       ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.stroke();
     }
 
-    // Selected point on top
+    // Selected point on top: paper-white core inside a signal ring — reads
+    // apart from every genre hue, including the orange one.
     const sel = selId ? points.find((p) => p.song_id === selId) : null;
     if (sel) {
       const [sx, sy] = toScreen(sel.x, sel.y);
-      ctx.beginPath();
-      ctx.arc(sx * DPR, sy * DPR, (SELECTED_RADIUS + 5) * DPR, 0, Math.PI * 2);
-      ctx.fillStyle = "#f59e0b33";
       ctx.globalAlpha = 1;
-      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(sx * DPR, sy * DPR, SELECTED_RING * DPR, 0, Math.PI * 2);
+      ctx.lineWidth = 2 * DPR;
+      ctx.strokeStyle = COLOR.signal;
+      ctx.stroke();
       ctx.beginPath();
       ctx.arc(sx * DPR, sy * DPR, SELECTED_RADIUS * DPR, 0, Math.PI * 2);
-      ctx.fillStyle = "#f59e0b";
+      ctx.fillStyle = COLOR.ink;
       ctx.fill();
+      ctx.lineWidth = 2 * DPR;
+      ctx.strokeStyle = COLOR.ground;
+      ctx.stroke();
     }
     ctx.globalAlpha = 1;
   }, [points, getColor, pointById]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -352,7 +363,7 @@ export function UmapCanvas2D({ points, selectedSongId, getColor, onSelect, xLabe
   };
 
   return (
-    <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-gray-950">
+    <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-ground">
       <canvas
         ref={canvasRef}
         className="absolute inset-0 cursor-default"
@@ -365,14 +376,14 @@ export function UmapCanvas2D({ points, selectedSongId, getColor, onSelect, xLabe
 
       {/* Axis labels */}
       {xLabel && (
-        <div className="pointer-events-none absolute bottom-2 left-0 right-0 flex justify-center">
-          <span className="text-[11px] text-gray-500 tracking-wide">{xLabel}</span>
+        <div className="pointer-events-none absolute bottom-3 left-0 right-0 flex justify-center">
+          <span className="font-mono text-2xs text-ink-3">{xLabel}</span>
         </div>
       )}
       {yLabel && (
-        <div className="pointer-events-none absolute left-1 top-0 bottom-0 flex items-center">
+        <div className="pointer-events-none absolute left-2 top-0 bottom-0 flex items-center">
           <span
-            className="text-[11px] text-gray-500 tracking-wide"
+            className="font-mono text-2xs text-ink-3"
             style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
           >
             {yLabel}
@@ -382,7 +393,7 @@ export function UmapCanvas2D({ points, selectedSongId, getColor, onSelect, xLabe
 
       {tooltip && (
         <div
-          className="pointer-events-none absolute z-10 px-2 py-1 rounded text-xs text-gray-100 bg-gray-800 border border-gray-700 shadow-lg whitespace-nowrap"
+          className="pointer-events-none absolute z-10 px-2 py-1 rounded-sm text-xs text-ink bg-raised border border-line-strong whitespace-nowrap"
           style={{ left: tooltip.x, top: tooltip.y }}
         >
           {tooltip.text}
