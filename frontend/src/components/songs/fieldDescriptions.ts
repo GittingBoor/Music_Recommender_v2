@@ -1,5 +1,5 @@
 /**
- * One-sentence explanations for every value shown in an expanded SongCard,
+ * One-sentence explanations for every value shown in an song detail page,
  * keyed by "<table>.<column>".
  */
 export const FIELD_DESCRIPTIONS: Readonly<Record<string, string>> = {

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import type { Song } from "../types/song";
-import type { UmapResponse } from "../types/umap";
-import type { PreviewSegment } from "../services/api";
-import { fetchPreviewSegment, fetchUmap } from "../services/api";
-import { getSnapshot, playPreview, subscribe, toggle } from "../audio/player";
+import type { Song } from "../../types/song";
+import type { UmapResponse } from "../../types/umap";
+import type { PreviewSegment } from "../../services/api";
+import { fetchPreviewSegment, fetchUmap } from "../../services/api";
+import { getSnapshot, playPreview, subscribe, toggle } from "../../audio/player";
+import { Link, songPath } from "../../router";
 import { UmapCanvas2D } from "./UmapCanvas2D";
-import { COLOR, SERIES_EXTENDED } from "../theme";
+import { COLOR, SERIES_EXTENDED } from "../../theme";
 
 // ─── Feature definitions ──────────────────────────────────────────────────────
 
@@ -271,6 +272,9 @@ function SongInfoPanel({ song }: { song: Song }) {
           {featuredArtists.length > 0 && (
             <p className="text-ink-3 text-xs mt-0.5">feat. {featuredArtists.join(", ")}</p>
           )}
+          <Link to={songPath(song.id)} className="btn-quiet inline-block mt-2">
+            Open song page →
+          </Link>
         </div>
 
         {/* Chorus preview */}

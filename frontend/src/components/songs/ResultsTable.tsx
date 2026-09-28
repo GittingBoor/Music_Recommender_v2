@@ -1,7 +1,7 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Song } from "../../types/song";
+import { Link, isPlainLeftClick, navigate, songPath } from "../../router";
 import { PlayButton } from "../PlayButton";
-import { SongDetails } from "../SongDetails";
 
 type SortDir = "asc" | "desc";
 
@@ -16,6 +16,8 @@ interface Column {
   cellClass?: string;
   /** Max cell width — text beyond it is truncated. Defaults to max-w-56. */
   widthClass?: string;
+  /** Render the cell as a link to the song's detail page. */
+  link?: boolean;
 }
 
 function fmtDuration(s: number): string {
@@ -34,6 +36,7 @@ const COLUMNS: Column[] = [
     get: (s) => s.title,
     cellClass: "font-medium text-ink",
     widthClass: "max-w-40",
+    link: true,
   },
   {
     key: "artist", label: "Artist", defaultDir: "asc",
@@ -85,16 +88,12 @@ interface Props {
   songs: Song[];
   /** Fires whenever the visible row order changes (used to sync the play queue). */
   onVisibleOrderChange?: (ids: string[]) => void;
-  /** When set, clicking a row selects that song. */
-  onSelect?: (songId: string) => void;
-  /** When set (and no onSelect), clicking a row expands a full field dump below it. */
-  expandable?: boolean;
 }
 
-export function ResultsTable({ songs, onVisibleOrderChange, onSelect, expandable }: Props) {
+/** Sortable song table; clicking a row opens that song's detail page. */
+export function ResultsTable({ songs, onVisibleOrderChange }: Props) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const sorted = useMemo(() => {
     const col = COLUMNS.find((c) => c.key === sortKey);
@@ -138,7 +137,7 @@ export function ResultsTable({ songs, onVisibleOrderChange, onSelect, expandable
   }
 
   return (
-    <div className="overflow-x-auto" style={{ containerType: "inline-size" }}>
+    <div className="overflow-x-auto">
       <table className="w-full text-sm whitespace-nowrap">
         <thead>
           <tr className="border-b border-line-strong">
@@ -166,70 +165,50 @@ export function ResultsTable({ songs, onVisibleOrderChange, onSelect, expandable
                 </button>
               </th>
             ))}
-            {expandable && !onSelect && <th className="w-8" />}
           </tr>
         </thead>
         <tbody>
-          {sorted.map((song) => {
-            const isExpanded = expandable && expandedId === song.id;
-            const rowClick = onSelect
-              ? () => onSelect(song.id)
-              : expandable
-                ? () => setExpandedId((id) => (id === song.id ? null : song.id))
-                : undefined;
-            return (
-              <Fragment key={song.id}>
-                <tr
-                  onClick={rowClick}
-                  className={`border-b border-line ${rowClick ? "cursor-pointer" : ""} ${isExpanded ? "bg-panel" : "hover:bg-raised/70"}`}
-                >
-                  <td className="px-2.5 py-1.5">
-                    <PlayButton songId={song.id} />
+          {sorted.map((song) => (
+            <tr
+              key={song.id}
+              onClick={(e) => { if (isPlainLeftClick(e)) navigate(songPath(song.id)); }}
+              className="border-b border-line cursor-pointer hover:bg-raised/70"
+            >
+              <td className="px-2.5 py-1.5">
+                <PlayButton songId={song.id} />
+              </td>
+              {COLUMNS.map((col) => {
+                const v = col.get(song);
+                const text =
+                  v == null
+                    ? "–"
+                    : typeof v === "number"
+                      ? col.format
+                        ? col.format(v)
+                        : String(v)
+                      : v;
+                const numeric = col.align === "right";
+                return (
+                  <td
+                    key={col.key}
+                    className={`px-2.5 py-1.5 ${numeric ? "text-right font-mono text-xs text-ink-2 tabular-nums" : "text-left"} ${col.cellClass ?? ""} ${v == null ? "!text-ink-4" : ""}`}
+                  >
+                    {col.link ? (
+                      <Link
+                        to={songPath(song.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className={`block truncate hover:underline underline-offset-2 ${col.widthClass ?? "max-w-56"}`}
+                      >
+                        {text}
+                      </Link>
+                    ) : (
+                      <div className={`truncate ${col.widthClass ?? "max-w-56"}`}>{text}</div>
+                    )}
                   </td>
-                  {COLUMNS.map((col) => {
-                    const v = col.get(song);
-                    const text =
-                      v == null
-                        ? "–"
-                        : typeof v === "number"
-                          ? col.format
-                            ? col.format(v)
-                            : String(v)
-                          : v;
-                    const numeric = col.align === "right";
-                    return (
-                      <td
-                        key={col.key}
-                        className={`px-2.5 py-1.5 ${numeric ? "text-right font-mono text-xs text-ink-2 tabular-nums" : "text-left"} ${col.cellClass ?? ""} ${v == null ? "!text-ink-4" : ""}`}
-                      >
-                        <div className={`truncate ${col.widthClass ?? "max-w-56"}`}>{text}</div>
-                      </td>
-                    );
-                  })}
-                  {expandable && !onSelect && (
-                    <td className="px-2 py-1.5 text-right">
-                      <svg
-                        className={`w-3 h-3 inline transition-transform ${isExpanded ? "rotate-180 text-ink-2" : "text-ink-4"}`}
-                        fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                      >
-                        <path strokeLinecap="square" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </td>
-                  )}
-                </tr>
-                {isExpanded && (
-                  <tr className="bg-panel border-b border-line">
-                    <td colSpan={COLUMNS.length + 2} className="p-0 whitespace-normal">
-                      {/* Pinned to the visible part of the horizontally scrolling table */}
-                      <div className="sticky left-0 pl-12 pr-4 pt-4 pb-6" style={{ width: "100cqw" }}>
-                        <SongDetails song={song} />
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            );
-          })}
+                );
+              })}
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
