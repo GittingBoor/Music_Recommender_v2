@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { UmapPoint2D } from "../types/umap";
-import { COLOR } from "../theme";
+import type { UmapPoint2D } from "../../types/umap";
+import { COLOR } from "../../theme";
 
 interface Props {
   points: UmapPoint2D[];

@@ -1,18 +1,65 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchNeighbors, fetchSongCount, fetchSongs } from "./services/api";
 import type { Song } from "./types/song";
-import { CardsPage } from "./components/CardsPage";
-import { UmapView } from "./components/UmapView";
-import { AnalysisPage } from "./components/analysis/AnalysisPage";
-import { FilterPage } from "./components/filter/FilterPage";
+import { SongsPage } from "./components/songs/SongsPage";
+import { SongDetailPage } from "./components/songs/SongDetailPage";
+import { AnalysisPage, ANALYSIS_SECTIONS } from "./components/analysis/AnalysisPage";
+import type { AnalysisSection } from "./components/analysis/AnalysisPage";
 import { PlayerBar } from "./components/PlayerBar";
 import { UploadPage } from "./components/upload/UploadPage";
 import { setNeighborSource, setQueue } from "./audio/player";
+import { Link, navigate, usePath } from "./router";
 
 // The player stays free of API imports; the app wires the lookup in once.
 setNeighborSource(fetchNeighbors);
 
-type Tab = "cards" | "umap" | "analysis" | "filter" | "upload";
+type Route =
+  | { page: "songs"; songId: string | null }
+  | { page: "analysis"; section: AnalysisSection }
+  | { page: "upload" }
+  | { page: "notfound" };
+
+/** URL → page:  /songs · /songs/:id · /analysis[/umap|/correlations|/timeseries] · /upload */
+function matchRoute(path: string): Route {
+  const parts = path.split("/").filter(Boolean);
+  if (parts.length === 0) return { page: "songs", songId: null }; // "/" is redirected to /songs
+  if (parts[0] === "songs" && parts.length <= 2) {
+    if (parts.length === 1) return { page: "songs", songId: null };
+    try {
+      return { page: "songs", songId: decodeURIComponent(parts[1]) };
+    } catch {
+      return { page: "notfound" };
+    }
+  }
+  if (parts[0] === "analysis") {
+    const section = ANALYSIS_SECTIONS.find((s) => s.path === path);
+    if (section) return { page: "analysis", section: section.id };
+  }
+  if (parts[0] === "upload" && parts.length === 1) return { page: "upload" };
+  return { page: "notfound" };
+}
+
+const NAV: { page: Route["page"]; label: string; to: string }[] = [
+  { page: "songs",    label: "Songs",    to: "/songs" },
+  { page: "analysis", label: "Analysis", to: "/analysis" },
+  { page: "upload",   label: "Upload",   to: "/upload" },
+];
+
+function pageTitle(route: Route, songs: Song[]): string {
+  switch (route.page) {
+    case "songs": {
+      if (!route.songId) return "Songs";
+      const s = songs.find((x) => x.id === route.songId);
+      return s ? `${s.title ?? "Unknown"} – ${s.artist ?? "Unknown artist"}` : "Song";
+    }
+    case "analysis":
+      return `${ANALYSIS_SECTIONS.find((s) => s.id === route.section)?.label ?? "Analysis"} · Analysis`;
+    case "upload":
+      return "Upload";
+    case "notfound":
+      return "Not found";
+  }
+}
 
 const POLL_INTERVAL_MS = 8_000;
 
@@ -20,8 +67,19 @@ export default function App() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("cards");
   const songsRef = useRef<Song[]>([]);
+
+  const path = usePath();
+  const route = matchRoute(path);
+
+  useEffect(() => {
+    if (path === "/") navigate("/songs", { replace: true });
+  }, [path]);
+
+  const title = pageTitle(route, songs);
+  useEffect(() => {
+    document.title = `${title} · Music Recommender`;
+  }, [title]);
 
   const applySongs = (data: Song[]) => {
     songsRef.current = data;
@@ -65,18 +123,18 @@ export default function App() {
     <div className="h-screen h-[100dvh] flex flex-col bg-ground text-ink overflow-hidden">
       <header className="flex-shrink-0 md:h-11 border-b border-line flex flex-wrap md:flex-nowrap items-stretch px-3 md:px-5">
         <h1 className="flex items-center h-10 md:h-auto md:pr-5 md:mr-2 md:border-r border-line text-[15px] font-bold leading-none stretch-expanded tracking-[-0.01em] whitespace-nowrap">
-          Music Recommender
+          <Link to="/songs">Music Recommender</Link>
         </h1>
         <nav className="order-last md:order-none w-full md:w-auto h-10 md:h-auto flex border-t border-line md:border-t-0 overflow-x-auto no-scrollbar">
-          {(["cards", "umap", "analysis", "filter", "upload"] as Tab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              aria-current={tab === t ? "page" : undefined}
+          {NAV.map((n) => (
+            <Link
+              key={n.page}
+              to={n.to}
+              aria-current={route.page === n.page ? "page" : undefined}
               className="tab flex-1 justify-center md:flex-none"
             >
-              {t === "cards" ? "Cards" : t === "umap" ? "UMAP" : t === "analysis" ? "Analysis" : t === "filter" ? "Filter" : "Upload"}
-            </button>
+              {n.label}
+            </Link>
           ))}
         </nav>
         {!loading && !error && (
@@ -99,11 +157,28 @@ export default function App() {
         )}
         {!loading && !error && (
           <>
-            {tab === "cards" && <CardsPage songs={songs} />}
-            {tab === "umap" && <UmapView songs={songs} />}
-            {tab === "analysis" && <AnalysisPage songs={songs} />}
-            {tab === "filter" && <FilterPage songs={songs} />}
-            {tab === "upload" && <UploadPage />}
+            {route.page === "songs" && (
+              // The list stays mounted (just invisible) under an open song, so
+              // filters, sort order, scroll position and play queue survive "back".
+              <div className="relative h-full">
+                <div className={`h-full ${route.songId ? "invisible" : ""}`}>
+                  <SongsPage songs={songs} />
+                </div>
+                {route.songId && (
+                  <div className="absolute inset-0 bg-ground">
+                    <SongDetailPage key={route.songId} songs={songs} songId={route.songId} />
+                  </div>
+                )}
+              </div>
+            )}
+            {route.page === "analysis" && <AnalysisPage songs={songs} section={route.section} />}
+            {route.page === "upload" && <UploadPage />}
+            {route.page === "notfound" && (
+              <div className="h-full flex flex-col items-center justify-center gap-3 font-mono text-xs text-ink-3">
+                <p>Page not found.</p>
+                <Link to="/songs" className="btn-quiet">Go to all songs</Link>
+              </div>
+            )}
           </>
         )}
       </main>

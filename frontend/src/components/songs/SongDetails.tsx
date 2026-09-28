@@ -1,4 +1,4 @@
-import type { Song } from '../types/song';
+import type { Song } from '../../types/song';
 import { FIELD_DESCRIPTIONS } from './fieldDescriptions';
 
 function fmtVal(val: unknown): React.ReactNode {
@@ -99,8 +99,8 @@ function MultiTable({ name, columns, rows }: { name: string; columns: string[]; 
   );
 }
 
-/** Full dump of every stored field for one song — shared by the card list
- *  and the expandable rows of the filter results table. */
+/** Full dump of every stored field for one song — the last section of the
+ *  song detail page. */
 export function SongDetails({ song }: { song: Song }) {
   const dsp = song.dsp_features;
   const profile = song.ml_profile;
@@ -110,8 +110,7 @@ export function SongDetails({ song }: { song: Song }) {
   const track = song.track_metadata;
 
   return (
-    // Up to two columns, but only when each gets at least 340px of the
-    // container — works inside the tracklist and the wide results table alike.
+    // Up to two columns, but only when each gets at least 340px of the container.
     <div className="gap-12" style={{ columns: "340px 2" }}>
 
       <KVTable name="songs" rows={[

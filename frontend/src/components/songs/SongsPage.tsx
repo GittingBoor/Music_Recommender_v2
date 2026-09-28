@@ -4,11 +4,11 @@ import { setQueue } from "../../audio/player";
 import {
   MOOD_AXES, DSP_AXES, OTHER_AXES,
   computeAxisStats,
-} from "./featureConfig";
-import type { RadarAxis, AxisStatsMap } from "./featureConfig";
-import { RadarChart } from "./RadarChart";
-import { BarSliderFilter } from "./BarSliderFilter";
-import type { BarRow } from "./BarSliderFilter";
+} from "../filter/featureConfig";
+import type { RadarAxis, AxisStatsMap } from "../filter/featureConfig";
+import { RadarChart } from "../filter/RadarChart";
+import { BarSliderFilter } from "../filter/BarSliderFilter";
+import type { BarRow } from "../filter/BarSliderFilter";
 import { ResultsTable } from "./ResultsTable";
 
 type ThresholdsMap = Record<string, number>;
@@ -77,7 +77,8 @@ interface Props {
   songs: Song[];
 }
 
-export function FilterPage({ songs }: Props) {
+/** Main page: the whole library as a sortable table, narrowed by the filters. */
+export function SongsPage({ songs }: Props) {
   // ── text search ──────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
 
@@ -229,6 +230,7 @@ export function FilterPage({ songs }: Props) {
   }, []);
 
   // Restore the default queue (full library, DB order) when leaving the page.
+  // (The page stays mounted underneath an open song detail page.)
   const allSongsRef = useRef(songs);
   allSongsRef.current = songs;
   useEffect(() => {
@@ -370,7 +372,6 @@ export function FilterPage({ songs }: Props) {
           <ResultsTable
             songs={filtered}
             onVisibleOrderChange={handleVisibleOrderChange}
-            expandable
           />
         </div>
       </section>
