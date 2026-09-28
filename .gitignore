@@ -1,6 +1,8 @@
 # Essentia model cache — downloaded at runtime, never committed
 model_cache/
-models
+# Pretrained GMBI/MusiCNN binaries — local only. Anchored on purpose: a bare
+# "models" also swallowed new files in backend/src/db/models/.
+backend/src/audio_process/Models/
 
 # Analysis debug output — local test results, never committed
 backend/test_output/
