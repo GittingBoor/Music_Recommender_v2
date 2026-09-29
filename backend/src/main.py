@@ -11,11 +11,12 @@ from src.api.routes.ingest import router as ingest_router
 from src.api.routes.songs import router as songs_router
 from src.api.routes.umap import router as umap_router
 from src.api.routes.upload import router as upload_router
-from src.api.routes.youtube import router as youtube_router
+from src.api.routes.youtube import router as youtube_router, warm_example_pool
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     check_required_keys()
+    warm_example_pool()
     yield
 
 
