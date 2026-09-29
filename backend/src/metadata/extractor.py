@@ -12,9 +12,15 @@ from pathlib import Path
 from src.metadata.acoustid_client import get_acoustid_metadata
 from src.metadata.cleaning import better_date, dedup_featured_artists, preferred_album_name, split_artist_featuring
 from src.metadata.file_tags import extract_file_metadata
-from src.metadata.identity import AcoustidMatch, IdentityHint, resolve_identity
+from src.metadata.identity import (
+    AcoustidMatch,
+    IdentityHint,
+    credit_composer,
+    needs_composer_check,
+    resolve_identity,
+)
 from src.metadata.lastfm import fetch_artist_info, fetch_similar_tracks, fetch_track_info
-from src.metadata.musicbrainz import fetch_musicbrainz_data
+from src.metadata.musicbrainz import fetch_musicbrainz_data, fetch_recording_composers, fetch_song_album
 from src.metadata.spotify import fetch_spotify_info, get_token
 
 logger = logging.getLogger(__name__)
@@ -48,6 +54,11 @@ def extract_all_metadata(
     if identity is None:
         logger.warning("[Metadata] No title/artist from AcoustID, hint or tags for %s", audio_path.name)
         return {}
+    performer_identity = identity
+    if hint and identity.acoustid_id and needs_composer_check(identity, hint):
+        # Classical recordings are credited to the performer; the video names the composer.
+        identity = credit_composer(identity, hint.artist, fetch_recording_composers(identity.acoustid_id))
+    composer_credited = identity is not performer_identity
 
     # Split "David Guetta feat. Kid Cudi" → artist + featured artists; AcoustID
     # already credits featured artists separately.
@@ -147,8 +158,10 @@ def extract_all_metadata(
         acoustid_done=True,
     )
     result["genres"] = mb_data["genres"]
-    result["album_mbid"] = mb_data.get("album_mbid")
-    result["album"] = preferred_album_name(mb_data.get("album"), result.get("album"))
+    # The song's studio album; a classical piece has none, only the album of this performance.
+    song_album_mbid, song_album = (None, None) if composer_credited else fetch_song_album(mb_title, mb_artist)
+    result["album_mbid"] = song_album_mbid or mb_data.get("album_mbid")
+    result["album"] = preferred_album_name(song_album or mb_data.get("album"), result.get("album"))
 
     # Merge featured artists: file tag → Last.fm → Spotify → MusicBrainz, then deduplicate
     all_featured: list[str] = list(result.get("featured_artists") or [])

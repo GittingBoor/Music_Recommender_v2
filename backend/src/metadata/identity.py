@@ -76,3 +76,31 @@ def resolve_identity(
             strip_version_markers(tag_title.strip()), tag_artist.strip(), MetadataSource.FILE_TAGS, None
         )
     return None
+
+
+def _same_name(a: str, b: str) -> bool:
+    return a.strip().casefold() == b.strip().casefold()
+
+
+def needs_composer_check(identity: SongIdentity, hint: IdentityHint | None) -> bool:
+    """True when AcoustID named the song but credits someone other than the artist the video/user named.
+
+    Typical for classical music: MusicBrainz credits the recording to the
+    performer, while the video names the composer.
+    """
+    if identity.source is not MetadataSource.ACOUSTID or hint is None or not hint.artist.strip():
+        return False
+    credited = (identity.raw_artist, *identity.featured_artists)
+    return not any(_same_name(hint.artist, name) for name in credited)
+
+
+def credit_composer(identity: SongIdentity, expected_artist: str, composers: list[str]) -> SongIdentity:
+    """Make the composer the artist when the video/user named them; the performer becomes featured.
+
+    Returns ``identity`` unchanged when ``expected_artist`` is none of ``composers``.
+    """
+    composer = next((c for c in composers if _same_name(c, expected_artist)), None)
+    if composer is None:
+        return identity
+    featured = (identity.raw_artist, *[f for f in identity.featured_artists if not _same_name(f, composer)])
+    return SongIdentity(identity.title, composer, identity.source, identity.acoustid_id, featured)
