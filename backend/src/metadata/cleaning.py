@@ -72,6 +72,13 @@ def strip_version_markers(title: str) -> str:
     return title.strip()
 
 
+def preferred_album_name(musicbrainz_album: str | None, provider_album: str | None) -> str | None:
+    """Album name to store: MusicBrainz's (it matches album_mbid), else Spotify/Last.fm's without version markers."""
+    if musicbrainz_album:
+        return musicbrainz_album
+    return strip_version_markers(provider_album) if provider_album else None
+
+
 def clean_title(text: str) -> str:
     """Remove common YouTube/video-upload noise from a song title or artist string."""
     text = _NOISE_BRACKET_RE.sub("", text)

@@ -59,14 +59,18 @@ def fetch_recording_identity(recording_id: str) -> RecordingIdentity | None:
 def pick_album(releases: list[dict]) -> tuple[str | None, str | None]:
     """Return ``(release_group_id, title)`` of the album a recording first appeared on.
 
-    Official releases only; an album beats an EP beats a single, and within
-    a type the earliest release wins (a reissue never beats the original).
+    Official studio releases only — live albums, compilations, soundtracks
+    and the like (any MusicBrainz secondary type) are skipped. An album beats
+    an EP beats a single, and within a type the earliest release wins (a
+    reissue never beats the original).
     """
     candidates: list[tuple[int, str, str, str]] = []
     for rel in releases:
         group = rel.get("release-group") or {}
         rank = _ALBUM_TYPE_RANK.get(group.get("primary-type") or "")
         if rel.get("status") != "Official" or rank is None or not group.get("id"):
+            continue
+        if group.get("secondary-types"):
             continue
         title = group.get("title") or rel.get("title") or ""
         candidates.append((rank, rel.get("date") or _UNDATED, group["id"], title))
