@@ -202,7 +202,7 @@ def _binary_with_timeseries(model_key: str, embedding: np.ndarray, output_layer:
 
 
 def predict_mood_happy(embedding: np.ndarray) -> dict[str, object]:
-    result = _binary_with_timeseries("mood_happy", embedding, "model/Softmax")
+    result = _binary_with_timeseries("mood_happy", embedding, "model/Softmax", positive_index=0)
     _log("mood_happy", result["mean"])
     return result
 
@@ -214,7 +214,7 @@ def predict_mood_sad(embedding: np.ndarray) -> dict[str, object]:
 
 
 def predict_mood_aggressive(embedding: np.ndarray) -> dict[str, object]:
-    result = _binary_with_timeseries("mood_aggressive", embedding, "model/Softmax")
+    result = _binary_with_timeseries("mood_aggressive", embedding, "model/Softmax", positive_index=0)
     _log("mood_aggressive", result["mean"])
     return result
 
@@ -232,13 +232,13 @@ def predict_mood_relaxed(embedding: np.ndarray) -> dict[str, object]:
 
 
 def predict_mood_acoustic(embedding: np.ndarray) -> dict[str, object]:
-    result = _binary_with_timeseries("mood_acoustic", embedding, "model/Softmax")
+    result = _binary_with_timeseries("mood_acoustic", embedding, "model/Softmax", positive_index=0)
     _log("mood_acoustic", result["mean"])
     return result
 
 
 def predict_mood_electronic(embedding: np.ndarray) -> dict[str, object]:
-    result = _binary_with_timeseries("mood_electronic", embedding, "model/Softmax")
+    result = _binary_with_timeseries("mood_electronic", embedding, "model/Softmax", positive_index=0)
     _log("mood_electronic", result["mean"])
     return result
 
