@@ -144,7 +144,9 @@ def extract_all_metadata(
         acoustid_done=True,
     )
     result["genres"] = mb_data["genres"]
-    result.setdefault("album_mbid", None)
+    result["album_mbid"] = mb_data.get("album_mbid")
+    if not result.get("album") and mb_data.get("album"):
+        result["album"] = mb_data["album"]
 
     # Merge featured artists: file tag → Last.fm → Spotify → MusicBrainz, then deduplicate
     all_featured: list[str] = list(result.get("featured_artists") or [])

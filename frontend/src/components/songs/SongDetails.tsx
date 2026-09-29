@@ -117,6 +117,11 @@ export function SongDetails({ song }: { song: Song }) {
         ['id', song.id],
         ['title', song.title],
         ['artist', song.artist],
+        ['original_name', song.original_name],
+        ['metadata_source', song.metadata_source],
+        ['metadata_reviewed', song.metadata_reviewed],
+        ['acoustid_id', song.acoustid_id],
+        ['youtube_video_id', song.youtube_video_id],
       ]} />
 
       {file && (
@@ -136,6 +141,7 @@ export function SongDetails({ song }: { song: Song }) {
           ['playcount', track.playcount],
           ['listeners', track.listeners],
           ['mbid', track.mbid],
+          ['album', track.album],
           ['album_mbid', track.album_mbid],
           ['url', track.url],
           ['mb_genres', track.mb_genres],

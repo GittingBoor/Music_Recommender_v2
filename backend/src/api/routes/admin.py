@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from src.api.deps import get_db
 from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
+from src.db.models import Song, TrackMetadata
 from src.db.session import get_session
 from src.ingest.failures import record_failure
 from src.ingest.tracker import Stage, tracker
-from src.metadata.identity import IdentityHint, MetadataSource
+from src.metadata.identity import IdentityHint, MetadataSource, SongOrigin
+from src.metadata.musicbrainz import fetch_recording_identity
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -140,7 +142,10 @@ _ANALYSIS_LOCK = threading.Lock()
 
 
 def process_audio_file(
-    audio_file: Path, job_id: int | None = None, hint: IdentityHint | None = None
+    audio_file: Path,
+    job_id: int | None = None,
+    hint: IdentityHint | None = None,
+    origin: SongOrigin | None = None,
 ) -> dict:
     """Run the full ingest pipeline on a single audio file.
 
@@ -157,17 +162,18 @@ def process_audio_file(
     ``job_id`` is the song's entry in the pipeline tracker, if any; it shows
     as waiting until the analysis lock is free, then as analysing.
     ``hint`` names the song when AcoustID does not know it (video title,
-    user input).
+    user input). ``origin`` is the upload filename or YouTube video the audio
+    came from; it is stored with the song.
     """
     if job_id is not None:
         tracker.update(job_id, stage=Stage.WAITING)
     with _ANALYSIS_LOCK:
         if job_id is not None:
             tracker.update(job_id, stage=Stage.ANALYZING)
-        return _process_audio_file(audio_file, hint)
+        return _process_audio_file(audio_file, hint, origin)
 
 
-def _process_audio_file(audio_file: Path, hint: IdentityHint | None) -> dict:
+def _process_audio_file(audio_file: Path, hint: IdentityHint | None, origin: SongOrigin | None) -> dict:
     from src.analysis.pipeline import run_full_pipeline, _save_to_database, precheck_skip
 
     try:
@@ -195,7 +201,7 @@ def _process_audio_file(audio_file: Path, hint: IdentityHint | None) -> dict:
 
         logger.info("[Ingest] Processing %s", audio_file.name)
         result = run_full_pipeline(audio_file, metadata=metadata)
-        _save_to_database(result, audio_file)
+        _save_to_database(result, audio_file, origin)
 
         title  = str((result.get("metadata") or {}).get("title")  or "") or None
         artist = str((result.get("metadata") or {}).get("artist") or "") or None
@@ -250,6 +256,7 @@ class UnverifiedSongOut(BaseModel):
     title: str | None
     artist: str | None
     metadata_source: str
+    metadata_reviewed: bool
 
 
 class AcoustidUpdate(BaseModel):
@@ -258,35 +265,68 @@ class AcoustidUpdate(BaseModel):
 
 @router.get("/admin/songs/missing-acoustid", response_model=list[UnverifiedSongOut])
 def songs_missing_acoustid(db: Session = Depends(get_db)) -> list[UnverifiedSongOut]:
-    """Songs stored under a title/artist that did not come from AcoustID and still lack a recording id."""
-    from src.db.models import Song
-
+    """Songs without an AcoustID recording that no admin has checked yet."""
     rows = (
         db.query(Song)
-        .filter(Song.acoustid_id.is_(None), Song.metadata_source != MetadataSource.ACOUSTID.value)
+        .filter(Song.acoustid_id.is_(None), Song.metadata_reviewed.is_(False))
         .order_by(Song.artist, Song.title)
         .all()
     )
-    return [
-        UnverifiedSongOut(id=s.id, title=s.title, artist=s.artist, metadata_source=s.metadata_source)
-        for s in rows
-    ]
+    return [_unverified_out(s) for s in rows]
 
 
 @router.put("/admin/songs/{song_id}/acoustid", response_model=UnverifiedSongOut)
 def set_song_acoustid(song_id: str, body: AcoustidUpdate, db: Session = Depends(get_db)) -> UnverifiedSongOut:
-    """Attach the AcoustID recording id an admin looked up by hand."""
-    from src.db.models import Song
+    """Attach the recording id an admin looked up; title and artists are then taken from that recording.
 
-    song = db.get(Song, song_id)
-    if song is None:
-        raise HTTPException(status_code=404, detail=f"No song with id {song_id!r}")
+    The song keeps its id, so its features and links stay intact.
+    """
+    song = _get_song_or_404(db, song_id)
     owner = db.query(Song.id).filter(Song.acoustid_id == body.acoustid_id, Song.id != song_id).first()
     if owner:
         raise HTTPException(
             status_code=409,
             detail=f"Recording {body.acoustid_id} already belongs to song {owner.id}",
         )
+    identity = fetch_recording_identity(body.acoustid_id)
+    if identity is None:
+        raise HTTPException(
+            status_code=502,
+            detail=f"MusicBrainz returned no title/artist for recording {body.acoustid_id}; "
+                   "check the id and try again",
+        )
     song.acoustid_id = body.acoustid_id
+    song.title = identity.title
+    song.artist = identity.artist
+    song.metadata_source = MetadataSource.ACOUSTID.value
+    song.metadata_reviewed = True
+    track = db.get(TrackMetadata, song_id)
+    if track is not None:
+        track.featured_artists = identity.featured_artists
     db.commit()
-    return UnverifiedSongOut(id=song.id, title=song.title, artist=song.artist, metadata_source=song.metadata_source)
+    logger.info("[Admin] %s renamed from recording %s: %s — %s",
+                song_id, body.acoustid_id, identity.artist, identity.title)
+    return _unverified_out(song)
+
+
+@router.put("/admin/songs/{song_id}/reviewed", response_model=UnverifiedSongOut)
+def mark_song_reviewed(song_id: str, db: Session = Depends(get_db)) -> UnverifiedSongOut:
+    """Confirm that a song without AcoustID recording is named correctly."""
+    song = _get_song_or_404(db, song_id)
+    song.metadata_reviewed = True
+    db.commit()
+    return _unverified_out(song)
+
+
+def _get_song_or_404(db: Session, song_id: str) -> Song:
+    song = db.get(Song, song_id)
+    if song is None:
+        raise HTTPException(status_code=404, detail=f"No song with id {song_id!r}")
+    return song
+
+
+def _unverified_out(song: Song) -> UnverifiedSongOut:
+    return UnverifiedSongOut(
+        id=song.id, title=song.title, artist=song.artist,
+        metadata_source=song.metadata_source, metadata_reviewed=song.metadata_reviewed,
+    )

@@ -121,6 +121,32 @@ MODELS: list[ModelSpec] = [
         relative_url="classification-heads/gender/gender-discogs-effnet-1.pb",
         description="Voice gender (male vs. female dominant)",
     ),
+    # --- Tonal/Atonal and GMBI inputs (older MusiCNN heads, see other_features.py) ---
+    ModelSpec(
+        key="musicnn_voice",
+        relative_url="classifiers/voice_instrumental/voice_instrumental-musicnn-msd-2.pb",
+        description="Voice vs. instrumental (MusiCNN, GMBI input)",
+    ),
+    ModelSpec(
+        key="musicnn_gender",
+        relative_url="classifiers/gender/gender-musicnn-msd-2.pb",
+        description="Female vs. male voice (MusiCNN, GMBI input)",
+    ),
+    ModelSpec(
+        key="musicnn_danceability",
+        relative_url="classifiers/danceability/danceability-musicnn-msd-2.pb",
+        description="Danceable vs. not (MusiCNN, GMBI input)",
+    ),
+    ModelSpec(
+        key="musicnn_tonal",
+        relative_url="classifiers/tonal_atonal/tonal_atonal-musicnn-msd-2.pb",
+        description="Tonal vs. atonal (MusiCNN)",
+    ),
+    ModelSpec(
+        key="tempocnn",
+        relative_url="tempo/tempocnn/deeptemp-k16-3.pb",
+        description="TempoCNN BPM estimate (GMBI input)",
+    ),
 ]
 
 _MODEL_INDEX: dict[str, ModelSpec] = {m.key: m for m in MODELS}

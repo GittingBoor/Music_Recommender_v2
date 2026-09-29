@@ -19,6 +19,7 @@ export interface TrackMetadata {
   listeners: number | null;
   mbid: string | null;
   url: string | null;
+  album: string | null;
   album_mbid: string | null;
   mb_genres: string[] | null;
   featured_artists: string[] | null;
@@ -102,11 +103,20 @@ export interface OtherFeatures {
   tristimulus_mean: number[] | null;
 }
 
+export type MetadataSource = "acoustid" | "youtube_title" | "user_input" | "file_tags";
+
 export interface Song {
   id: string;
   title: string | null;
   artist: string | null;
   has_preview: boolean;
+  acoustid_id: string | null;
+  /** Where title/artist came from — one of MetadataSource; kept as string so unknown values still parse. */
+  metadata_source: string | null;
+  metadata_reviewed: boolean;
+  /** Upload filename or YouTube video title, exactly as given. */
+  original_name: string | null;
+  youtube_video_id: string | null;
   file_metadata: FileMetadata | null;
   track_metadata: TrackMetadata | null;
   dsp_features: DSPFeatures | null;

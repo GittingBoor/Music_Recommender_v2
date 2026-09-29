@@ -22,6 +22,14 @@ class IdentityHint:
 
 
 @dataclass(frozen=True)
+class SongOrigin:
+    """Where a song's audio came from, kept so it can be traced and fetched again."""
+
+    original_name: str
+    youtube_video_id: str | None = None
+
+
+@dataclass(frozen=True)
 class SongIdentity:
     """The title/artist a song is stored under, plus its AcoustID recording if known."""
 

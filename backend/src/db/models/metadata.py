@@ -30,7 +30,9 @@ class TrackMetadata(Base):
     listeners: Mapped[int | None] = mapped_column(Integer)
     mbid: Mapped[str | None] = mapped_column(String(100))
     url: Mapped[str | None] = mapped_column(String(500))
+    # MusicBrainz release group of the album the recording first appeared on.
     album_mbid: Mapped[str | None] = mapped_column(String(100))
+    album: Mapped[str | None] = mapped_column(String(500))
     mb_genres: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     featured_artists: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     # list of {"title": str, "artist": str, "similarity": float}

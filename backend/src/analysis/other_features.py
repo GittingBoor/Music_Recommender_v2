@@ -9,8 +9,10 @@ Extracted features:
   - HPCP mean: 12-bin chroma vector averaged over all frames.
   - Tristimulus mean: 3 tristimulus values averaged over all frames.
 
-Model files are read from ``settings.audio_process_models_dir``
-(default: ``src/audio_process/Models`` relative to the backend working dir).
+The MusiCNN and TempoCNN models are public and downloaded into the model
+cache on first use. The GMBI Keras models are not public; they are read from
+``settings.audio_process_models_dir / "gmbi_old_nn"`` and GMBI is skipped
+(Tonal is still saved) while they are missing.
 """
 import json
 import logging
@@ -24,7 +26,7 @@ import pandas as pd
 import essentia.standard as es
 from essentia import log as essentia_log
 
-from src.analysis.model_manager import get_cached_algo
+from src.analysis.model_manager import get_cached_algo, get_manager
 from src.core.config import settings
 
 # tensorflow may or may not be importable depending on how essentia-tensorflow
@@ -49,13 +51,14 @@ _HOP_SIZE = 1024
 
 _GMBI_DIMS = ("valence", "arousal", "authenticity", "timeliness", "complexity")
 
-# MusiCNN model specs: (filename, output_class_index)
+# MusiCNN classifiers: (model-cache key, output_class_index)
 _DL_MODELS: dict[str, tuple[str, int]] = {
-    "voice":        ("voice_instrumental-musicnn-msd-2.pb", 1),  # class 1 = voice
-    "female":       ("gender-musicnn-msd-2.pb",             0),
-    "danceability": ("danceability-musicnn-msd-2.pb",       0),
-    "tonal":        ("tonal_atonal-musicnn-msd-2.pb",       0),
+    "voice":        ("musicnn_voice",        1),  # class 1 = voice
+    "female":       ("musicnn_gender",       0),
+    "danceability": ("musicnn_danceability", 0),
+    "tonal":        ("musicnn_tonal",        0),
 }
+_TEMPO_MODEL_KEY = "tempocnn"
 
 # MusicExtractor feature paths for GMBI NN input (order is critical — must
 # match the z-score training statistics below).
@@ -119,6 +122,14 @@ def _models_dir() -> Path:
     return Path(settings.audio_process_models_dir)
 
 
+def _model_path(name: str) -> Path:
+    """Path of a MusiCNN classifier (by ``_DL_MODELS`` name) or ``"tempo"``, downloading it if needed."""
+    key = _TEMPO_MODEL_KEY if name == "tempo" else _DL_MODELS[name][0]
+    manager = get_manager()
+    manager.ensure_key(key)
+    return manager.get_path(key)
+
+
 def _get_nn_models() -> dict[str, Any] | None:
     """Load and cache all GMBI Keras NN models (lazy, once per process).
 
@@ -170,13 +181,10 @@ def _run_dl_models(audio_16k: np.ndarray) -> dict[str, dict[str, Any]]:
       ``frames``           — list of per-frame floats
       ``both_classes_mean``— list of 2 floats (both class probs, needed for NN)
     """
-    models_dir = _models_dir()
     results: dict[str, dict[str, Any]] = {}
 
-    for name, (filename, class_idx) in _DL_MODELS.items():
-        model_path = models_dir / filename
-        if not model_path.exists():
-            raise FileNotFoundError(f"MusiCNN model not found: {model_path}")
+    for name, (_, class_idx) in _DL_MODELS.items():
+        model_path = _model_path(name)
         logger.info("[OtherFeatures] Running MusiCNN: %s", name)
         predictor = get_cached_algo(
             (str(model_path),),
@@ -244,7 +252,7 @@ def _extract_gmbi_nn(
     audio_11k: np.ndarray = es.MonoLoader(
         filename=str(audio_path), sampleRate=_SR_BPM
     )()
-    _tempo_pb = str(_models_dir() / "deeptemp-k16-3.pb")
+    _tempo_pb = str(_model_path("tempo"))
     tempo_cnn = get_cached_algo(
         ("TempoCNN", _tempo_pb),
         lambda p=_tempo_pb: es.TempoCNN(graphFilename=p),
@@ -343,8 +351,9 @@ def extract_other_features(audio_path: Path) -> dict[str, Any]:
 
     try:
         result = _extract_model_features(audio_path, audio_44k, audio_16k)
-    except FileNotFoundError as exc:
-        # HPCP/Tristimulus need no model files, so they are still worth saving.
+    except OSError as exc:
+        # A MusiCNN model could not be downloaded. HPCP/Tristimulus need no
+        # model files, so they are still worth saving.
         logger.warning("[OtherFeatures] GMBI/Tonal skipped: %s", exc)
         result = {}
 
@@ -362,10 +371,10 @@ def extract_other_features(audio_path: Path) -> dict[str, Any]:
 def _extract_model_features(
     audio_path: Path, audio_44k: np.ndarray, audio_16k: np.ndarray
 ) -> dict[str, Any]:
-    """Tonal/Atonal and GMBI, both of which need the audio_process model files.
+    """Tonal/Atonal from the MusiCNN classifiers, plus GMBI when its models are installed.
 
     Raises:
-        FileNotFoundError: If a MusiCNN or GMBI model file is missing.
+        OSError: If a MusiCNN model is missing and cannot be downloaded.
     """
     logger.info("[OtherFeatures] Running MusiCNN classifiers")
     dl_results = _run_dl_models(audio_16k)
@@ -377,7 +386,11 @@ def _extract_model_features(
     logger.info("[OtherFeatures] Tonal/Atonal done (mean=%.4f)", tonal_result["mean"])
 
     logger.info("[OtherFeatures] Running GMBI Neural Net")
-    gmbi = _extract_gmbi_nn(audio_path, audio_44k, dl_results)
+    try:
+        gmbi = _extract_gmbi_nn(audio_path, audio_44k, dl_results)
+    except FileNotFoundError as exc:
+        logger.warning("[OtherFeatures] GMBI skipped, Tonal kept: %s", exc)
+        return {"tonal": tonal_result}
     logger.info(
         "[OtherFeatures] GMBI done — valence=%.4f arousal=%.4f",
         gmbi["mean"].get("valence", 0),

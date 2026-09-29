@@ -1,7 +1,7 @@
 import hashlib
 import string
 
-from sqlalchemy import String
+from sqlalchemy import Boolean, String, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.models.base import Base
@@ -34,6 +34,11 @@ class Song(Base):
     # songs whose title/artist came from elsewhere (see metadata_source).
     acoustid_id: Mapped[str | None] = mapped_column(String(36), unique=True)
     metadata_source: Mapped[str] = mapped_column(String(20), server_default="acoustid")
+    # An admin confirmed title/artist of a song AcoustID does not know.
+    metadata_reviewed: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    # Where the audio came from: upload filename or YouTube video title, as given.
+    original_name: Mapped[str | None] = mapped_column(String(500))
+    youtube_video_id: Mapped[str | None] = mapped_column(String(20))
 
     file_metadata: Mapped["FileMetadata"] = relationship(back_populates="song", uselist=False)
     track_metadata: Mapped["TrackMetadata"] = relationship(back_populates="song", uselist=False)
