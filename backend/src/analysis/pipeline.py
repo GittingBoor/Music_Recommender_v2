@@ -26,6 +26,7 @@ from src.analysis.classifiers import (
 )
 from src.analysis.dsp import extract_all_dsp_features
 from src.metadata import extract_all_metadata
+from src.metadata.identity import IdentityHint, MetadataSource
 from src.analysis.model_manager import get_manager
 from src.analysis.other_features import extract_other_features
 from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, check_required_keys, settings
@@ -122,7 +123,9 @@ def _structure_ml_results(flat: dict[str, object]) -> dict[str, object]:
     }
 
 
-def precheck_skip(audio_path: Path) -> tuple[str | None, dict, str | None]:
+def precheck_skip(
+    audio_path: Path, hint: IdentityHint | None = None
+) -> tuple[str | None, dict, str | None]:
     """Fetch metadata (AcoustID + enrichment) and decide whether to skip *before*
     running the expensive DSP / ML analysis.
 
@@ -130,9 +133,11 @@ def precheck_skip(audio_path: Path) -> tuple[str | None, dict, str | None]:
     -------
     (skip_reason, metadata, song_id)
         ``skip_reason`` is ``None`` when the song should be processed, otherwise
-        a short string describing why it is skipped (``"no_acoustid_match"`` or
+        a short string describing why it is skipped (``"needs_metadata"`` when
+        neither AcoustID, ``hint`` nor the file tags name the song, or
         ``"duplicate"``).  ``metadata`` is always the extracted dict (may be
-        empty on a miss).  ``song_id`` is set only when a duplicate was found.
+        empty on a miss).  ``song_id`` is set only when a duplicate was found
+        or the song is new.
     """
     from src.db.session import get_session
     from src.db.models import Song, generate_song_id
@@ -143,18 +148,24 @@ def precheck_skip(audio_path: Path) -> tuple[str | None, dict, str | None]:
         acoustid_api_key=settings.acoustid_api_key,
         spotify_client_id=settings.spotify_client_id,
         spotify_client_secret=settings.spotify_client_secret,
+        hint=hint,
     )
     title = str(metadata.get("title") or "")
     artist = str(metadata.get("artist") or "")
 
     if not title or not artist:
-        return ("no_acoustid_match", metadata, None)
+        return ("needs_metadata", metadata, None)
 
     song_id = generate_song_id(title, artist)
+    acoustid_id = metadata.get("acoustid_id")
     session = get_session()
     try:
         if session.get(Song, song_id):
             return ("duplicate", metadata, song_id)
+        if acoustid_id:
+            known = session.query(Song.id).filter(Song.acoustid_id == acoustid_id).first()
+            if known:
+                return ("duplicate", metadata, known.id)
     finally:
         session.close()
 
@@ -287,7 +298,13 @@ def _save_to_database(result: dict[str, object], audio_path: Path) -> None:
             logger.warning("[DB] Skipping %r — already in database (id=%s)", title, song_id)
             return
 
-        session.add(Song(id=song_id, title=title, artist=artist))
+        session.add(Song(
+            id=song_id,
+            title=title,
+            artist=artist,
+            acoustid_id=meta.get("acoustid_id"),
+            metadata_source=str(meta.get("metadata_source") or MetadataSource.ACOUSTID.value),
+        ))
 
         session.add(FileMetadata(
             id=song_id,

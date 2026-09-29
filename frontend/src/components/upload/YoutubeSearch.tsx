@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   streamYoutubeSearch,
   searchYoutubePlaylists,
-  downloadYoutube,
+  enqueueYoutubeDownload,
+  fetchYoutubeDownloads,
   fetchYoutubeExamples,
   fetchYoutubePlaylist,
   YoutubeRequestError,
@@ -14,6 +15,7 @@ import type {
   YoutubeErrorDetail,
   UploadResult,
   YoutubeStage,
+  YoutubeDownloadStatus,
 } from "../../services/api";
 
 interface Props {
@@ -22,11 +24,27 @@ interface Props {
 }
 
 const STAGE_LABEL: Record<YoutubeStage, string> = {
+  queued: "In Warteschlange",
+  searching: "Sucht…",
   downloading: "Lädt herunter…",
   trimming: "Schneidet zu…",
+  waiting: "Wartet auf Analyse",
   analyzing: "Analysiert…",
   done: "Fertig",
 };
+
+const DOWNLOAD_POLL_MS = 1_500;
+const ELAPSED_TICK_MS = 500;
+const MIN_VISIBLE_PROGRESS = 0.03;
+
+/** A video handed to the backend queue that has not finished yet. */
+interface ActiveDownload {
+  readonly jobId: number;
+  readonly title: string;
+  readonly stage: YoutubeStage;
+  readonly progress: number;
+  readonly startedAt: number;
+}
 
 const EXAMPLE_COUNT = 5;
 const VIDEO_RESULT_COUNT = 10;
@@ -71,15 +89,22 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
   const [loadingExamples, setLoadingExamples] = useState(true);
   const [showExamples, setShowExamples] = useState(true);
 
-  // active download state (only one at a time)
-  const [downloading, setDownloading] = useState<string | null>(null);
-  const [stage, setStage] = useState<YoutubeStage>("downloading");
-  const [progress, setProgress] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
-  const [batchLeft, setBatchLeft] = useState(0);
-  const timerRef = useRef<number | null>(null);
+  // Queued and running downloads by video id; any number can run at once.
+  const [active, setActive] = useState<ReadonlyMap<string, ActiveDownload>>(new Map());
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const pollingRef = useRef(false);
+  const [now, setNow] = useState(() => Date.now());
+  const hasActive = active.size > 0;
 
-  useEffect(() => () => stopTimer(), []);
+  useEffect(() => {
+    if (!hasActive) return;
+    const poll = window.setInterval(() => { void pollDownloads(); }, DOWNLOAD_POLL_MS);
+    const tick = window.setInterval(() => setNow(Date.now()), ELAPSED_TICK_MS);
+    return () => { clearInterval(poll); clearInterval(tick); };
+    // pollDownloads reads the latest downloads through activeRef.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasActive]);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,21 +117,6 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
     // Runs once when the Upload tab opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  function startTimer() {
-    setElapsed(0);
-    const start = performance.now();
-    timerRef.current = window.setInterval(() => {
-      setElapsed((performance.now() - start) / 1000);
-    }, 100);
-  }
-
-  function stopTimer() {
-    if (timerRef.current !== null) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -183,51 +193,78 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
     return item.in_library || addedIds.has(item.video_id);
   }
 
-  async function runDownload(item: YoutubeSearchItem) {
-    setDownloading(item.video_id);
-    setStage("downloading");
-    setProgress(0);
-    startTimer();
+  async function startDownload(item: YoutubeSearchItem) {
+    if (activeRef.current.has(item.video_id)) return;
     try {
-      const result = await downloadYoutube(item.video_id, item.title, (p) => {
-        setStage(p.stage);
-        setProgress(p.progress);
-      });
-      if (result.status === "error" && result.error) onError(result.error);
-      if (result.status === "saved" || result.reason === "duplicate") {
-        setAddedIds((prev) => new Set(prev).add(item.video_id));
-      }
-      onDownloaded(result);
+      const jobId = await enqueueYoutubeDownload(item);
+      setActive((prev) => new Map(prev).set(item.video_id, {
+        jobId, title: item.title, stage: "queued", progress: 0, startedAt: Date.now(),
+      }));
     } catch (err: unknown) {
-      const detail = toDetail(err);
-      onError(detail);
-      onDownloaded({
-        status: "error",
-        reason: detail.title,
-        title: item.title,
-        artist: null,
-        song_id: null,
-        filename: item.title,
-        error: detail,
-      });
-    } finally {
-      stopTimer();
-      setDownloading(null);
+      reportFailure(item.title, toDetail(err));
     }
+  }
+
+  async function pollDownloads() {
+    const entries = [...activeRef.current];
+    if (entries.length === 0 || pollingRef.current) return;
+    pollingRef.current = true;
+    try {
+      const statuses = await fetchYoutubeDownloads(entries.map(([, d]) => d.jobId));
+      const byJob = new Map(statuses.map((st) => [st.job_id, st]));
+      for (const [videoId, download] of entries) {
+        const status = byJob.get(download.jobId);
+        if (status) applyStatus(videoId, download, status);
+      }
+    } catch {
+      // A dropped poll is retried on the next tick; the jobs keep running on the server.
+    } finally {
+      pollingRef.current = false;
+    }
+  }
+
+  function applyStatus(videoId: string, download: ActiveDownload, status: YoutubeDownloadStatus) {
+    if (!status.result) {
+      setActive((prev) => new Map(prev).set(videoId, {
+        ...download, stage: status.stage, progress: status.progress,
+      }));
+      return;
+    }
+    const result: UploadResult = { ...status.result, filename: status.result.filename || download.title };
+    setActive((prev) => {
+      const next = new Map(prev);
+      next.delete(videoId);
+      return next;
+    });
+    if (result.status === "error" && result.error) onError(result.error);
+    if (result.status === "saved" || result.reason === "duplicate") {
+      setAddedIds((prev) => new Set(prev).add(videoId));
+    }
+    onDownloaded(result);
+  }
+
+  function reportFailure(title: string, detail: YoutubeErrorDetail) {
+    onError(detail);
+    onDownloaded({
+      status: "error",
+      reason: detail.title,
+      title,
+      artist: null,
+      song_id: null,
+      filename: title,
+      error: detail,
+    });
   }
 
   async function onDownloadAll() {
     onError(null);
-    const pending = results.filter((item) => !isInLibrary(item));
-    for (let i = 0; i < pending.length; i++) {
-      setBatchLeft(pending.length - i);
-      await runDownload(pending[i]);
-    }
-    setBatchLeft(0);
+    const pending = results.filter((item) => !isInLibrary(item) && !active.has(item.video_id));
+    for (const item of pending) await startDownload(item);
   }
 
-  const busy = downloading !== null;
   const knownCount = results.filter(isInLibrary).length;
+  const runningCount = results.filter((item) => active.has(item.video_id)).length;
+  const downloadableCount = results.length - knownCount - runningCount;
   // A search over-fetches so rejected hits can be backfilled; a playlist shows everything.
   const shownResults = listTitle ? results : results.slice(0, VIDEO_RESULT_COUNT);
   const visible = showExamples && results.length === 0 ? examples : shownResults;
@@ -260,8 +297,8 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
 
       {/* ── heading above the list ─────────────────────────────────── */}
       {showingExamples && !loadingExamples && (
-        <div className="flex items-center justify-between pt-2">
-          <p className="t-label">
+        <div className="flex items-center justify-between gap-4 pt-2">
+          <p className="t-label min-w-0">
             Vorschläge — noch nicht in der Bibliothek
           </p>
           <button
@@ -273,8 +310,8 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
                 .catch((err) => onError(toDetail(err)))
                 .finally(() => setLoadingExamples(false));
             }}
-            disabled={busy || loadingExamples}
-            className="btn-quiet"
+            disabled={loadingExamples}
+            className="btn-quiet shrink-0"
           >
             Andere zeigen
           </button>
@@ -292,11 +329,11 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
             {knownCount > 0 && ` · ${knownCount} bereits vorhanden`}
           </p>
           <button
-            onClick={onDownloadAll}
-            disabled={busy || results.length === knownCount}
-            className="btn btn-primary"
+            onClick={() => { void onDownloadAll(); }}
+            disabled={downloadableCount === 0}
+            className="btn btn-primary shrink-0"
           >
-            {batchLeft > 0 ? `Lädt… (${batchLeft} übrig)` : "Alle herunterladen"}
+            {runningCount > 0 && downloadableCount === 0 ? `${runningCount} in Arbeit` : "Alle herunterladen"}
           </button>
         </div>
       )}
@@ -305,7 +342,7 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
       {visible.length > 0 && (
         <div className="border-t border-line">
           {visible.map((item) => {
-            const isDownloading = downloading === item.video_id;
+            const download = active.get(item.video_id);
             return (
               <div
                 key={item.video_id}
@@ -329,16 +366,18 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
                   </p>
                 </div>
 
-                {isDownloading ? (
-                  <div className="w-24 md:w-44 shrink-0">
-                    <div className="flex justify-between text-xs text-ink-2 mb-1.5">
-                      <span>{STAGE_LABEL[stage]}</span>
-                      <span className="font-mono text-2xs text-ink-3 tabular-nums">{elapsed.toFixed(1)}s</span>
+                {download ? (
+                  <div className="w-28 md:w-44 shrink-0">
+                    <div className="flex justify-between gap-2 text-xs text-ink-2 mb-1.5">
+                      <span className="truncate">{STAGE_LABEL[download.stage]}</span>
+                      <span className="font-mono text-2xs text-ink-3 tabular-nums shrink-0">
+                        {Math.max(0, (now - download.startedAt) / 1000).toFixed(0)}s
+                      </span>
                     </div>
                     <div className="h-[2px] bg-line">
                       <div
-                        className="h-full bg-signal transition-all duration-500"
-                        style={{ width: `${progress * 100}%` }}
+                        className={`h-full transition-all duration-500 ${download.stage === "queued" ? "bg-ink-4" : "bg-signal"}`}
+                        style={{ width: `${Math.max(download.progress, MIN_VISIBLE_PROGRESS) * 100}%` }}
                       />
                     </div>
                   </div>
@@ -349,8 +388,7 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
                   </span>
                 ) : (
                   <button
-                    onClick={() => runDownload(item)}
-                    disabled={busy}
+                    onClick={() => { void startDownload(item); }}
                     className="btn"
                   >
                     Download
@@ -393,7 +431,7 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
 
               <button
                 onClick={() => onOpenPlaylist(hit)}
-                disabled={busy || searching}
+                disabled={searching}
                 className="btn"
               >
                 Öffnen

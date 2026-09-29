@@ -3,6 +3,7 @@ import threading
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload
 
@@ -11,6 +12,7 @@ from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
 from src.db.session import get_session
 from src.ingest.failures import record_failure
 from src.ingest.tracker import Stage, tracker
+from src.metadata.identity import IdentityHint, MetadataSource
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -137,7 +139,9 @@ _MAX_DURATION_WITHOUT_RECOGNITION = 600.0  # 10 minutes
 _ANALYSIS_LOCK = threading.Lock()
 
 
-def process_audio_file(audio_file: Path, job_id: int | None = None) -> dict:
+def process_audio_file(
+    audio_file: Path, job_id: int | None = None, hint: IdentityHint | None = None
+) -> dict:
     """Run the full ingest pipeline on a single audio file.
 
     Performs the duration gate, precheck_skip, DSP/ML analysis, DB save,
@@ -152,16 +156,18 @@ def process_audio_file(audio_file: Path, job_id: int | None = None) -> dict:
 
     ``job_id`` is the song's entry in the pipeline tracker, if any; it shows
     as waiting until the analysis lock is free, then as analysing.
+    ``hint`` names the song when AcoustID does not know it (video title,
+    user input).
     """
     if job_id is not None:
         tracker.update(job_id, stage=Stage.WAITING)
     with _ANALYSIS_LOCK:
         if job_id is not None:
             tracker.update(job_id, stage=Stage.ANALYZING)
-        return _process_audio_file(audio_file)
+        return _process_audio_file(audio_file, hint)
 
 
-def _process_audio_file(audio_file: Path) -> dict:
+def _process_audio_file(audio_file: Path, hint: IdentityHint | None) -> dict:
     from src.analysis.pipeline import run_full_pipeline, _save_to_database, precheck_skip
 
     try:
@@ -179,7 +185,7 @@ def _process_audio_file(audio_file: Path) -> dict:
                         "title": None, "artist": None, "song_id": None}
 
         # Early-skip: metadata + AcoustID + duplicate check BEFORE heavy analysis.
-        skip_reason, metadata, song_id = precheck_skip(audio_file)
+        skip_reason, metadata, song_id = precheck_skip(audio_file, hint)
         if skip_reason:
             logger.info("[Ingest] Skipping %s — %s", audio_file.name, skip_reason)
             title  = str((metadata or {}).get("title")  or "") or None
@@ -235,3 +241,52 @@ def ingest_dataset(background_tasks: BackgroundTasks):
     )
     background_tasks.add_task(_run_ingest)
     return {"status": "started", "file_count": file_count}
+
+
+# ── songs without an AcoustID recording (admin-only, nginx keeps /admin/ internal) ──
+
+class UnverifiedSongOut(BaseModel):
+    id: str
+    title: str | None
+    artist: str | None
+    metadata_source: str
+
+
+class AcoustidUpdate(BaseModel):
+    acoustid_id: str = Field(min_length=36, max_length=36, description="MusicBrainz recording UUID")
+
+
+@router.get("/admin/songs/missing-acoustid", response_model=list[UnverifiedSongOut])
+def songs_missing_acoustid(db: Session = Depends(get_db)) -> list[UnverifiedSongOut]:
+    """Songs stored under a title/artist that did not come from AcoustID and still lack a recording id."""
+    from src.db.models import Song
+
+    rows = (
+        db.query(Song)
+        .filter(Song.acoustid_id.is_(None), Song.metadata_source != MetadataSource.ACOUSTID.value)
+        .order_by(Song.artist, Song.title)
+        .all()
+    )
+    return [
+        UnverifiedSongOut(id=s.id, title=s.title, artist=s.artist, metadata_source=s.metadata_source)
+        for s in rows
+    ]
+
+
+@router.put("/admin/songs/{song_id}/acoustid", response_model=UnverifiedSongOut)
+def set_song_acoustid(song_id: str, body: AcoustidUpdate, db: Session = Depends(get_db)) -> UnverifiedSongOut:
+    """Attach the AcoustID recording id an admin looked up by hand."""
+    from src.db.models import Song
+
+    song = db.get(Song, song_id)
+    if song is None:
+        raise HTTPException(status_code=404, detail=f"No song with id {song_id!r}")
+    owner = db.query(Song.id).filter(Song.acoustid_id == body.acoustid_id, Song.id != song_id).first()
+    if owner:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Recording {body.acoustid_id} already belongs to song {owner.id}",
+        )
+    song.acoustid_id = body.acoustid_id
+    db.commit()
+    return UnverifiedSongOut(id=song.id, title=song.title, artist=song.artist, metadata_source=song.metadata_source)

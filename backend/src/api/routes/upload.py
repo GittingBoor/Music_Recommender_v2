@@ -4,7 +4,7 @@ import re
 from collections.abc import Iterator
 from pathlib import Path
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 
 from src.api.heartbeat import run_with_heartbeat
@@ -12,6 +12,7 @@ from src.api.routes.admin import process_audio_file
 from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
 from src.ingest.failures import record_failure
 from src.ingest.tracker import Stage, tracker
+from src.metadata.identity import IdentityHint, MetadataSource
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -44,7 +45,9 @@ def _unique_path(dest_dir: Path, filename: str) -> Path:
     return candidate
 
 
-def _analyse_upload(dest: Path, original_name: str, job_id: int) -> Iterator[str]:
+def _analyse_upload(
+    dest: Path, original_name: str, job_id: int, hint: IdentityHint | None
+) -> Iterator[str]:
     """Analyse ``dest`` off the event loop and stream the result as JSON.
 
     While the analysis runs, single spaces keep the connection alive
@@ -52,7 +55,7 @@ def _analyse_upload(dest: Path, original_name: str, job_id: int) -> Iterator[str
     """
     result: dict = {}
     try:
-        for outcome in run_with_heartbeat(lambda: process_audio_file(dest, job_id)):
+        for outcome in run_with_heartbeat(lambda: process_audio_file(dest, job_id, hint)):
             if outcome is None:
                 yield " "
             else:
@@ -72,10 +75,24 @@ def _analyse_upload(dest: Path, original_name: str, job_id: int) -> Iterator[str
     yield json.dumps(result)
 
 
+def _user_hint(title: str, artist: str) -> IdentityHint | None:
+    if not title.strip() or not artist.strip():
+        return None
+    return IdentityHint(title=title.strip(), artist=artist.strip(), source=MetadataSource.USER_INPUT)
+
+
 @router.post("/upload", response_model=None)
-async def upload_song(file: UploadFile = File(...)) -> dict | StreamingResponse:
+async def upload_song(
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    artist: str = Form(""),
+) -> dict | StreamingResponse:
     """Upload a single audio file, run it through the analysis pipeline,
     and save it to ``datasets/uploads/`` if successful.
+
+    ``title``/``artist`` name the song when neither AcoustID nor the file tags
+    do; without them such a file comes back as skipped with reason
+    ``needs_metadata`` so the uploader can fill them in and send it again.
 
     Returns:
         status  : "saved" | "skipped" | "error"
@@ -121,7 +138,7 @@ async def upload_song(file: UploadFile = File(...)) -> dict | StreamingResponse:
 
     job_id = tracker.add("upload", original_name, Stage.WAITING)
     return StreamingResponse(
-        _analyse_upload(dest, original_name, job_id),
+        _analyse_upload(dest, original_name, job_id, _user_hint(title, artist)),
         media_type="application/json",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
