@@ -2,9 +2,10 @@ import pytest
 
 from src.metadata.cleaning import (
     clean_title,
+    final_featured,
     normalize_date,
-    preferred_album_name,
     parse_featured_artists,
+    preferred_album_name,
     split_artist_featuring,
     strip_version_markers,
 )
@@ -109,3 +110,35 @@ class TestPreferredAlbumName:
 
     def test_no_album_anywhere(self) -> None:
         assert preferred_album_name(None, None) is None
+
+
+class TestStripAnyVersion:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("Time - Orchestra Version", "Time"),
+            ("Hello (Piano Version)", "Hello"),
+            ("Song (Extended Edit)", "Song"),
+        ],
+    )
+    def test_named_versions_and_edits_are_removed(self, raw: str, expected: str) -> None:
+        assert strip_version_markers(raw) == expected
+
+
+def test_provider_samplers_and_unconfirmed_soundtracks_are_not_used() -> None:
+    assert preferred_album_name(None, "Klassik: Die schönste klassische Musik") is None
+    assert preferred_album_name(None, "Mario & Sonic Original Soundtrack", allow_soundtracks=False) is None
+    assert preferred_album_name(None, "Inception (Music from the Motion Picture)") == (
+        "Inception (Music from the Motion Picture)"
+    )
+
+
+def test_album_names_use_plain_quotes() -> None:
+    assert preferred_album_name("Let’s Talk About Love", None) == "Let's Talk About Love"
+
+
+class TestFinalFeatured:
+    def test_main_artist_and_duplicates_are_dropped(self) -> None:
+        assert final_featured("HAUSER", ["London Symphony Orchestra", "HAUSER", "hauser", "Robert Ziegler"]) == [
+            "London Symphony Orchestra", "Robert Ziegler",
+        ]

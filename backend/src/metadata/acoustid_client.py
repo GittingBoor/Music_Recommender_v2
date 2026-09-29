@@ -106,35 +106,51 @@ def _normalise_title(title: str) -> str:
     return " ".join(re.sub(r"[^\w]", " ", title.lower()).split())
 
 
-def _rec_sort_key(preferred_title: str | None) -> Callable[[dict], tuple[int, int, int]]:
+def _only_named_guests(rec: dict, source_text: str) -> int:
+    """1 unless the recording credits a guest that ``source_text`` (the video title) never names."""
+    _, guests = split_credits(rec.get("artists") or [])
+    text = _normalise_title(source_text)
+    return 0 if any(_normalise_title(g) not in text for g in guests) else 1
+
+
+def _rec_sort_key(
+    preferred_title: str | None, source_text: str | None
+) -> Callable[[dict], tuple[int, int, int, int]]:
     wanted = _normalise_title(preferred_title or "")
 
-    def key(rec: dict) -> tuple[int, int, int]:
+    def key(rec: dict) -> tuple[int, int, int, int]:
         title = rec.get("title") or ""
         matches = 1 if wanted and _normalise_title(title) == wanted else 0
+        named_guests = _only_named_guests(rec, source_text) if source_text else 1
         no_parens = 0 if "(" in title else 1
-        return (matches, int(rec.get("sources") or 0), no_parens)
+        return (matches, named_guests, int(rec.get("sources") or 0), no_parens)
 
     return key
 
 
-def pick_recording(recordings: list[dict], preferred_title: str | None) -> dict:
+def pick_recording(
+    recordings: list[dict], preferred_title: str | None, source_text: str | None = None
+) -> dict:
     """Choose which of a fingerprint's MusicBrainz recordings names the song.
 
     A recording titled like ``preferred_title`` (video title or file tag,
-    ignoring case and punctuation spacing) wins; otherwise the one with the
-    most AcoustID submissions, titles without parentheses breaking ties.
+    ignoring case and punctuation spacing) wins. Next, one whose guests all
+    appear in ``source_text`` (the full video title) beats one crediting a
+    guest the video never names — a fingerprint of "Believer" also matches
+    its remix with Lil Wayne. Then the most AcoustID submissions, titles
+    without parentheses breaking ties.
     """
-    return max(recordings, key=_rec_sort_key(preferred_title))
+    return max(recordings, key=_rec_sort_key(preferred_title, source_text))
 
 
 def get_acoustid_metadata(
-    audio_path: Path, api_key: str, preferred_title: str | None = None
+    audio_path: Path, api_key: str, preferred_title: str | None = None, source_text: str | None = None
 ) -> AcoustidMatch:
     """Fingerprint via AcoustID and return the best recording's id, title and credited artists.
 
     ``preferred_title`` is what the video or file calls the song; among the
-    recordings AcoustID links to the fingerprint, one with that title wins.
+    recordings AcoustID links to the fingerprint, one with that title wins;
+    ``source_text`` (the full video title) rules out guests it never names.
     Every field is None on failure or low confidence.
     The title/artist come directly from the AcoustID/MusicBrainz response and
     reflect the canonical song name — useful as a fallback when the filename
@@ -213,8 +229,8 @@ def get_acoustid_metadata(
         logger.warning("[AcoustID] Score %.3f match has no linked recordings", score)
         return _NO_MATCH
 
-    best_rec = pick_recording(recordings, preferred_title)
-    recordings_sorted = sorted(recordings, key=_rec_sort_key(preferred_title), reverse=True)
+    best_rec = pick_recording(recordings, preferred_title, source_text)
+    recordings_sorted = sorted(recordings, key=_rec_sort_key(preferred_title, source_text), reverse=True)
 
     logger.info(
         "[AcoustID] %d recording(s) for score=%.3f — picked by title match, then sources:",

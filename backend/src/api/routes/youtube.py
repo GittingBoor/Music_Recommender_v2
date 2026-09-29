@@ -23,7 +23,7 @@ from src.youtube.download_queue import DownloadQueue
 from src.youtube.example_pool import ExamplePool
 from src.youtube.library_match import LibraryMatcher
 from src.youtube.service import MusicVerdict, YoutubeSearchResult, YoutubeService, classify_error
-from src.youtube.title_parser import parse_video_title
+from src.youtube.title_parser import guess_track, parse_video_title
 from src.youtube.trimmer import get_music_trimmer
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,8 @@ class YoutubeDownloadRequest(BaseModel):
     video_id: str
     title: str | None = None
     uploader: str | None = None
+    # The "Artist - Title" search that found the video; names the song when the video does not.
+    query: str | None = None
 
 
 class YoutubeDownloadQueued(BaseModel):
@@ -349,10 +351,13 @@ def _download_steps(
 
 def _title_hint(req: YoutubeDownloadRequest) -> IdentityHint | None:
     """Artist/title read from the video title, used when AcoustID does not know the audio."""
-    parsed = parse_video_title(req.title or "", req.uploader)
+    parsed = guess_track(req.title or "", req.uploader, req.query)
     if parsed is None:
         return None
-    return IdentityHint(title=parsed.title, artist=parsed.artist, source=MetadataSource.YOUTUBE_TITLE)
+    return IdentityHint(
+        title=parsed.title, artist=parsed.artist, source=MetadataSource.YOUTUBE_TITLE,
+        mentioned_artist=parsed.mentioned_artist, source_text=req.title,
+    )
 
 
 def _library_hit(req: YoutubeDownloadRequest) -> dict | None:

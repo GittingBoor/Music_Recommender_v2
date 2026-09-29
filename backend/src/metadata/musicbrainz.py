@@ -1,7 +1,10 @@
 """MusicBrainz web-service client: genres, earliest release date, featured artists."""
 import json
 import logging
+import re
 import time
+import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
@@ -9,7 +12,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.metadata.acoustid_client import get_recording_id
-from src.metadata.cleaning import better_date, normalize_date, split_artist_featuring, strip_version_markers
+from src.metadata.cleaning import (
+    better_date,
+    normalize_date,
+    SAMPLER_NAME_RE,
+    plain_quotes,
+    split_artist_featuring,
+    strip_version_markers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +33,18 @@ _MB_EMPTY: dict[str, object] = {
 # Release-group types in order of preference for "the album this song is on".
 _ALBUM_TYPE_RANK: dict[str, int] = {"Album": 0, "EP": 1, "Single": 2}
 _UNDATED = "9999"
+# A film's soundtrack is where its songs first appeared; every other secondary type is not the album.
+_ALBUM_SECONDARY_TYPES = frozenset({"Soundtrack"})
+# An album that first came out more than this long after the song is a later collection.
+_ALBUM_WINDOW_YEARS = 1
+
+# Only for building the search query: the first name of "A, B", "A & B", "A x B".
+_FIRST_ARTIST_RE = re.compile(r",\s*|\s+&\s+|\s+x\s+|\s+and\s+|\s+(?:feat\.?|ft\.?|featuring)\s+", re.IGNORECASE)
+
+# MusicBrainz answers 503 when more than ~1 request/second arrives from one IP.
+_MB_ATTEMPTS = 3
+_MB_BUSY_CODES = (429, 503)
+_MB_BUSY_BACKOFF_SECONDS = 3
 
 
 @dataclass(frozen=True)
@@ -34,21 +56,101 @@ class RecordingIdentity:
     featured_artists: list[str] = field(default_factory=list)
 
 
+def _is_latin(text: str) -> bool:
+    return all(unicodedata.name(ch, "").startswith("LATIN") for ch in text if ch.isalpha())
+
+
+def _credit_name(credit: dict) -> str:
+    """Artist name of one credit; a person written in another script gets the Latin sort name.
+
+    MusicBrainz names Tchaikovsky "Пётр Ильич Чайковский" but sorts him as
+    "Tchaikovsky, Pyotr Ilyich" → "Pyotr Ilyich Tchaikovsky".
+    """
+    artist = credit.get("artist") or {}
+    name = str(artist.get("name") or credit.get("name") or "")
+    family, comma, given = str(artist.get("sort-name") or "").partition(",")
+    if name and not _is_latin(name) and comma and _is_latin(family + given):
+        return f"{given.strip()} {family.strip()}".strip()
+    return name
+
+
 def recording_identity(rec_data: dict) -> RecordingIdentity | None:
     """Read title, main artist and featured artists from a recording with ``artist-credits``.
 
     The first credit is the main artist, every further one is featured.
     Returns None when the recording lacks a title or an artist.
     """
-    names = [
-        str((c.get("artist") or {}).get("name") or c.get("name") or "")
-        for c in rec_data.get("artist-credit") or [] if isinstance(c, dict)
-    ]
-    names = [n for n in names if n]
+    names = [_credit_name(c) for c in rec_data.get("artist-credit") or [] if isinstance(c, dict)]
+    names = [plain_quotes(n) for n in names if n]
     title = str(rec_data.get("title") or "")
     if not title or not names:
         return None
-    return RecordingIdentity(title=strip_version_markers(title), artist=names[0], featured_artists=names[1:])
+    return RecordingIdentity(
+        title=plain_quotes(strip_version_markers(title)), artist=names[0], featured_artists=names[1:]
+    )
+
+
+def _comparable(text: str) -> str:
+    """Case-, accent- and punctuation-insensitive form for comparing names."""
+    decomposed = unicodedata.normalize("NFKD", strip_version_markers(text).casefold())
+    plain = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return " ".join(re.sub(r"[^\w]", " ", plain).split())
+
+
+def _has_surname(rec: dict, surname: str) -> bool:
+    """True when the recording's main artist is a person sorted under ``surname`` ("Beethoven, Ludwig van")."""
+    credits = rec.get("artist-credit") or []
+    sort_name = str(((credits[0] if credits else {}).get("artist") or {}).get("sort-name") or "")
+    family, comma, _ = sort_name.partition(",")
+    return bool(comma) and bool(surname) and _comparable(family) == surname
+
+
+def _is_by(rec: dict, wanted_artist: str) -> bool:
+    """True when the recording's main artist is ``wanted_artist`` (already :func:`_comparable`).
+
+    Accepts the same artist, the first of several ("Lady Gaga" for "Lady Gaga,
+    Bradley Cooper"), or a person of that surname ("Beethoven" → "Ludwig van
+    Beethoven", not the band "Electric Beethoven").
+    """
+    identity = recording_identity(rec)
+    main = _comparable(identity.artist) if identity else ""
+    return bool(main) and (
+        wanted_artist == main or wanted_artist.startswith(main + " ") or _has_surname(rec, wanted_artist)
+    )
+
+
+def canonical_from_search(search_data: dict, title: str, artist: str) -> RecordingIdentity | None:
+    """The MusicBrainz spelling of a song named by a video title or the uploader.
+
+    A recording counts when its title matches ``title`` and its main artist is
+    ``artist`` or the start of it ("Lady Gaga" for "Lady Gaga, Bradley Cooper");
+    band names like "Earth, Wind & Fire" therefore stay whole. Returns None
+    when no recording fits, e.g. a performer credited for a composer's piece.
+    """
+    wanted_title, wanted_artist = _comparable(title), _comparable(artist)
+    matches: list[RecordingIdentity] = []
+    for rec in search_data.get("recordings") or []:
+        identity = recording_identity(rec)
+        if identity is None or _comparable(identity.title) != wanted_title:
+            continue
+        if _is_by(rec, wanted_artist):
+            matches.append(identity)
+    # "Gymnopédie" over "Gymnopedie" when the video spells it that way.
+    wanted = strip_version_markers(title)
+    same_case = [m for m in matches if m.title == wanted]
+    same_letters = [m for m in matches if m.title.casefold() == wanted.casefold()]
+    return (same_case or same_letters or matches or [None])[0]
+
+
+def fetch_canonical_recording(title: str, artist: str) -> RecordingIdentity | None:
+    """Look up how MusicBrainz spells a song that AcoustID did not recognise; None if unknown."""
+    first_artist = _FIRST_ARTIST_RE.split(artist, maxsplit=1)[0]
+    safe_title = strip_version_markers(title).replace('"', "").replace("\\", "")
+    safe_artist = first_artist.replace('"', "").replace("\\", "")
+    data = _mb_json_get("recording", {"query": f'recording:"{safe_title}" AND artist:"{safe_artist}"', "limit": "25"})
+    identity = canonical_from_search(data or {}, title, artist)
+    logger.info("[MusicBrainz] Canonical name for %r / %r: %s", artist, title, identity)
+    return identity
 
 
 def fetch_recording_identity(recording_id: str) -> RecordingIdentity | None:
@@ -57,54 +159,118 @@ def fetch_recording_identity(recording_id: str) -> RecordingIdentity | None:
     return recording_identity(rec_data) if rec_data else None
 
 
-# Popular songs have hundreds of live recordings; without this they crowd the studio album out of the results.
-_STUDIO_ALBUM_FILTER = (
-    " AND status:official AND primarytype:album AND NOT secondarytype:live AND NOT secondarytype:compilation"
-)
+# Recordings on at least one official album.
+_ALBUM_FILTER = " AND status:official AND primarytype:album"
+# Popular songs have hundreds of live recordings that crowd the studio album out of the first
+# results page. This narrower query drops every recording that appears on any live album or
+# compilation — including many studio recordings — so it only supplements the broad one.
+_NARROW_ALBUM_FILTER = _ALBUM_FILTER + " AND NOT secondarytype:live AND NOT secondarytype:compilation"
+_ALBUM_SEARCH_LIMIT = 100
+# Candidate groups (most frequent first) whose real first release date is looked up.
+_FIRST_RELEASE_LOOKUPS = 4
+
+
+def _released_by(release: dict, artist: str) -> bool:
+    """True when the release's first credited artist is ``artist``; releases without own credit inherit the recording's."""
+    credits = release.get("artist-credit") or []
+    if not credits:
+        return True
+    name = str((credits[0].get("artist") or {}).get("name") or credits[0].get("name") or "")
+    return name.casefold() == artist.casefold()
 
 
 def _same_song_title(a: str, b: str) -> bool:
     return strip_version_markers(a).casefold() == strip_version_markers(b).casefold()
 
 
-def album_from_search(search_data: dict, title: str, artist: str) -> tuple[str | None, str | None]:
-    """Album of a song across all its recordings in a MusicBrainz recording search.
-
-    Only hits with the same title (ignoring edit/remaster markers) by the same
-    main artist count. Among their official studio albums (see
-    :func:`pick_album`), the one the song was released on most often wins —
-    reissues and country editions pile up on the real album, while a one-off
-    appearance on some other record does not. Ties go to :func:`pick_album`.
-    """
-    releases: list[dict] = []
+def _song_album_candidates(
+    search_data: dict, title: str, artist: str, allow_soundtracks: bool = True
+) -> "list[_AlbumCandidate]":
+    """Album candidates from search hits with the same title by the same main artist, on that artist's releases."""
+    candidates: list[_AlbumCandidate] = []
     for rec in search_data.get("recordings") or []:
         credits = rec.get("artist-credit") or []
         main = str(((credits[0] if credits else {}).get("artist") or {}).get("name") or "")
         if _same_song_title(str(rec.get("title") or ""), title) and main.casefold() == artist.casefold():
-            releases.extend(rec.get("releases") or [])
+            candidates.extend(
+                c for c in (
+                    _album_candidate(rel, allow_soundtracks)
+                    for rel in rec.get("releases") or [] if _released_by(rel, artist)
+                )
+                if c is not None
+            )
+    return candidates
 
-    counts = Counter(
-        group_id for group_id, _ in (pick_album([rel]) for rel in releases) if group_id is not None
-    )
-    if not counts:
+
+def album_from_search(
+    search_data: dict,
+    title: str,
+    artist: str,
+    min_releases: int = 1,
+    first_release: dict[str, str] | None = None,
+    allow_soundtracks: bool = True,
+) -> tuple[str | None, str | None]:
+    """Album of a song across all its recordings in a MusicBrainz recording search.
+
+    Only hits with the same title (ignoring edit/remaster markers) by the same
+    main artist count, and only releases credited to that artist — samplers
+    ("Various Artists") and a guest's own albums do not. Among their official
+    studio albums (see :func:`pick_album`), the one the song was released on
+    most often wins — reissues and country editions pile up on the real album,
+    while a one-off appearance on some other record does not. The type order
+    and the song's own single come first, as in :func:`pick_album`.
+
+    ``min_releases`` drops groups the song appears on fewer times — for songs
+    identified only by name, where a single sampler hit is likely a stranger.
+    ``first_release`` maps group ids to their first release date; search hits
+    list only some releases per recording, so without it an album whose
+    original pressing is missing looks like a later reissue.
+    """
+    candidates = _near_debut(_song_album_candidates(search_data, title, artist, allow_soundtracks), first_release)
+    counts = Counter(c.group_id for c in candidates)
+    candidates = [c for c in candidates if counts[c.group_id] >= min_releases]
+    if not candidates:
         return None, None
-    most = max(counts.values())
-    return pick_album([
-        rel for rel in releases if counts.get((rel.get("release-group") or {}).get("id") or "") == most
-    ])
+    best = min(candidates, key=lambda c: (c.rank, _not_own_title(c, title), -counts[c.group_id], c.date))
+    return best.group_id, best.title or None
 
 
-def fetch_song_album(title: str, artist: str) -> tuple[str | None, str | None]:
-    """``(release_group_id, album)`` of the song's first studio album, searched by title and artist."""
+def fetch_song_album(
+    title: str, artist: str, min_releases: int = 1, allow_soundtracks: bool = True
+) -> tuple[str | None, str | None]:
+    """``(release_group_id, album)`` of the song's studio album, searched by title and artist.
+
+    When the broad search has more hits than one page holds, the narrow one
+    is added; each recording counts once. The most frequent candidate groups
+    get their real first release date looked up.
+    """
     safe_title = strip_version_markers(title).replace('"', "").replace("\\", "")
     safe_artist = artist.replace('"', "").replace("\\", "")
-    data = _mb_json_get(
-        "recording", {"query": f'recording:"{safe_title}" AND artist:"{safe_artist}"{_STUDIO_ALBUM_FILTER}',
-                      "limit": "100"},
-    )
-    album = album_from_search(data or {}, title, artist)
+    base = f'recording:"{safe_title}" AND artist:"{safe_artist}"'
+
+    def search(album_filter: str) -> dict:
+        return _mb_json_get("recording", {"query": base + album_filter, "limit": str(_ALBUM_SEARCH_LIMIT)}) or {}
+
+    broad = search(_ALBUM_FILTER)
+    recordings: list[dict] = list(broad.get("recordings") or [])
+    if int(broad.get("count") or 0) > len(recordings):
+        seen = {r.get("id") for r in recordings}
+        recordings += [r for r in search(_NARROW_ALBUM_FILTER).get("recordings") or [] if r.get("id") not in seen]
+    search_data = {"recordings": recordings}
+
+    counts = Counter(c.group_id for c in _song_album_candidates(search_data, title, artist, allow_soundtracks))
+    first_release = {
+        group_id: date for group_id, _ in counts.most_common(_FIRST_RELEASE_LOOKUPS)
+        if (date := _group_first_release(group_id))
+    }
+    album = album_from_search(search_data, title, artist, min_releases, first_release, allow_soundtracks)
     logger.info("[MusicBrainz] Song album for %r / %r: %s", artist, title, album)
     return album
+
+
+def _group_first_release(group_id: str) -> str | None:
+    data = _mb_json_get(f"release-group/{group_id}", {}) or {}
+    return str(data.get("first-release-date") or "") or None
 
 
 def performed_work_ids(rec_data: dict) -> list[str]:
@@ -118,7 +284,7 @@ def performed_work_ids(rec_data: dict) -> list[str]:
 def work_composers(work_data: dict) -> list[str]:
     """Composer names of a work fetched with ``artist-rels``."""
     return [
-        r["artist"]["name"] for r in work_data.get("relations") or []
+        _credit_name({"artist": r["artist"]}) for r in work_data.get("relations") or []
         if r.get("target-type") == "artist" and r.get("type") == "composer" and (r.get("artist") or {}).get("name")
     ]
 
@@ -135,53 +301,116 @@ def fetch_recording_composers(recording_id: str) -> list[str]:
     return composers
 
 
-def pick_album(releases: list[dict]) -> tuple[str | None, str | None]:
+@dataclass(frozen=True)
+class _AlbumCandidate:
+    rank: int
+    date: str
+    group_id: str
+    title: str
+
+
+def _album_candidate(release: dict, allow_soundtracks: bool = True) -> _AlbumCandidate | None:
+    """The release's group if it can be "the album": official, album/EP/single, no live/compilation/etc."""
+    group = release.get("release-group") or {}
+    rank = _ALBUM_TYPE_RANK.get(group.get("primary-type") or "")
+    if release.get("status") != "Official" or rank is None or not group.get("id"):
+        return None
+    allowed = _ALBUM_SECONDARY_TYPES if allow_soundtracks else frozenset()
+    if set(group.get("secondary-types") or []) - allowed:
+        return None
+    title = str(group.get("title") or release.get("title") or "")
+    if SAMPLER_NAME_RE.search(title):
+        return None
+    return _AlbumCandidate(rank, str(release.get("date") or _UNDATED), group["id"], title)
+
+
+def _year(date: str) -> int | None:
+    return int(date[:4]) if date[:4].isdigit() and date != _UNDATED else None
+
+
+def _near_debut(
+    candidates: list[_AlbumCandidate], first_release: dict[str, str] | None = None
+) -> list[_AlbumCandidate]:
+    """Keep releases whose group first came out within a year of the song's first release.
+
+    A song's album comes out around the song; best-ofs, games and samplers
+    years later ("96 Months", "DJ Hero") do not. Undated groups only count
+    when nothing is dated.
+    """
+    first_year: dict[str, int] = {}
+    for c in candidates:
+        year = _year(c.date)
+        if year is not None:
+            first_year[c.group_id] = min(first_year.get(c.group_id, year), year)
+    for group_id, date in (first_release or {}).items():
+        year = _year(date)
+        if year is not None and group_id in first_year:
+            first_year[group_id] = year
+    if not first_year:
+        return candidates
+    debut = min(first_year.values())
+    return [
+        c for c in candidates
+        if c.group_id in first_year and first_year[c.group_id] - debut <= _ALBUM_WINDOW_YEARS
+    ]
+
+
+def _not_own_title(candidate: _AlbumCandidate, song_title: str | None) -> int:
+    """0 when the release is named after the song (its own single), else 1."""
+    return 0 if song_title and _same_song_title(candidate.title, song_title) else 1
+
+
+def pick_album(releases: list[dict], song_title: str | None = None) -> tuple[str | None, str | None]:
     """Return ``(release_group_id, title)`` of the album a recording first appeared on.
 
-    Official studio releases only — live albums, compilations, soundtracks
-    and the like (any MusicBrainz secondary type) are skipped. An album beats
-    an EP beats a single, and within a type the earliest release wins (a
-    reissue never beats the original).
+    Official releases only; live albums, compilations and the like are
+    skipped (soundtracks count), and so is anything that first came out more
+    than a year after the song. An album beats an EP beats a single; within a
+    type the song's own single (named like ``song_title``) wins, then the
+    earliest release (a reissue never beats the original).
     """
-    candidates: list[tuple[int, str, str, str]] = []
-    for rel in releases:
-        group = rel.get("release-group") or {}
-        rank = _ALBUM_TYPE_RANK.get(group.get("primary-type") or "")
-        if rel.get("status") != "Official" or rank is None or not group.get("id"):
-            continue
-        if group.get("secondary-types"):
-            continue
-        title = group.get("title") or rel.get("title") or ""
-        candidates.append((rank, rel.get("date") or _UNDATED, group["id"], title))
+    candidates = _near_debut([c for c in map(_album_candidate, releases) if c is not None])
     if not candidates:
         return None, None
-    _, _, group_id, title = min(candidates)
-    return group_id, title or None
+    best = min(candidates, key=lambda c: (c.rank, _not_own_title(c, song_title), c.date))
+    return best.group_id, best.title or None
 
 
 def _mb_json_get(path: str, params: dict[str, str]) -> dict | None:
     """
     Rate-limited direct JSON request to MusicBrainz web service.
     Respects the 1 request/second limit independently of musicbrainzngs calls.
+    A busy server (503/429) is asked again after a pause; None only when every
+    attempt failed.
     """
     global _mb_last_json_ts
-    wait = 1.1 - (time.time() - _mb_last_json_ts)
-    if wait > 0:
-        time.sleep(wait)
-
     query = urllib.parse.urlencode({**params, "fmt": "json"})
     url = f"https://musicbrainz.org/ws/2/{path}?{query}"
     ua = f"{_MB_USERAGENT[0]}/{_MB_USERAGENT[1]} ( {_MB_USERAGENT[2]} )"
     req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-        _mb_last_json_ts = time.time()
-        return data
-    except Exception as exc:
-        logger.warning("[MusicBrainz] JSON API failed (%s): %s", type(exc).__name__, exc)
-        _mb_last_json_ts = time.time()
-        return None
+
+    for attempt in range(1, _MB_ATTEMPTS + 1):
+        wait = 1.1 - (time.time() - _mb_last_json_ts)
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+            _mb_last_json_ts = time.time()
+            return data
+        except urllib.error.HTTPError as exc:
+            _mb_last_json_ts = time.time()
+            if exc.code not in _MB_BUSY_CODES or attempt == _MB_ATTEMPTS:
+                logger.warning("[MusicBrainz] JSON API failed (HTTP %s) for %s", exc.code, path)
+                return None
+            pause = _MB_BUSY_BACKOFF_SECONDS * attempt
+            logger.info("[MusicBrainz] Busy (HTTP %s) — retrying %s in %ds", exc.code, path, pause)
+            time.sleep(pause)
+        except Exception as exc:
+            logger.warning("[MusicBrainz] JSON API failed (%s): %s", type(exc).__name__, exc)
+            _mb_last_json_ts = time.time()
+            return None
+    return None
 
 
 def _search_recording_ids(title: str, artist: str) -> list[str]:
@@ -202,9 +431,10 @@ def _search_recording_ids(title: str, artist: str) -> list[str]:
         logger.warning("[MusicBrainz] JSON search: no results for %r / %r", artist, title)
         return []
 
-    candidates = [r for r in recordings if int(r.get("score", 0)) >= 70]
+    wanted_artist = _comparable(main_artist)
+    candidates = [r for r in recordings if int(r.get("score", 0)) >= 70 and _is_by(r, wanted_artist)]
     if not candidates:
-        logger.warning("[MusicBrainz] All results below score 70")
+        logger.warning("[MusicBrainz] No result by %r with score >= 70", main_artist)
         return []
 
     candidates.sort(key=lambda r: -int(r.get("score", 0)))
@@ -311,7 +541,9 @@ def _get_recording_data(recording_id: str) -> dict[str, object]:
     ][:10]
     logger.info("[MusicBrainz] Genres for %s: %s", recording_id, genres)
 
-    album_mbid, album = pick_album(releases)
+    main_credit = recording_identity(rec_data)
+    own_releases = [r for r in releases if main_credit is None or _released_by(r, main_credit.artist)]
+    album_mbid, album = pick_album(own_releases, main_credit.title if main_credit else None)
     logger.info("[MusicBrainz] Album for %s: %r (%s)", recording_id, album, album_mbid)
 
     return {
@@ -323,19 +555,21 @@ def _get_recording_data(recording_id: str) -> dict[str, object]:
     }
 
 
-def _accumulate_partial(base: dict[str, object], update: dict[str, object]) -> None:
-    """Merge update into base in-place: best release_date, combined artists, first genres found."""
+def _accumulate_partial(base: dict[str, object], update: dict[str, object], identified: bool) -> None:
+    """Merge update into base in-place: best release_date, first genres found.
+
+    Featured artists are credits of one specific recording, so they are taken
+    only from the ``identified`` one (the first looked up); further candidates
+    only fill genres and dates.
+    """
     update_date = str(update.get("release_date") or "")
     base_date = str(base.get("release_date") or "")
     if update_date:
         best = better_date(base_date, update_date)
         base["release_date"] = best
 
-    all_fa: list[str] = list(base.get("featured_artists") or [])
-    for fa in (update.get("featured_artists") or []):
-        if fa not in all_fa:
-            all_fa.append(fa)
-    base["featured_artists"] = all_fa
+    if identified:
+        base["featured_artists"] = list(update.get("featured_artists") or [])
 
     if not base.get("genres") and update.get("genres"):
         base["genres"] = list(update["genres"])
@@ -357,9 +591,11 @@ def fetch_musicbrainz_data(
     """Resolve genres, earliest release date, and featured artists from MusicBrainz.
 
     Priority:
-    1. Last.fm MBID  — most reliable starting point
-    2. AcoustID recording ID (prefetched or freshly fingerprinted)
+    1. AcoustID recording ID (prefetched or freshly fingerprinted) — the audio itself
+    2. Last.fm MBID
     3. JSON text search — iterates through all score >= 70 candidates
+
+    Featured artists come only from the first recording looked up.
     """
     try:
         import musicbrainzngs
@@ -371,18 +607,9 @@ def fetch_musicbrainz_data(
     musicbrainzngs.set_useragent(*_MB_USERAGENT)
 
     partial: dict[str, object] = dict(_MB_EMPTY)
+    looked_up = 0  # the first recording looked up is the identified one (featured artists)
 
-    # Step 1 — Last.fm MBID
-    if lastfm_mbid:
-        logger.info("[MusicBrainz] Trying Last.fm MBID: %s", lastfm_mbid)
-        data = _get_recording_data(lastfm_mbid)
-        _accumulate_partial(partial, data)
-        if data["genres"]:
-            logger.info("[MusicBrainz] Genres via Last.fm MBID: %s", data["genres"])
-            return partial
-        logger.warning("[MusicBrainz] Last.fm MBID yielded no genres — continuing to next source")
-
-    # Step 2 — AcoustID recording ID
+    # Step 1 — AcoustID recording ID: the fingerprinted recording itself
     acoustid_recording_id = prefetched_recording_id
     if acoustid_recording_id:
         logger.info("[MusicBrainz] Using prefetched AcoustID recording_id: %s", acoustid_recording_id)
@@ -395,11 +622,23 @@ def fetch_musicbrainz_data(
 
     if acoustid_recording_id:
         data = _get_recording_data(acoustid_recording_id)
-        _accumulate_partial(partial, data)
+        _accumulate_partial(partial, data, identified=looked_up == 0)
+        looked_up += 1
         if data["genres"]:
             logger.info("[MusicBrainz] Genres via AcoustID recording: %s", data["genres"])
             return partial
-        logger.warning("[MusicBrainz] AcoustID recording has no genre tags — continuing to text search")
+        logger.warning("[MusicBrainz] AcoustID recording has no genre tags — continuing")
+
+    # Step 2 — Last.fm MBID
+    if lastfm_mbid and lastfm_mbid != acoustid_recording_id:
+        logger.info("[MusicBrainz] Trying Last.fm MBID: %s", lastfm_mbid)
+        data = _get_recording_data(lastfm_mbid)
+        _accumulate_partial(partial, data, identified=looked_up == 0)
+        looked_up += 1
+        if data["genres"]:
+            logger.info("[MusicBrainz] Genres via Last.fm MBID: %s", data["genres"])
+            return partial
+        logger.warning("[MusicBrainz] Last.fm MBID yielded no genres — continuing to text search")
 
     # Step 3 — JSON text search: always run when genres are still empty
     if not title or not artist:
@@ -410,7 +649,8 @@ def fetch_musicbrainz_data(
     for i, recording_id in enumerate(recording_ids):
         logger.info("[MusicBrainz] Trying text-search candidate %d/%d: %s", i + 1, len(recording_ids), recording_id)
         data = _get_recording_data(recording_id)
-        _accumulate_partial(partial, data)
+        _accumulate_partial(partial, data, identified=looked_up == 0)
+        looked_up += 1
         if data["genres"]:
             logger.info("[MusicBrainz] Genres via text-search candidate %d: %s", i + 1, data["genres"])
             return partial
