@@ -114,7 +114,7 @@ def _process(job_id: int, query: str) -> None:
     tried: list[str] = []
     for hit in hits[:_ATTEMPTS]:
         tracker.update(job_id, label=f"{query} — {hit.title}")
-        req = YoutubeDownloadRequest(video_id=hit.video_id, title=hit.title)
+        req = YoutubeDownloadRequest(video_id=hit.video_id, title=hit.title, uploader=hit.uploader)
         for line in _download_pipeline(req, job_id=job_id, log_failures=False):
             event = json.loads(line)
             if event.get("stage") == "done":

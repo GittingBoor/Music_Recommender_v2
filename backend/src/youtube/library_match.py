@@ -4,11 +4,15 @@ Library titles and artists come from AcoustID/MusicBrainz, YouTube titles are
 free text ("Avicii - Hey Brother (Official Video)"). A video counts as known
 when the song title AND at least one of its artists appear as whole words in
 the video title or channel name. Title-only matching would flag every video
-containing a common word like "Burn" or "Wild".
+containing a common word like "Burn" or "Wild". A video whose parsed
+"Artist - Title" gives exactly a stored song's id counts as known as well.
 """
 
 import re
 from dataclasses import dataclass
+
+from src.db.models.song import generate_song_id
+from src.youtube.title_parser import parse_video_title
 
 _NON_WORD_RE = re.compile(r"[\W_]+")
 _BRACKETED_RE = re.compile(r"[\(\[][^\)\]]*[\)\]]")
@@ -49,8 +53,12 @@ class LibraryMatcher:
     def __init__(self, songs: list[tuple[str | None, str | None]]) -> None:
         entries = (LibraryEntry.from_song(title, artist) for title, artist in songs)
         self._entries: list[LibraryEntry] = [entry for entry in entries if entry is not None]
+        self._song_ids: set[str] = {generate_song_id(t, a) for t, a in songs if t and a}
 
     def contains(self, video_title: str, uploader: str | None) -> bool:
         """True when a library song's title and one of its artists occur in the video's title or channel."""
+        parsed = parse_video_title(video_title, uploader)
+        if parsed and generate_song_id(parsed.title, parsed.artist) in self._song_ids:
+            return True
         haystack = _word_key(f"{video_title} {uploader or ''}")
         return any(entry.matches(haystack) for entry in self._entries)

@@ -46,3 +46,9 @@ def test_title_must_be_a_whole_word():
 
 def test_unrelated_video_does_not_match():
     assert not _matcher().contains("Daft Punk - One More Time", "Daft Punk")
+
+
+def test_parsed_title_matches_stored_song_exactly():
+    # "adele" is no whole word in "AdeleVEVO"; the parsed channel name still is the artist.
+    matcher = LibraryMatcher([("Hello", "Adele")])
+    assert matcher.contains("Hello (Official Music Video)", "AdeleVEVO")

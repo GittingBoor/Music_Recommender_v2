@@ -1,8 +1,9 @@
 """Orchestrates all metadata providers into one result dict.
 
-Flow: file tags → AcoustID (mandatory identity gate) → Last.fm → Spotify →
-MusicBrainz. AcoustID title/artist are the source of truth; downstream
-sources only enrich (album, dates, genres, featured artists, stats).
+Flow: file tags → AcoustID → Last.fm → Spotify → MusicBrainz. Title/artist
+come from AcoustID, else from the caller's hint (video title, user input),
+else from the file tags; downstream sources only enrich (album, dates,
+genres, featured artists, stats).
 """
 import logging
 import re
@@ -11,6 +12,7 @@ from pathlib import Path
 from src.metadata.acoustid_client import get_acoustid_metadata
 from src.metadata.cleaning import better_date, dedup_featured_artists, split_artist_featuring
 from src.metadata.file_tags import extract_file_metadata
+from src.metadata.identity import IdentityHint, resolve_identity
 from src.metadata.lastfm import fetch_artist_info, fetch_similar_tracks, fetch_track_info
 from src.metadata.musicbrainz import fetch_musicbrainz_data
 from src.metadata.spotify import fetch_spotify_info, get_token
@@ -24,36 +26,45 @@ def extract_all_metadata(
     acoustid_api_key: str = "",
     spotify_client_id: str = "",
     spotify_client_secret: str = "",
+    hint: IdentityHint | None = None,
 ) -> dict[str, object]:
+    """Collect all metadata for one file; returns {} when neither AcoustID, ``hint`` nor tags name the song."""
     # ── File-level technical metadata (duration, bitrate, etc.) ──────────────
     file_meta = extract_file_metadata(audio_path)
     result = dict(file_meta)
-    # Title/artist from embedded tags are not used — AcoustID is the only source of truth
-    result.pop("title", None)
-    result.pop("artist", None)
+    # Embedded tags only name the song when AcoustID and the hint cannot.
+    tag_title = str(result.pop("title", None) or "")
+    tag_artist = str(result.pop("artist", None) or "")
 
-    # ── AcoustID fingerprint — mandatory gate ─────────────────────────────────
-    if not acoustid_api_key:
-        logger.warning("[AcoustID] No API key — cannot verify song identity, skipping %s", audio_path.name)
-        return {}
+    # ── AcoustID fingerprint — preferred identity, no longer a gate ──────────
+    if acoustid_api_key:
+        acoustid_match = get_acoustid_metadata(audio_path, acoustid_api_key)
+    else:
+        logger.warning("[AcoustID] No API key — falling back to hint/file tags for %s", audio_path.name)
+        acoustid_match = (None, None, None)
 
-    acoustid_recording_id, aid_title, aid_artist = get_acoustid_metadata(audio_path, acoustid_api_key)
-
-    if not aid_title and not aid_artist:
-        logger.warning("[Metadata] No AcoustID match for %s — skipping", audio_path.name)
+    identity = resolve_identity(acoustid_match, hint, tag_title, tag_artist)
+    if identity is None:
+        logger.warning("[Metadata] No title/artist from AcoustID, hint or tags for %s", audio_path.name)
         return {}
 
     # Split "David Guetta feat. Kid Cudi" → artist + featured artists
-    raw_aid_artist = aid_artist or ""
+    raw_aid_artist = identity.raw_artist
     artist, aid_feat = split_artist_featuring(raw_aid_artist)
-    title = aid_title or ""
+    title = identity.title
+    acoustid_recording_id = identity.acoustid_id
 
     result["title"] = title
     result["artist"] = artist
+    result["acoustid_id"] = acoustid_recording_id
+    result["metadata_source"] = identity.source.value
     if aid_feat:
         result["featured_artists"] = list(aid_feat)
 
-    logger.info("[AcoustID] title=%r  artist=%r  recording_id=%s", title, artist, acoustid_recording_id)
+    logger.info(
+        "[Metadata] title=%r  artist=%r  source=%s  recording_id=%s",
+        title, artist, identity.source.value, acoustid_recording_id,
+    )
 
     # ── Last.fm ───────────────────────────────────────────────────────────────
     track_info: dict[str, object] | None = None

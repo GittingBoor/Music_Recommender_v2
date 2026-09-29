@@ -30,6 +30,10 @@ class Song(Base):
     id: Mapped[str] = mapped_column(String(22), primary_key=True)
     title: Mapped[str | None] = mapped_column(String(500))
     artist: Mapped[str | None] = mapped_column(String(500))
+    # MusicBrainz recording from AcoustID; empty until an admin adds it for
+    # songs whose title/artist came from elsewhere (see metadata_source).
+    acoustid_id: Mapped[str | None] = mapped_column(String(36), unique=True)
+    metadata_source: Mapped[str] = mapped_column(String(20), server_default="acoustid")
 
     file_metadata: Mapped["FileMetadata"] = relationship(back_populates="song", uselist=False)
     track_metadata: Mapped["TrackMetadata"] = relationship(back_populates="song", uselist=False)

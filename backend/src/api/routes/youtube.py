@@ -15,11 +15,15 @@ from src.api.routes.admin import process_audio_file
 from src.api.routes.upload import _safe_name, _unique_path
 from src.core.config import settings
 from src.db.models import Song
+from src.db.session import get_session
 from src.ingest.failures import record_failure
 from src.ingest.tracker import Stage, tracker
+from src.metadata.identity import IdentityHint, MetadataSource
+from src.youtube.download_queue import DownloadQueue
 from src.youtube.example_pool import ExamplePool
 from src.youtube.library_match import LibraryMatcher
 from src.youtube.service import MusicVerdict, YoutubeSearchResult, YoutubeService, classify_error
+from src.youtube.title_parser import parse_video_title
 from src.youtube.trimmer import get_music_trimmer
 
 logger = logging.getLogger(__name__)
@@ -32,6 +36,8 @@ _example_pool = ExamplePool(_service)
 _YOUTUBE_DIR = settings.datasets_dir / "youtube"
 
 _EXAMPLE_ATTEMPTS = 3
+# Downloads/trims running side by side; the analysis itself stays one at a time.
+_PARALLEL_DOWNLOADS = 2
 
 
 class YoutubeSearchItem(BaseModel):
@@ -60,6 +66,18 @@ class YoutubePlaylistSearchItem(BaseModel):
 class YoutubeDownloadRequest(BaseModel):
     video_id: str
     title: str | None = None
+    uploader: str | None = None
+
+
+class YoutubeDownloadQueued(BaseModel):
+    job_id: int
+
+
+class YoutubeDownloadStatus(BaseModel):
+    job_id: int
+    stage: str
+    progress: float
+    result: dict | None
 
 
 def _library_matcher(db: Session) -> LibraryMatcher:
@@ -266,6 +284,15 @@ def _download_pipeline(
 def _download_steps(
     req: YoutubeDownloadRequest, fallback_name: str, job_id: int, log_failures: bool
 ) -> Iterator[str]:
+    # 0) Skip the download when the video title already names a library song.
+    known = _library_hit(req)
+    if known is not None:
+        logger.info("[YouTube] %s is already in the library — not downloading", fallback_name)
+        if log_failures:
+            record_failure("youtube", fallback_name, known, req.video_id)
+        yield _event("done", 1.0, known)
+        return
+
     tracker.update(job_id, stage=Stage.DOWNLOADING)
 
     # 1) Download audio to datasets/youtube/.
@@ -299,7 +326,7 @@ def _download_steps(
     # 3) Run the full analysis pipeline and save to the database.
     yield _event("analyzing", 0.7)
     result: dict = {}
-    for outcome in run_with_heartbeat(lambda: process_audio_file(final_path, job_id)):
+    for outcome in run_with_heartbeat(lambda: process_audio_file(final_path, job_id, _title_hint(req))):
         if outcome is None:
             yield _event("analyzing", 0.7)  # keep-alive
         else:
@@ -319,15 +346,65 @@ def _download_steps(
     yield _event("done", 1.0, result)
 
 
-@router.post("/youtube/download")
-def youtube_download(req: YoutubeDownloadRequest) -> StreamingResponse:
-    """Stream progress while downloading, trimming and analysing a video.
+def _title_hint(req: YoutubeDownloadRequest) -> IdentityHint | None:
+    """Artist/title read from the video title, used when AcoustID does not know the audio."""
+    parsed = parse_video_title(req.title or "", req.uploader)
+    if parsed is None:
+        return None
+    return IdentityHint(title=parsed.title, artist=parsed.artist, source=MetadataSource.YOUTUBE_TITLE)
 
-    Emits newline-delimited JSON events; the final event carries the same
-    result shape as ``/api/upload``.
+
+def _library_hit(req: YoutubeDownloadRequest) -> dict | None:
+    """A "duplicate" result when the video title already names a library song, else None."""
+    if not req.title:
+        return None
+    session = get_session()
+    try:
+        known = _library_matcher(session).contains(req.title, req.uploader)
+    finally:
+        session.close()
+    if not known:
+        return None
+    parsed = parse_video_title(req.title, req.uploader)
+    return {
+        "status": "skipped",
+        "reason": "duplicate",
+        "title": parsed.title if parsed else None,
+        "artist": parsed.artist if parsed else None,
+        "song_id": None,
+        "filename": req.title,
+        "error": None,
+    }
+
+
+def _run_queued_download(req: YoutubeDownloadRequest, job_id: int) -> Iterator[str]:
+    return _download_pipeline(req, job_id=job_id)
+
+
+_downloads: DownloadQueue[YoutubeDownloadRequest] = DownloadQueue(_run_queued_download, _PARALLEL_DOWNLOADS)
+
+
+@router.post("/youtube/downloads", response_model=YoutubeDownloadQueued)
+def youtube_download_enqueue(req: YoutubeDownloadRequest) -> YoutubeDownloadQueued:
+    """Queue a video for download, trimming and analysis; poll ``GET /youtube/downloads``."""
+    job_id = _downloads.submit(req, req.title or req.video_id)
+    return YoutubeDownloadQueued(job_id=job_id)
+
+
+@router.get("/youtube/downloads", response_model=list[YoutubeDownloadStatus])
+def youtube_download_status(ids: list[int] = Query(..., min_length=1)) -> list[YoutubeDownloadStatus]:
+    """Stage, progress and — once finished — the result (same shape as ``/api/upload``) per job.
+
+    A job the server no longer knows (e.g. after a restart) comes back as an error result.
     """
-    return StreamingResponse(
-        _download_pipeline(req),
-        media_type="application/x-ndjson",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    statuses: list[YoutubeDownloadStatus] = []
+    for job_id in ids:
+        job = _downloads.get(job_id)
+        if job is None:
+            lost = _error_result("", "job_lost")
+            statuses.append(YoutubeDownloadStatus(job_id=job_id, stage="done", progress=1.0, result=lost))
+        else:
+            statuses.append(YoutubeDownloadStatus(
+                job_id=job_id, stage=job.stage, progress=job.progress, result=job.result,
+            ))
+    return statuses

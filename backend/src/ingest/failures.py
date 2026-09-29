@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 # process_audio_file with status "error" is an exception message.
 _KNOWN_REASONS = {
     "no_acoustid_match",
+    "needs_metadata",
     "duplicate",
     "too_long_unrecognized",
     "unsupported_format",

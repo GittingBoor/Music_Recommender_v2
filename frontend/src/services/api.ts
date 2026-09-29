@@ -139,9 +139,19 @@ export interface UploadResult {
   error?: YoutubeErrorDetail | null;
 }
 
-export async function uploadSong(file: File): Promise<UploadResult> {
+/** Title/artist typed in by the uploader for a file nobody could identify. */
+export interface SongIdentityInput {
+  readonly title: string;
+  readonly artist: string;
+}
+
+export async function uploadSong(file: File, identity?: SongIdentityInput): Promise<UploadResult> {
   const fd = new FormData();
   fd.append("file", file);
+  if (identity) {
+    fd.append("title", identity.title);
+    fd.append("artist", identity.artist);
+  }
   const res = await fetch("/api/upload", { method: "POST", body: fd });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
@@ -260,51 +270,34 @@ export async function fetchYoutubePlaylist(
   return res.json();
 }
 
-export type YoutubeStage = "downloading" | "trimming" | "analyzing" | "done";
+export type YoutubeStage = PipelineStage | "done";
 
-export interface YoutubeProgress {
+export interface YoutubeDownloadStatus {
+  job_id: number;
   stage: YoutubeStage;
   progress: number; // 0..1
+  /** Set once the job is finished; same shape as an upload result. */
+  result: UploadResult | null;
 }
 
-/**
- * Download a video, trim it and run analysis on the backend, streaming
- * progress events. Resolves with the final UploadResult once it's in the DB.
- */
-export async function downloadYoutube(
-  videoId: string,
-  title: string | undefined,
-  onProgress: (p: YoutubeProgress) => void,
-): Promise<UploadResult> {
-  const res = await fetch("/api/youtube/download", {
+/** Queue a video for download, trimming and analysis; returns its job id. */
+export async function enqueueYoutubeDownload(item: YoutubeSearchItem): Promise<number> {
+  const res = await fetch("/api/youtube/downloads", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ video_id: videoId, title: title ?? null }),
+    body: JSON.stringify({ video_id: item.video_id, title: item.title, uploader: item.uploader }),
   });
-  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw await youtubeError(res);
+  return (await res.json()).job_id;
+}
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let result: UploadResult | null = null;
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const evt = JSON.parse(line) as YoutubeProgress & { result?: UploadResult };
-      onProgress({ stage: evt.stage, progress: evt.progress });
-      if (evt.result) result = evt.result;
-    }
-  }
-
-  if (!result) throw new Error("No result received from server");
-  return result;
+/** Current state of queued downloads. */
+export async function fetchYoutubeDownloads(jobIds: readonly number[]): Promise<YoutubeDownloadStatus[]> {
+  const params = new URLSearchParams();
+  for (const id of jobIds) params.append("ids", String(id));
+  const res = await fetch(`/api/youtube/downloads?${params}`);
+  if (!res.ok) throw await youtubeError(res);
+  return res.json();
 }
 
 // ── ingest pipeline ─────────────────────────────────────────────────────────

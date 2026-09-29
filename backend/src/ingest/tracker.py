@@ -13,7 +13,7 @@ from enum import Enum
 
 
 class Stage(str, Enum):
-    QUEUED = "queued"            # bulk queue, not started yet
+    QUEUED = "queued"            # bulk or download queue, not started yet
     SEARCHING = "searching"      # bulk: looking for a YouTube hit
     DOWNLOADING = "downloading"
     TRIMMING = "trimming"
@@ -65,6 +65,12 @@ class PipelineTracker:
                 job.stage_since = time.time()
             if label:
                 job.label = label
+
+    def stage_of(self, job_id: int) -> str | None:
+        """Current stage of a job, or None once it has left the pipeline."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return job.stage.value if job else None
 
     def remove(self, job_id: int) -> None:
         with self._lock:
