@@ -1,5 +1,13 @@
 from src.metadata.acoustid_client import pick_recording, split_credits
-from src.metadata.identity import AcoustidMatch, IdentityHint, MetadataSource, SongIdentity, resolve_identity
+from src.metadata.identity import (
+    AcoustidMatch,
+    IdentityHint,
+    MetadataSource,
+    SongIdentity,
+    credit_composer,
+    needs_composer_check,
+    resolve_identity,
+)
 
 _NO_MATCH = AcoustidMatch(None, None, None)
 _HINT = IdentityHint(title="Hello", artist="Adele", source=MetadataSource.YOUTUBE_TITLE)
@@ -73,3 +81,23 @@ def test_version_markers_are_dropped_from_the_stored_title():
     assert identity is not None and identity.title == "Remmidemmi (Yippie Yippie Yeah)"
     tagged = resolve_identity(_NO_MATCH, None, "Wake Me Up (Radio Edit)", "Avicii")
     assert tagged is not None and tagged.title == "Wake Me Up"
+
+
+_PERFORMANCE = SongIdentity("Gymnopédie no. 1", "Patrick Cohen", MetadataSource.ACOUSTID, "rec-4")
+
+
+def test_composer_named_by_the_video_becomes_the_artist():
+    identity = credit_composer(_PERFORMANCE, "Erik Satie", ["Erik Satie"])
+    assert identity.raw_artist == "Erik Satie"
+    assert identity.featured_artists == ("Patrick Cohen",)
+    assert identity.title == "Gymnopédie no. 1" and identity.acoustid_id == "rec-4"
+
+
+def test_performer_stays_when_the_video_names_someone_else():
+    assert credit_composer(_PERFORMANCE, "Random Uploader", ["Erik Satie"]) == _PERFORMANCE
+
+
+def test_composer_check_only_when_the_video_names_another_artist():
+    assert needs_composer_check(_PERFORMANCE, IdentityHint("Gymnopédie No. 1", "Erik Satie", MetadataSource.YOUTUBE_TITLE))
+    assert not needs_composer_check(_PERFORMANCE, IdentityHint("x", "patrick cohen", MetadataSource.YOUTUBE_TITLE))
+    assert not needs_composer_check(_PERFORMANCE, None)

@@ -1,4 +1,11 @@
-from src.metadata.musicbrainz import RecordingIdentity, pick_album, recording_identity
+from src.metadata.musicbrainz import (
+    RecordingIdentity,
+    album_from_search,
+    performed_work_ids,
+    pick_album,
+    recording_identity,
+    work_composers,
+)
 
 
 def _release(
@@ -82,3 +89,54 @@ def test_live_albums_and_compilations_are_not_the_album():
 def test_only_live_or_compilation_releases_mean_no_album():
     releases = [_release("live", "Live Sh*t", "Album", "1993-11-23", secondary=["Live"])]
     assert pick_album(releases) == (None, None)
+
+
+def test_performed_works_and_their_composers_are_read():
+    rec = {"relations": [
+        {"target-type": "work", "type": "performance", "work": {"id": "w1", "title": "Première Gymnopédie"}},
+        {"target-type": "url", "type": "free streaming", "url": {"resource": "https://example.org"}},
+    ]}
+    work = {"relations": [
+        {"target-type": "artist", "type": "composer", "artist": {"name": "Erik Satie"}},
+        {"target-type": "artist", "type": "lyricist", "artist": {"name": "Somebody"}},
+    ]}
+    assert performed_work_ids(rec) == ["w1"]
+    assert work_composers(work) == ["Erik Satie"]
+
+
+def _search_hit(title: str, artist: str, releases: list[dict]) -> dict:
+    return {"title": title, "score": 100, "artist-credit": [{"name": artist, "artist": {"name": artist}}],
+            "releases": releases}
+
+
+def test_album_of_the_song_comes_from_all_its_recordings():
+    search = {"recordings": [
+        _search_hit("Enter Sandman", "Metallica", [_release("load", "Load", "Album", "1996-06-04")]),
+        _search_hit("Enter Sandman", "Metallica", [
+            _release("single", "Enter Sandman", "Single", "1991-07-29"),
+            _release("black", "Metallica", "Album", "1991-08-12"),
+        ]),
+        _search_hit("Enter Sandman", "Motörhead", [_release("cover", "Covers", "Album", "1980-01-01")]),
+        _search_hit("Exit Light", "Metallica", [_release("other", "Other", "Album", "1985-01-01")]),
+    ]}
+    assert album_from_search(search, "Enter Sandman", "Metallica") == ("black", "Metallica")
+
+
+def test_album_search_ignores_version_markers_and_case():
+    search = {"recordings": [
+        _search_hit("Get Lucky (radio edit)", "Daft Punk", [_release("ram", "Random Access Memories", "Album", "2013-05-17")]),
+    ]}
+    assert album_from_search(search, "get lucky", "daft punk") == ("ram", "Random Access Memories")
+
+
+def test_album_search_without_matching_recordings():
+    assert album_from_search({"recordings": []}, "Song", "Artist") == (None, None)
+
+
+def test_the_album_the_song_was_released_on_most_often_wins_over_an_earlier_one_off():
+    black = [_release("black", "Metallica", "Album", f"20{y:02d}-01-01") for y in (21, 22, 23)]
+    search = {"recordings": [
+        _search_hit("Enter Sandman", "Metallica", [_release("tosox", "TosoX Episode 3", "Album", "2018")]),
+        _search_hit("Enter Sandman", "Metallica", black),
+    ]}
+    assert album_from_search(search, "Enter Sandman", "Metallica") == ("black", "Metallica")

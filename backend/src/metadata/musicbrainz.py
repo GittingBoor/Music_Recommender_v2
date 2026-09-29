@@ -4,6 +4,7 @@ import logging
 import time
 import urllib.parse
 import urllib.request
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -54,6 +55,84 @@ def fetch_recording_identity(recording_id: str) -> RecordingIdentity | None:
     """Look up a recording's title and credited artists on MusicBrainz; None if unreachable or incomplete."""
     rec_data = _mb_json_get(f"recording/{recording_id}", {"inc": "artist-credits"})
     return recording_identity(rec_data) if rec_data else None
+
+
+# Popular songs have hundreds of live recordings; without this they crowd the studio album out of the results.
+_STUDIO_ALBUM_FILTER = (
+    " AND status:official AND primarytype:album AND NOT secondarytype:live AND NOT secondarytype:compilation"
+)
+
+
+def _same_song_title(a: str, b: str) -> bool:
+    return strip_version_markers(a).casefold() == strip_version_markers(b).casefold()
+
+
+def album_from_search(search_data: dict, title: str, artist: str) -> tuple[str | None, str | None]:
+    """Album of a song across all its recordings in a MusicBrainz recording search.
+
+    Only hits with the same title (ignoring edit/remaster markers) by the same
+    main artist count. Among their official studio albums (see
+    :func:`pick_album`), the one the song was released on most often wins —
+    reissues and country editions pile up on the real album, while a one-off
+    appearance on some other record does not. Ties go to :func:`pick_album`.
+    """
+    releases: list[dict] = []
+    for rec in search_data.get("recordings") or []:
+        credits = rec.get("artist-credit") or []
+        main = str(((credits[0] if credits else {}).get("artist") or {}).get("name") or "")
+        if _same_song_title(str(rec.get("title") or ""), title) and main.casefold() == artist.casefold():
+            releases.extend(rec.get("releases") or [])
+
+    counts = Counter(
+        group_id for group_id, _ in (pick_album([rel]) for rel in releases) if group_id is not None
+    )
+    if not counts:
+        return None, None
+    most = max(counts.values())
+    return pick_album([
+        rel for rel in releases if counts.get((rel.get("release-group") or {}).get("id") or "") == most
+    ])
+
+
+def fetch_song_album(title: str, artist: str) -> tuple[str | None, str | None]:
+    """``(release_group_id, album)`` of the song's first studio album, searched by title and artist."""
+    safe_title = strip_version_markers(title).replace('"', "").replace("\\", "")
+    safe_artist = artist.replace('"', "").replace("\\", "")
+    data = _mb_json_get(
+        "recording", {"query": f'recording:"{safe_title}" AND artist:"{safe_artist}"{_STUDIO_ALBUM_FILTER}',
+                      "limit": "100"},
+    )
+    album = album_from_search(data or {}, title, artist)
+    logger.info("[MusicBrainz] Song album for %r / %r: %s", artist, title, album)
+    return album
+
+
+def performed_work_ids(rec_data: dict) -> list[str]:
+    """Ids of the works (compositions) a recording with ``work-rels`` is a performance of."""
+    return [
+        r["work"]["id"] for r in rec_data.get("relations") or []
+        if r.get("target-type") == "work" and r.get("type") == "performance" and (r.get("work") or {}).get("id")
+    ]
+
+
+def work_composers(work_data: dict) -> list[str]:
+    """Composer names of a work fetched with ``artist-rels``."""
+    return [
+        r["artist"]["name"] for r in work_data.get("relations") or []
+        if r.get("target-type") == "artist" and r.get("type") == "composer" and (r.get("artist") or {}).get("name")
+    ]
+
+
+def fetch_recording_composers(recording_id: str) -> list[str]:
+    """Composers of the works a recording performs; empty if MusicBrainz knows none or is unreachable."""
+    rec_data = _mb_json_get(f"recording/{recording_id}", {"inc": "work-rels"})
+    composers: list[str] = []
+    for work_id in performed_work_ids(rec_data or {}):
+        for name in work_composers(_mb_json_get(f"work/{work_id}", {"inc": "artist-rels"}) or {}):
+            if name not in composers:
+                composers.append(name)
+    logger.info("[MusicBrainz] Composers of %s: %s", recording_id, composers)
+    return composers
 
 
 def pick_album(releases: list[dict]) -> tuple[str | None, str | None]:
