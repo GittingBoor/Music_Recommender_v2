@@ -83,6 +83,8 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
   const [addedIds, setAddedIds] = useState<ReadonlySet<string>>(new Set());
   // Bumped per search/playlist load so events from an older stream are ignored.
   const searchToken = useRef(0);
+  // The text search behind the current results; null for playlists and examples.
+  const searchedQuery = useRef<string | null>(null);
 
   // Examples are only a starting point — they disappear on the first search.
   const [examples, setExamples] = useState<YoutubeSearchItem[]>([]);
@@ -132,8 +134,10 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
     const isCurrent = () => token === searchToken.current;
     try {
       if (isPlaylistUrl(input)) {
+        searchedQuery.current = null;
         await openPlaylist(input);
       } else {
+        searchedQuery.current = input;
         setResults([]);
         const playlistSearch = searchYoutubePlaylists(input, PLAYLIST_RESULT_COUNT)
           .then((hits) => { if (isCurrent()) setPlaylists(hits); })
@@ -181,6 +185,7 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
     setSearching(true);
     onError(null);
     try {
+      searchedQuery.current = null;
       await openPlaylist(hit.url);
     } catch (err: unknown) {
       onError(toDetail(err));
@@ -196,7 +201,7 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
   async function startDownload(item: YoutubeSearchItem) {
     if (activeRef.current.has(item.video_id)) return;
     try {
-      const jobId = await enqueueYoutubeDownload(item);
+      const jobId = await enqueueYoutubeDownload(item, searchedQuery.current);
       setActive((prev) => new Map(prev).set(item.video_id, {
         jobId, title: item.title, stage: "queued", progress: 0, startedAt: Date.now(),
       }));

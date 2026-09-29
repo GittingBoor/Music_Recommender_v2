@@ -54,7 +54,8 @@ _FEAT_IN_ARTIST_RE = re.compile(
 # Which cut or release of a recording, not part of the song's name:
 # "(single-edit)", "[Radio Edit]", "(2002 Remaster)", "- Remastered 2009", "(mono)", "(live)".
 _VERSION_WORDS = (
-    r"(?:single|radio|album|original|extended|short)?[\s\-]*(?:edit|version|mix)|"
+    r"(?:[^\(\)\[\]]*?[\s\-])?(?:edit|version)|"
+    r"(?:single|radio|album|original|extended|short|club)?[\s\-]*mix|"
     r"(?:(?:19|20)\d{2}\s*)?(?:digital(?:ly)?\s*)?remaster(?:ed)?(?:\s+(?:19|20)\d{2})?(?:\s+version)?|"
     r"mono|stereo|live"
 )
@@ -72,11 +73,50 @@ def strip_version_markers(title: str) -> str:
     return title.strip()
 
 
-def preferred_album_name(musicbrainz_album: str | None, provider_album: str | None) -> str | None:
-    """Album name to store: MusicBrainz's (it matches album_mbid), else Spotify/Last.fm's without version markers."""
+_TYPOGRAPHIC_QUOTES = str.maketrans({"’": "'", "‘": "'", "ʼ": "'", "“": '"', "”": '"'})
+
+
+def plain_quotes(text: str) -> str:
+    """Typographic quotes as plain ASCII ones, so "Don’t" and "Don't" name the same song."""
+    return text.translate(_TYPOGRAPHIC_QUOTES)
+
+
+def final_featured(main_artist: str, featured: list[str]) -> list[str]:
+    """Featured artists to store: without the main artist and without case-insensitive duplicates."""
+    kept: list[str] = []
+    seen = {main_artist.casefold()}
+    for name in featured:
+        if name.casefold() not in seen:
+            seen.add(name.casefold())
+            kept.append(name)
+    return kept
+
+
+# Samplers filed as plain albums ("101 Great Orchestral Classics", "Klassik: Die schönste klassische Musik").
+SAMPLER_NAME_RE = re.compile(
+    r"\b(?:greatest hits|best of|the very best|collection|classics|anthology|essential|hits|"
+    r"klassische musik|classical music|die schönste|most beautiful|playlist|relax)\b",
+    re.IGNORECASE,
+)
+_SOUNDTRACK_NAME_RE = re.compile(r"\b(?:soundtrack|ost)\b", re.IGNORECASE)
+
+
+def preferred_album_name(
+    musicbrainz_album: str | None, provider_album: str | None, allow_soundtracks: bool = True
+) -> str | None:
+    """Album name to store: MusicBrainz's (it matches album_mbid), else Spotify/Last.fm's.
+
+    A provider name loses its version markers and is dropped when it names a
+    sampler, or a soundtrack while ``allow_soundtracks`` is off (songs found
+    only by name, where games and samplers slip in).
+    """
     if musicbrainz_album:
-        return musicbrainz_album
-    return strip_version_markers(provider_album) if provider_album else None
+        return plain_quotes(musicbrainz_album)
+    if not provider_album or SAMPLER_NAME_RE.search(provider_album):
+        return None
+    if not allow_soundtracks and _SOUNDTRACK_NAME_RE.search(provider_album):
+        return None
+    return plain_quotes(strip_version_markers(provider_album))
 
 
 def clean_title(text: str) -> str:

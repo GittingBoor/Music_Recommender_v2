@@ -3,6 +3,8 @@ model_cache/
 # Pretrained GMBI/MusiCNN binaries — local only. Anchored on purpose: a bare
 # "models" also swallowed new files in backend/src/db/models/.
 backend/src/audio_process/Models/
+/Models/
+/Models.zip
 
 # Analysis debug output — local test results, never committed
 backend/test_output/

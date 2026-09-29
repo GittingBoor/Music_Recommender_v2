@@ -280,12 +280,16 @@ export interface YoutubeDownloadStatus {
   result: UploadResult | null;
 }
 
-/** Queue a video for download, trimming and analysis; returns its job id. */
-export async function enqueueYoutubeDownload(item: YoutubeSearchItem): Promise<number> {
+/**
+ * Queue a video for download, trimming and analysis; returns its job id.
+ * `query` is the "Artist - Title" search that found the video; the server
+ * names the song after it when the video title does not name the artist.
+ */
+export async function enqueueYoutubeDownload(item: YoutubeSearchItem, query: string | null = null): Promise<number> {
   const res = await fetch("/api/youtube/downloads", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ video_id: item.video_id, title: item.title, uploader: item.uploader }),
+    body: JSON.stringify({ video_id: item.video_id, title: item.title, uploader: item.uploader, query }),
   });
   if (!res.ok) throw await youtubeError(res);
   return (await res.json()).job_id;

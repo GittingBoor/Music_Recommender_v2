@@ -5,8 +5,10 @@ from src.metadata.identity import (
     MetadataSource,
     SongIdentity,
     credit_composer,
+    expected_artists,
     needs_composer_check,
     resolve_identity,
+    split_composer_prefix,
 )
 
 _NO_MATCH = AcoustidMatch(None, None, None)
@@ -101,3 +103,60 @@ def test_composer_check_only_when_the_video_names_another_artist():
     assert needs_composer_check(_PERFORMANCE, IdentityHint("Gymnopédie No. 1", "Erik Satie", MetadataSource.YOUTUBE_TITLE))
     assert not needs_composer_check(_PERFORMANCE, IdentityHint("x", "patrick cohen", MetadataSource.YOUTUBE_TITLE))
     assert not needs_composer_check(_PERFORMANCE, None)
+
+
+def test_composer_surname_from_the_video_matches_the_full_name():
+    orchestra = SongIdentity("Serenade no. 13", "Academy of St Martin in the Fields", MetadataSource.ACOUSTID, "rec-5")
+    identity = credit_composer(orchestra, "Mozart", ["Wolfgang Amadeus Mozart"])
+    assert identity.raw_artist == "Wolfgang Amadeus Mozart"
+    assert identity.featured_artists == ("Academy of St Martin in the Fields",)
+
+
+def test_typographic_quotes_are_stored_as_plain_ones():
+    identity = resolve_identity(AcoustidMatch("rec-6", "Hips Don’t Lie", "Shakira"), None, "", "")
+    assert identity is not None and identity.title == "Hips Don't Lie"
+
+
+def test_the_main_artist_is_never_featured():
+    match = AcoustidMatch("rec-8", "Air on a G String", "HAUSER", ("London Symphony Orchestra", "HAUSER"))
+    identity = resolve_identity(match, None, "", "")
+    assert identity is not None and identity.featured_artists == ("London Symphony Orchestra",)
+
+
+def test_composer_check_also_uses_the_artist_mentioned_in_the_video_title():
+    orchestra = SongIdentity("Swan Lake: Act 2", "Orchestre symphonique de Montréal", MetadataSource.ACOUSTID, "rec-9")
+    hint = IdentityHint("Swan Lake", "Orchestre symphonique de Montréal", MetadataSource.YOUTUBE_TITLE,
+                        mentioned_artist="Tchaikovsky")
+    assert needs_composer_check(orchestra, hint)
+    assert expected_artists(hint) == ["Orchestre symphonique de Montréal", "Tchaikovsky"]
+
+
+def _credited_rec(title: str, sources: int, *artists: str) -> dict:
+    return {"id": f"{title}-{sources}", "title": title, "sources": sources, "artists": [{"name": a} for a in artists]}
+
+
+def test_recording_with_a_guest_the_video_never_mentions_loses():
+    remix = _credited_rec("Believer", 50, "Imagine Dragons", "Lil Wayne")
+    original = _credited_rec("Believer", 20, "Imagine Dragons")
+    picked = pick_recording([remix, original], "Believer", "Imagine Dragons - Believer (Official Music Video)")
+    assert picked is original
+
+
+def test_guests_named_in_the_video_title_are_fine():
+    feat = _credited_rec("Titanium", 50, "David Guetta", "Sia")
+    solo = _credited_rec("Titanium", 20, "David Guetta")
+    picked = pick_recording([solo, feat], "Titanium", "David Guetta - Titanium ft. Sia (Official Video)")
+    assert picked is feat
+
+
+def test_composer_written_into_the_performers_title_becomes_the_artist():
+    rousseau = SongIdentity("Beethoven - Moonlight Sonata (1st Movement)", "Rousseau", MetadataSource.ACOUSTID, "rec-10")
+    identity = split_composer_prefix(rousseau, ["Beethoven"])
+    assert identity.raw_artist == "Beethoven"
+    assert identity.title == "Moonlight Sonata (1st Movement)"
+    assert identity.featured_artists == ("Rousseau",)
+
+
+def test_a_title_starting_with_an_unnamed_artist_stays():
+    song = SongIdentity("Hans Zimmer - Time", "Some Pianist", MetadataSource.ACOUSTID, "rec-11")
+    assert split_composer_prefix(song, ["Some Pianist"]) == song

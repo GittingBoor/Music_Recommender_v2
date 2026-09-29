@@ -1,4 +1,10 @@
-from src.youtube.title_parser import ParsedTrack, parse_video_title
+from src.youtube.title_parser import (
+    ParsedTrack,
+    guess_track,
+    parse_search_query,
+    parse_video_title,
+    video_names_artist,
+)
 
 
 def test_artist_dash_title_with_noise():
@@ -78,3 +84,63 @@ def test_colon_suffix_on_the_artist_part_is_dropped():
 
 def test_unreadable_title_returns_none():
     assert parse_video_title("(Official Video)", None) is None
+
+
+def test_from_brackets_symbols_frequencies_and_hashtags_are_dropped():
+    assert parse_video_title(
+        "Simon & Garfunkel - The Sound of Silence (from The Concert in Central Park)", "Simon & Garfunkel"
+    ) == ParsedTrack(title="The Sound of Silence", artist="Simon & Garfunkel")
+    assert parse_video_title("Beethoven - Moonlight Sonata ⚪ 432 Hz", "Moonlight Sonata") == ParsedTrack(
+        title="Moonlight Sonata", artist="Beethoven"
+    )
+    assert parse_video_title("Hans Zimmer - Time (#EnterTheWorldOfHansZimmer B)", "Hans Zimmer") == ParsedTrack(
+        title="Time", artist="Hans Zimmer"
+    )
+
+
+def test_video_names_its_artist_only_with_a_separator_or_an_artist_channel():
+    assert video_names_artist("Nirvana - Smells Like Teen Spirit", "Nirvana")
+    assert video_names_artist("Hey Brother", "Avicii - Topic")
+    assert video_names_artist("Hello (Official Music Video)", "AdeleVEVO")
+    assert not video_names_artist('Beethoven "Moonlight" Sonata, III Presto', "Valentina Lisitsa QOR Records Official channel")
+
+
+def test_search_query_is_read_as_artist_and_title():
+    assert parse_search_query("Beethoven - Moonlight Sonata") == ParsedTrack(title="Moonlight Sonata", artist="Beethoven")
+    assert parse_search_query("Deichkind - Remmidemmi official audio") == ParsedTrack(title="Remmidemmi", artist="Deichkind")
+    assert parse_search_query("moonlight sonata") is None
+
+
+def test_name_guess_uses_the_query_only_when_the_video_does_not_name_the_artist():
+    lisitsa = ('Beethoven "Moonlight" Sonata, III Presto', "Valentina Lisitsa QOR Records Official channel")
+    assert guess_track(*lisitsa, "Beethoven - Moonlight Sonata") == ParsedTrack(title="Moonlight Sonata", artist="Beethoven")
+    assert guess_track("Nirvana - Smells Like Teen Spirit", "Nirvana", "nirvana teen spirit") == ParsedTrack(
+        title="Smells Like Teen Spirit", artist="Nirvana"
+    )
+    assert guess_track(*lisitsa, None) == parse_video_title(*lisitsa)
+
+
+def test_title_first_videos_are_recognised_by_the_channel():
+    assert parse_video_title("In The End [Official HD Music Video] - Linkin Park", "Linkin Park") == ParsedTrack(
+        title="In The End", artist="Linkin Park"
+    )
+
+
+def test_topic_title_mentioning_a_composer_keeps_the_mention():
+    parsed = parse_video_title(
+        "Tchaikovsky: Swan Lake, Op. 20, Act II: No. 10, Scene. Moderato", "Orchestre symphonique de Montréal - Topic"
+    )
+    assert parsed is not None
+    assert parsed.artist == "Orchestre symphonique de Montréal"
+    assert parsed.mentioned_artist == "Tchaikovsky"
+
+
+def test_topic_title_repeating_the_artist_loses_the_prefix():
+    assert parse_video_title("Adele - Hello", "Adele - Topic") == ParsedTrack(title="Hello", artist="Adele")
+
+
+def test_title_repeating_one_of_the_artists_before_a_colon_loses_it():
+    parsed = parse_video_title(
+        "Khatia Buniatishvili, Erik Satie - Erik Satie: Gymnopédie No.1", "Khatia Buniatishvili official"
+    )
+    assert parsed == ParsedTrack(title="Gymnopédie No.1", artist="Khatia Buniatishvili, Erik Satie")

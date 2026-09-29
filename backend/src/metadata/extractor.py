@@ -7,23 +7,41 @@ genres, featured artists, stats).
 """
 import logging
 import re
+from dataclasses import replace
 from pathlib import Path
 
 from src.metadata.acoustid_client import get_acoustid_metadata
-from src.metadata.cleaning import better_date, dedup_featured_artists, preferred_album_name, split_artist_featuring
+from src.metadata.cleaning import (
+    better_date,
+    dedup_featured_artists,
+    final_featured,
+    preferred_album_name,
+    split_artist_featuring,
+)
 from src.metadata.file_tags import extract_file_metadata
 from src.metadata.identity import (
     AcoustidMatch,
     IdentityHint,
+    MetadataSource,
     credit_composer,
+    expected_artists,
     needs_composer_check,
     resolve_identity,
+    split_composer_prefix,
 )
 from src.metadata.lastfm import fetch_artist_info, fetch_similar_tracks, fetch_track_info
-from src.metadata.musicbrainz import fetch_musicbrainz_data, fetch_recording_composers, fetch_song_album
+from src.metadata.musicbrainz import (
+    fetch_canonical_recording,
+    fetch_musicbrainz_data,
+    fetch_recording_composers,
+    fetch_song_album,
+)
 from src.metadata.spotify import fetch_spotify_info, get_token
 
 logger = logging.getLogger(__name__)
+
+# How often a song not fingerprinted must appear on an album for that album to count.
+_UNCONFIRMED_MIN_RELEASES = 2
 
 
 def extract_all_metadata(
@@ -45,7 +63,9 @@ def extract_all_metadata(
     # ── AcoustID fingerprint — preferred identity, no longer a gate ──────────
     if acoustid_api_key:
         preferred_title = hint.title if hint else tag_title
-        acoustid_match = get_acoustid_metadata(audio_path, acoustid_api_key, preferred_title or None)
+        acoustid_match = get_acoustid_metadata(
+            audio_path, acoustid_api_key, preferred_title or None, hint.source_text if hint else None,
+        )
     else:
         logger.warning("[AcoustID] No API key — falling back to hint/file tags for %s", audio_path.name)
         acoustid_match = AcoustidMatch(None, None, None)
@@ -55,10 +75,28 @@ def extract_all_metadata(
         logger.warning("[Metadata] No title/artist from AcoustID, hint or tags for %s", audio_path.name)
         return {}
     performer_identity = identity
-    if hint and identity.acoustid_id and needs_composer_check(identity, hint):
+    if identity.acoustid_id and needs_composer_check(identity, hint):
         # Classical recordings are credited to the performer; the video names the composer.
-        identity = credit_composer(identity, hint.artist, fetch_recording_composers(identity.acoustid_id))
+        composers = fetch_recording_composers(identity.acoustid_id)
+        for named in expected_artists(hint):
+            identity = credit_composer(identity, named, composers)
+            if identity is not performer_identity:
+                break
+    if identity is performer_identity and identity.source is MetadataSource.ACOUSTID:
+        # "Beethoven - Moonlight Sonata" as a pianist's recording title.
+        identity = split_composer_prefix(identity, expected_artists(hint))
     composer_credited = identity is not performer_identity
+    canonical_found = False
+    if identity.source is not MetadataSource.ACOUSTID:
+        # Named by a video title, the uploader or file tags: take MusicBrainz's spelling
+        # and artist credits when it knows the song (still unverified: no fingerprint match).
+        canonical = fetch_canonical_recording(identity.title, identity.raw_artist)
+        canonical_found = canonical is not None
+        if canonical is not None:
+            identity = replace(
+                identity, title=canonical.title, raw_artist=canonical.artist,
+                featured_artists=tuple(canonical.featured_artists),
+            )
 
     # Split "David Guetta feat. Kid Cudi" → artist + featured artists; AcoustID
     # already credits featured artists separately.
@@ -67,6 +105,13 @@ def extract_all_metadata(
     aid_feat = list(identity.featured_artists) + [fa for fa in aid_feat if fa not in identity.featured_artists]
     title = identity.title
     acoustid_recording_id = identity.acoustid_id
+    # A fingerprinted recording's credits are authoritative; Last.fm and Spotify may have
+    # matched another recording of the same title and must not add its guests.
+    fingerprinted = identity.source is MetadataSource.ACOUSTID
+    # Neither fingerprinted nor found under this exact name on MusicBrainz: the name is a guess,
+    # so guests and albums of whatever recording a provider matched are not taken over.
+    confirmed = fingerprinted or canonical_found
+    guests_from_providers = confirmed and not fingerprinted
 
     result["title"] = title
     result["artist"] = artist
@@ -97,11 +142,12 @@ def extract_all_metadata(
             artist_info = fetch_artist_info(artist_name, lastfm_api_key) or {}
             similar = fetch_similar_tracks(title, artist_name, lastfm_api_key)
 
-            existing_featured: list[str] = list(result.get("featured_artists") or [])
-            for fa in (track_info.get("featured_artists") or []):
-                if fa not in existing_featured:
-                    existing_featured.append(fa)
-            result["featured_artists"] = existing_featured
+            if guests_from_providers:
+                existing_featured: list[str] = list(result.get("featured_artists") or [])
+                for fa in (track_info.get("featured_artists") or []):
+                    if fa not in existing_featured:
+                        existing_featured.append(fa)
+                result["featured_artists"] = existing_featured
 
     mb_title = str(result.get("title") or title)
     mb_artist = str(result.get("artist") or artist)
@@ -132,7 +178,7 @@ def extract_all_metadata(
                 if spotify_info.get("release_date") and not result.get("release_date"):
                     result["release_date"] = spotify_info["release_date"]
                     logger.info("[Spotify] release_date: %s", result["release_date"])
-                for fa in (spotify_info.get("featured_artists") or []):
+                for fa in (spotify_info.get("featured_artists") or [] if guests_from_providers else []):
                     existing_fa: list[str] = list(result.get("featured_artists") or [])
                     if fa not in existing_fa:
                         existing_fa.append(fa)
@@ -159,18 +205,33 @@ def extract_all_metadata(
     )
     result["genres"] = mb_data["genres"]
     # The song's studio album; a classical piece has none, only the album of this performance.
-    song_album_mbid, song_album = (None, None) if composer_credited else fetch_song_album(mb_title, mb_artist)
-    result["album_mbid"] = song_album_mbid or mb_data.get("album_mbid")
-    result["album"] = preferred_album_name(song_album or mb_data.get("album"), result.get("album"))
+    # A song without fingerprint only gets an album it appears on repeatedly under this name.
+    song_album_mbid, song_album = (
+        (None, None) if composer_credited
+        else fetch_song_album(
+            mb_title, mb_artist,
+            min_releases=1 if fingerprinted else _UNCONFIRMED_MIN_RELEASES,
+            # Name-only matches pull in game and sampler "soundtracks"; a fingerprint rules them out.
+            allow_soundtracks=fingerprinted,
+        )
+    )
+    if confirmed:
+        result["album_mbid"] = song_album_mbid or mb_data.get("album_mbid")
+        result["album"] = preferred_album_name(
+            song_album or mb_data.get("album"), result.get("album"), allow_soundtracks=fingerprinted,
+        )
+    else:
+        result["album_mbid"] = song_album_mbid
+        result["album"] = preferred_album_name(song_album, None)
 
     # Merge featured artists: file tag → Last.fm → Spotify → MusicBrainz, then deduplicate
     all_featured: list[str] = list(result.get("featured_artists") or [])
-    for fa in (mb_data.get("featured_artists") or []):
+    for fa in (mb_data.get("featured_artists") or [] if confirmed else []):
         if fa not in all_featured:
             all_featured.append(fa)
-    all_featured = dedup_featured_artists(all_featured)
+    all_featured = final_featured(artist, dedup_featured_artists(all_featured))
+    result["featured_artists"] = all_featured
     if all_featured:
-        result["featured_artists"] = all_featured
         logger.info("[Metadata] Featured artists: %s", all_featured)
 
     # Use the best release date across Spotify and MusicBrainz (more precise and/or earlier wins)
