@@ -75,10 +75,12 @@ function usePersistentFlag(key: string, initial: boolean): [boolean, () => void]
 
 interface Props {
   songs: Song[];
+  /** False while another page is shown (the page stays mounted to keep its state). */
+  active: boolean;
 }
 
 /** Main page: the whole library as a sortable table, narrowed by the filters. */
-export function SongsPage({ songs }: Props) {
+export function SongsPage({ songs, active }: Props) {
   // ── text search ──────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
 
@@ -102,6 +104,12 @@ export function SongsPage({ songs }: Props) {
 
   const [instrThresh, setInstrThresh]   = useState<ThresholdsMap>({});
   const [instrEnabled, setInstrEnabled] = useState(true);
+
+  // Bumped by "Reset all": remounts the table (sort order) and the filter panels (collapse state).
+  const [resetKey, setResetKey] = useState(0);
+  const filterPanelRef = useRef<HTMLElement>(null);
+  const resultsRef = useRef<HTMLElement>(null);
+  const radarPanelRef = useRef<HTMLElement>(null);
 
   // ── axis stats (library-wide min/max, computed once per songs change) ───
   const dspStats   = useMemo(() => computeAxisStats(songs, DSP_AXES),   [songs]);
@@ -225,17 +233,22 @@ export function SongsPage({ songs }: Props) {
   const otherProfile = useMemo(() => meanProfile(filtered, OTHER_AXES, otherStats), [filtered, otherStats]);
 
   // ── play queue follows the visible table order while this page is open ────
+  // ("open" includes a song detail page on top of the list.)
+  const visibleOrderRef = useRef<string[]>([]);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const handleVisibleOrderChange = useCallback((ids: string[]) => {
-    setQueue(ids);
+    visibleOrderRef.current = ids;
+    if (activeRef.current) setQueue(ids);
   }, []);
 
-  // Restore the default queue (full library, DB order) when leaving the page.
-  // (The page stays mounted underneath an open song detail page.)
+  // Leaving the page restores the default queue (full library, DB order);
+  // coming back puts the table order back in place.
   const allSongsRef = useRef(songs);
   allSongsRef.current = songs;
   useEffect(() => {
-    return () => setQueue(allSongsRef.current.map((s) => s.id));
-  }, []);
+    setQueue(active ? visibleOrderRef.current : allSongsRef.current.map((s) => s.id));
+  }, [active]);
 
   // ── helpers ───────────────────────────────────────────────────────────────
   function setOnePatch(
@@ -253,13 +266,27 @@ export function SongsPage({ songs }: Props) {
     setter(emptyThresholds(keys));
   }
 
-  function resetAll() {
+  function clearFilters() {
     setSearch("");
     setMoodThresh(emptyThresholds(MOOD_AXES.map(a => a.key)));
     setDspThresh(emptyThresholds(DSP_AXES.map(a => a.key)));
     setOtherThresh(emptyThresholds(OTHER_AXES.map(a => a.key)));
     setGenreThresh({});
     setInstrThresh({});
+  }
+
+  /** Back to the page's initial state: no filters, all charts on, default sort, scrolled to the top. */
+  function resetAll() {
+    clearFilters();
+    setMoodEnabled(true);
+    setDspEnabled(true);
+    setOtherEnabled(true);
+    setGenreEnabled(true);
+    setInstrEnabled(true);
+    setResetKey((k) => k + 1);
+    for (const el of [filterPanelRef.current, resultsRef.current, radarPanelRef.current]) {
+      el?.scrollTo({ top: 0 });
+    }
   }
 
   const hasActiveFilters =
@@ -274,7 +301,7 @@ export function SongsPage({ songs }: Props) {
     <div className="h-full flex relative">
 
       {/* ── left: all filters (full-screen overlay on phones) ── */}
-      <aside className={`absolute inset-0 z-30 md:static md:z-auto w-full md:w-72 xl:w-80 shrink-0 overflow-y-auto border-r border-line bg-panel ${mobileFilters ? "block" : "hidden"} ${showPanels ? "md:block" : "md:hidden"}`}>
+      <aside ref={filterPanelRef} className={`absolute inset-0 z-30 md:static md:z-auto w-full md:w-72 xl:w-80 shrink-0 overflow-y-auto border-r border-line bg-panel ${mobileFilters ? "block" : "hidden"} ${showPanels ? "md:block" : "md:hidden"}`}>
         <div className="md:hidden sticky top-0 z-10 flex items-center justify-between px-4 py-2 bg-panel border-b border-line">
           <span className="font-mono text-2xs text-ink-3 tabular-nums">
             <span className="text-sm text-ink">{filtered.length}</span> / {songs.length} songs
@@ -287,6 +314,7 @@ export function SongsPage({ songs }: Props) {
           </button>
         </div>
         <BarSliderFilter
+          key={`Moods-${resetKey}`}
           title="Moods"
           rows={moodRows}
           thresholds={moodThresh}
@@ -296,6 +324,7 @@ export function SongsPage({ songs }: Props) {
           onToggleEnabled={() => setMoodEnabled(e => !e)}
         />
         <BarSliderFilter
+          key={`DSP Features-${resetKey}`}
           title="DSP Features"
           rows={dspRows}
           thresholds={dspThresh}
@@ -305,6 +334,7 @@ export function SongsPage({ songs }: Props) {
           onToggleEnabled={() => setDspEnabled(e => !e)}
         />
         <BarSliderFilter
+          key={`Other Features-${resetKey}`}
           title="Other Features"
           rows={otherRows}
           thresholds={otherThresh}
@@ -314,6 +344,7 @@ export function SongsPage({ songs }: Props) {
           onToggleEnabled={() => setOtherEnabled(e => !e)}
         />
         <BarSliderFilter
+          key={`Parent Genres-${resetKey}`}
           title="Parent Genres"
           rows={genreRows}
           thresholds={genreThresh}
@@ -323,6 +354,7 @@ export function SongsPage({ songs }: Props) {
           onToggleEnabled={() => setGenreEnabled(e => !e)}
         />
         <BarSliderFilter
+          key={`Instruments-${resetKey}`}
           title="Instruments"
           rows={instrRows}
           thresholds={instrThresh}
@@ -334,7 +366,7 @@ export function SongsPage({ songs }: Props) {
       </aside>
 
       {/* ── center: search + results (sortable; visible order = play queue) ── */}
-      <section className="flex-1 min-w-0 overflow-y-auto">
+      <section ref={resultsRef} className="flex-1 min-w-0 overflow-y-auto">
         <div className="px-3 py-3 md:px-5 md:py-4 space-y-3 md:space-y-4">
           <div className="flex items-center gap-2 md:gap-3 flex-wrap">
             <button
@@ -353,7 +385,7 @@ export function SongsPage({ songs }: Props) {
               placeholder="Search title or artist…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="field flex-1 min-w-0 md:min-w-48"
+              className="field flex-1 min-w-32 md:min-w-48"
             />
             <span className="font-mono text-2xs text-ink-3 shrink-0 tabular-nums">
               <span className="text-sm text-ink">{filtered.length}</span>
@@ -361,15 +393,23 @@ export function SongsPage({ songs }: Props) {
             </span>
             {hasActiveFilters && (
               <button
-                onClick={resetAll}
+                onClick={clearFilters}
                 className="btn-quiet shrink-0"
               >
                 Clear all filters
               </button>
             )}
+            <button
+              onClick={resetAll}
+              className="btn h-8 shrink-0"
+              title="Clear every filter, turn all charts back on, restore the default sort and scroll to the top"
+            >
+              Reset all
+            </button>
           </div>
 
           <ResultsTable
+            key={resetKey}
             songs={filtered}
             onVisibleOrderChange={handleVisibleOrderChange}
           />
@@ -377,7 +417,7 @@ export function SongsPage({ songs }: Props) {
       </section>
 
       {/* ── right: radar visualisation of thresholds vs. filtered average ── */}
-      <aside className={`w-64 xl:w-72 shrink-0 overflow-y-auto border-l border-line bg-panel flex-col gap-4 px-4 py-4 ${showPanels ? "hidden lg:flex" : "hidden"}`}>
+      <aside ref={radarPanelRef} className={`w-64 xl:w-72 shrink-0 overflow-y-auto border-l border-line bg-panel flex-col gap-4 px-4 py-4 ${showPanels ? "hidden lg:flex" : "hidden"}`}>
         <div className="flex items-center gap-4 font-mono text-2xs text-ink-3 pb-3 border-b border-line">
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-2 bg-signal/25 border border-signal" /> Filter

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { fetchNeighbors, fetchSongCount, fetchSongs } from "./services/api";
 import type { Song } from "./types/song";
 import { SongsPage } from "./components/songs/SongsPage";
@@ -63,6 +64,19 @@ function pageTitle(route: Route, songs: Song[]): string {
 
 const POLL_INTERVAL_MS = 8_000;
 
+/** True from the first render where `active` is set on — keeps a page mounted after its first visit. */
+function useVisited(active: boolean): boolean {
+  const [visited, setVisited] = useState(active);
+  if (active && !visited) setVisited(true);
+  return visited || active;
+}
+
+/** Full-size layer that stays mounted but hidden while another page is shown.
+ *  visibility (not display) keeps the scroll positions inside it intact. */
+function KeptPage({ active, children }: { active: boolean; children: ReactNode }) {
+  return <div className={`absolute inset-0 ${active ? "" : "invisible"}`}>{children}</div>;
+}
+
 export default function App() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,6 +85,9 @@ export default function App() {
 
   const path = usePath();
   const route = matchRoute(path);
+  // Songs and Upload keep their state (filters, scroll, running downloads) across page switches.
+  const songsVisited = useVisited(route.page === "songs");
+  const uploadVisited = useVisited(route.page === "upload");
 
   useEffect(() => {
     if (path === "/") navigate("/songs", { replace: true });
@@ -144,7 +161,7 @@ export default function App() {
         )}
       </header>
 
-      <main className="flex-1 overflow-hidden">
+      <main className="relative flex-1 overflow-hidden">
         {loading && (
           <div className="h-full flex items-center justify-center font-mono text-xs text-ink-3">
             Loading songs…
@@ -157,22 +174,24 @@ export default function App() {
         )}
         {!loading && !error && (
           <>
-            {route.page === "songs" && (
-              // The list stays mounted (just invisible) under an open song, so
-              // filters, sort order, scroll position and play queue survive "back".
-              <div className="relative h-full">
-                <div className={`h-full ${route.songId ? "invisible" : ""}`}>
-                  <SongsPage songs={songs} />
-                </div>
-                {route.songId && (
-                  <div className="absolute inset-0 bg-ground">
-                    <SongDetailPage key={route.songId} songs={songs} songId={route.songId} />
-                  </div>
-                )}
+            {songsVisited && (
+              // The list stays mounted (just invisible) under an open song and on
+              // other pages, so filters, sort order and scroll position survive.
+              <KeptPage active={route.page === "songs" && !route.songId}>
+                <SongsPage songs={songs} active={route.page === "songs"} />
+              </KeptPage>
+            )}
+            {route.page === "songs" && route.songId && (
+              <div className="absolute inset-0 bg-ground">
+                <SongDetailPage key={route.songId} songs={songs} songId={route.songId} />
               </div>
             )}
             {route.page === "analysis" && <AnalysisPage songs={songs} section={route.section} />}
-            {route.page === "upload" && <UploadPage />}
+            {uploadVisited && (
+              <KeptPage active={route.page === "upload"}>
+                <UploadPage />
+              </KeptPage>
+            )}
             {route.page === "notfound" && (
               <div className="h-full flex flex-col items-center justify-center gap-3 font-mono text-xs text-ink-3">
                 <p>Page not found.</p>
