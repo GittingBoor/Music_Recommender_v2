@@ -321,6 +321,37 @@ def test_the_original_album_beats_a_more_released_later_one():
     )
 
 
+def test_parallel_lookups_never_hit_musicbrainz_at_the_same_time(monkeypatch):
+    import io
+    import threading
+    import time as real_time
+
+    from src.metadata import musicbrainz
+
+    active = 0
+    overlap = False
+    guard = threading.Lock()
+
+    def fake_urlopen(req, timeout: float):
+        nonlocal active, overlap
+        with guard:
+            active += 1
+            overlap = overlap or active > 1
+        real_time.sleep(0.05)
+        with guard:
+            active -= 1
+        return io.BytesIO(b"{}")
+
+    monkeypatch.setattr(musicbrainz.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(musicbrainz, "_MB_MIN_INTERVAL_SECONDS", 0.0)
+    threads = [threading.Thread(target=musicbrainz._mb_json_get, args=("recording/x", {})) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not overlap
+
+
 def test_classical_samplers_are_not_albums():
     releases = [_release("sampler", "Klassik: Die schönste klassische Musik", "Album", "2015-01-01")]
     assert pick_album(releases) == (None, None)

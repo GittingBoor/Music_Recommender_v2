@@ -149,8 +149,10 @@ def process_audio_file(
 ) -> dict:
     """Run the full ingest pipeline on a single audio file.
 
-    Performs the duration gate, precheck_skip, DSP/ML analysis, DB save,
-    preview extraction, and incremental UMAP update.
+    The duration gate and the metadata lookup (AcoustID, MusicBrainz, Last.fm,
+    Spotify, duplicate check) mostly wait on the network, so they run before
+    the analysis lock: the next song gets identified while the current one is
+    analysed. Only DSP/ML analysis, DB save and the UMAP update hold the lock.
 
     Returns a dict with keys:
         status  : "saved" | "skipped" | "error"
@@ -167,55 +169,87 @@ def process_audio_file(
     """
     if job_id is not None:
         tracker.update(job_id, stage=Stage.WAITING)
-    with _ANALYSIS_LOCK:
-        if job_id is not None:
-            tracker.update(job_id, stage=Stage.ANALYZING)
-        return _process_audio_file(audio_file, hint, origin)
-
-
-def _process_audio_file(audio_file: Path, hint: IdentityHint | None, origin: SongOrigin | None) -> dict:
-    from src.analysis.pipeline import run_full_pipeline, _save_to_database, precheck_skip
-
     try:
-        # Duration gate: skip files >10 min that aren't recognised by AcoustID.
-        duration = _get_duration_seconds(audio_file)
-        if duration is not None and duration > _MAX_DURATION_WITHOUT_RECOGNITION:
-            api_key = settings.acoustid_api_key or ""
-            recognized = _is_recognized_by_acoustid(audio_file, api_key) if api_key else False
-            if not recognized:
-                logger.info(
-                    "[Ingest] Skipping %s — duration=%.0fs (>10min) and not recognized by AcoustID",
-                    audio_file.name, duration,
-                )
-                return {"status": "skipped", "reason": "too_long_unrecognized",
-                        "title": None, "artist": None, "song_id": None}
-
-        # Early-skip: metadata + AcoustID + duplicate check BEFORE heavy analysis.
-        skip_reason, metadata, song_id = precheck_skip(audio_file, hint)
-        if skip_reason:
-            logger.info("[Ingest] Skipping %s — %s", audio_file.name, skip_reason)
-            title  = str((metadata or {}).get("title")  or "") or None
-            artist = str((metadata or {}).get("artist") or "") or None
-            return {"status": "skipped", "reason": skip_reason,
-                    "title": title, "artist": artist, "song_id": song_id}
-
-        logger.info("[Ingest] Processing %s", audio_file.name)
-        result = run_full_pipeline(audio_file, metadata=metadata)
-        _save_to_database(result, audio_file, origin)
-
-        title  = str((result.get("metadata") or {}).get("title")  or "") or None
-        artist = str((result.get("metadata") or {}).get("artist") or "") or None
-
-        if title and song_id:
-            _update_umap_for_song(song_id)
-
-        return {"status": "saved", "reason": None,
-                "title": title, "artist": artist, "song_id": song_id}
-
+        identified = _identify(audio_file, hint)
+        if "status" in identified:
+            return identified
+        with _ANALYSIS_LOCK:
+            if job_id is not None:
+                tracker.update(job_id, stage=Stage.ANALYZING)
+            return _analyse(audio_file, identified["metadata"], identified["song_id"], origin)
     except Exception as exc:
         logger.error("[Ingest] Failed %s: %s", audio_file.name, exc)
         return {"status": "error", "reason": str(exc),
                 "title": None, "artist": None, "song_id": None}
+
+
+def _identify(audio_file: Path, hint: IdentityHint | None) -> dict:
+    """Duration gate and metadata lookup, no analysis lock needed.
+
+    Returns a finished skip result (has ``status``), or ``{"metadata", "song_id"}``
+    for a song to analyse.
+    """
+    from src.analysis.pipeline import precheck_skip
+
+    # Duration gate: skip files >10 min that aren't recognised by AcoustID.
+    duration = _get_duration_seconds(audio_file)
+    if duration is not None and duration > _MAX_DURATION_WITHOUT_RECOGNITION:
+        api_key = settings.acoustid_api_key or ""
+        recognized = _is_recognized_by_acoustid(audio_file, api_key) if api_key else False
+        if not recognized:
+            logger.info(
+                "[Ingest] Skipping %s — duration=%.0fs (>10min) and not recognized by AcoustID",
+                audio_file.name, duration,
+            )
+            return {"status": "skipped", "reason": "too_long_unrecognized",
+                    "title": None, "artist": None, "song_id": None}
+
+    # Early-skip: metadata + AcoustID + duplicate check BEFORE heavy analysis.
+    skip_reason, metadata, song_id = precheck_skip(audio_file, hint)
+    if skip_reason:
+        logger.info("[Ingest] Skipping %s — %s", audio_file.name, skip_reason)
+        return _skipped(skip_reason, metadata, song_id)
+    return {"metadata": metadata, "song_id": song_id}
+
+
+def _analyse(audio_file: Path, metadata: dict, song_id: str | None, origin: SongOrigin | None) -> dict:
+    """DSP/ML analysis and save; call with the analysis lock held."""
+    from src.analysis.pipeline import run_full_pipeline, _save_to_database
+
+    # Another download of the same song may have been saved while this one was identified.
+    if _already_saved(song_id, metadata.get("acoustid_id")):
+        logger.info("[Ingest] Skipping %s — duplicate (saved meanwhile)", audio_file.name)
+        return _skipped("duplicate", metadata, song_id)
+
+    logger.info("[Ingest] Processing %s", audio_file.name)
+    result = run_full_pipeline(audio_file, metadata=metadata)
+    _save_to_database(result, audio_file, origin)
+
+    title  = str((result.get("metadata") or {}).get("title")  or "") or None
+    artist = str((result.get("metadata") or {}).get("artist") or "") or None
+
+    if title and song_id:
+        _update_umap_for_song(song_id)
+
+    return {"status": "saved", "reason": None,
+            "title": title, "artist": artist, "song_id": song_id}
+
+
+def _skipped(reason: str, metadata: dict | None, song_id: str | None) -> dict:
+    title = str((metadata or {}).get("title") or "") or None
+    artist = str((metadata or {}).get("artist") or "") or None
+    return {"status": "skipped", "reason": reason, "title": title, "artist": artist, "song_id": song_id}
+
+
+def _already_saved(song_id: str | None, acoustid_id: object) -> bool:
+    """True when a song with this id or AcoustID recording is already in the library."""
+    session = get_session()
+    try:
+        if song_id and session.get(Song, song_id):
+            return True
+        return bool(acoustid_id) and session.query(Song.id).filter(Song.acoustid_id == acoustid_id).first() is not None
+    finally:
+        session.close()
 
 
 def _run_ingest() -> None:
