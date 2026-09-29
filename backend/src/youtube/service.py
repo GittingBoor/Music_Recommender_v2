@@ -1,5 +1,6 @@
 import logging
 import random
+import threading
 import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -38,6 +39,8 @@ _RETRY_BACKOFF_SECONDS = (2, 6)
 _PLAYER_CLIENTS = ["web_embedded", "default"]
 
 _CLASSIFY_WORKERS = 8
+# A video's category never changes; remembering it saves a YouTube call per repeat hit.
+_VERDICT_CACHE_SIZE = 5_000
 # Over-fetch so the music filter can drop hits and still fill the page.
 _SEARCH_OVERFETCH = 3
 
@@ -232,6 +235,10 @@ class YoutubeService:
         "no_warnings": True,
         "skip_download": True,
     }
+
+    def __init__(self) -> None:
+        self._verdicts: dict[str, MusicVerdict] = {}
+        self._verdicts_lock = threading.Lock()
 
     # ── search ─────────────────────────────────────────────────────────────
 
@@ -461,6 +468,20 @@ class YoutubeService:
             return MusicVerdict.MUSIC
         if not video_id:
             return MusicVerdict.UNKNOWN
+        with self._verdicts_lock:
+            cached = self._verdicts.get(video_id)
+        if cached is not None:
+            return cached
+        verdict = self._lookup_verdict(video_id)
+        # UNKNOWN (failed lookup) is not cached, the next call may succeed.
+        if verdict is not MusicVerdict.UNKNOWN:
+            with self._verdicts_lock:
+                if len(self._verdicts) >= _VERDICT_CACHE_SIZE:
+                    self._verdicts.clear()
+                self._verdicts[video_id] = verdict
+        return verdict
+
+    def _lookup_verdict(self, video_id: str) -> MusicVerdict:
         try:
             with YoutubeDL(self._META_OPTS) as ydl:
                 info = ydl.extract_info(

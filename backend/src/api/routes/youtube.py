@@ -17,6 +17,7 @@ from src.core.config import settings
 from src.db.models import Song
 from src.ingest.failures import record_failure
 from src.ingest.tracker import Stage, tracker
+from src.youtube.example_pool import ExamplePool
 from src.youtube.library_match import LibraryMatcher
 from src.youtube.service import MusicVerdict, YoutubeSearchResult, YoutubeService, classify_error
 from src.youtube.trimmer import get_music_trimmer
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _service = YoutubeService()
+_example_pool = ExamplePool(_service)
 
 # YouTube downloads live in the repo's own dataset dir, not user uploads.
 _YOUTUBE_DIR = settings.datasets_dir / "youtube"
@@ -153,33 +155,46 @@ def youtube_examples(
     limit: int = Query(5, ge=1, le=10),
     db: Session = Depends(get_db),
 ) -> list[YoutubeSearchItem]:
-    """Suggest random music videos that are not in the library yet."""
+    """Suggest random music videos that are not in the library yet.
+
+    Served from a pre-verified pool; only a cold pool (right after startup)
+    falls back to searching YouTube while the request waits.
+    """
     known = {
         f"{(t or '').strip().lower()}|{(a or '').strip().lower()}"
         for t, a in db.query(Song.title, Song.artist).all()
     }
     known_titles = {k.split("|", 1)[0] for k in known if k.split("|", 1)[0]}
 
-    collected: list = []
-    seen: set[str] = set()
+    def is_known(result: YoutubeSearchResult) -> bool:
+        return _already_known(result.title, known_titles)
+
+    collected = _example_pool.take(limit, is_known)
+    seen = {r.video_id for r in collected}
+    leftover: list[YoutubeSearchResult] = []
     try:
         # Seeds are random per call, so a couple of rounds fills the list even
         # when the first one is mostly songs we already have.
         for _ in range(_EXAMPLE_ATTEMPTS):
-            for result in _service.examples(limit):
-                if result.video_id in seen:
-                    continue
-                if _already_known(result.title, known_titles):
-                    continue
-                seen.add(result.video_id)
-                collected.append(result)
             if len(collected) >= limit:
                 break
+            for result in _service.examples(limit):
+                if result.video_id in seen or is_known(result):
+                    continue
+                seen.add(result.video_id)
+                (collected if len(collected) < limit else leftover).append(result)
     except Exception as exc:
         logger.error("[YouTube] Examples failed: %s", exc)
-        _raise_http(exc)
+        if not collected:
+            _raise_http(exc)
+    _example_pool.add(leftover)
 
-    return _to_items(collected[:limit], _library_matcher(db))
+    return _to_items(collected, _library_matcher(db))
+
+
+def warm_example_pool() -> None:
+    """Fill the suggestion pool in the background so the first visitor doesn't wait."""
+    _example_pool.refill_async()
 
 
 def _already_known(video_title: str, known_titles: set[str]) -> bool:
