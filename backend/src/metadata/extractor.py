@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 from src.metadata.acoustid_client import get_acoustid_metadata
-from src.metadata.cleaning import better_date, dedup_featured_artists, split_artist_featuring
+from src.metadata.cleaning import better_date, dedup_featured_artists, preferred_album_name, split_artist_featuring
 from src.metadata.file_tags import extract_file_metadata
 from src.metadata.identity import AcoustidMatch, IdentityHint, resolve_identity
 from src.metadata.lastfm import fetch_artist_info, fetch_similar_tracks, fetch_track_info
@@ -148,8 +148,7 @@ def extract_all_metadata(
     )
     result["genres"] = mb_data["genres"]
     result["album_mbid"] = mb_data.get("album_mbid")
-    if not result.get("album") and mb_data.get("album"):
-        result["album"] = mb_data["album"]
+    result["album"] = preferred_album_name(mb_data.get("album"), result.get("album"))
 
     # Merge featured artists: file tag → Last.fm → Spotify → MusicBrainz, then deduplicate
     all_featured: list[str] = list(result.get("featured_artists") or [])

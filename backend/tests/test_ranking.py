@@ -43,3 +43,15 @@ def test_views_break_ties():
 def test_missing_counts_do_not_crash():
     bare = {"id": "bare", "title": "Song", "channel": None, "view_count": None}
     assert _ids(rank_entries("Song", [bare])) == ["bare"]
+
+
+def test_the_searched_song_beats_another_song_on_the_artist_channel():
+    other = _entry("other", "DEICHKIND - So`ne Musik (OFFICIAL VIDEO)", "Deichkind", 20_000_000, True)
+    wanted = _entry("wanted", "Deichkind - Remmidemmi (Yippie Yippie Yeah)", "deichkindTV", 15_000_000)
+    assert _ids(rank_entries("Deichkind - Remmidemmi official audio", [other, wanted]))[0] == "wanted"
+
+
+def test_accents_do_not_break_the_title_match():
+    accented = _entry("accented", "Gymnopédie No. 1", "Erik Satie - Topic", 1_000_000)
+    other = _entry("other", "Erik Satie - Gnossienne No. 1", "Erik Satie - Topic", 5_000_000)
+    assert _ids(rank_entries("Erik Satie - Gymnopedie No. 1", [other, accented]))[0] == "accented"

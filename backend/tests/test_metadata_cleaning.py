@@ -3,6 +3,7 @@ import pytest
 from src.metadata.cleaning import (
     clean_title,
     normalize_date,
+    preferred_album_name,
     parse_featured_artists,
     split_artist_featuring,
     strip_version_markers,
@@ -96,3 +97,15 @@ class TestStripVersionMarkers:
     )
     def test_titles_without_version_markers_stay(self, title: str) -> None:
         assert strip_version_markers(title) == title
+
+
+class TestPreferredAlbumName:
+    def test_musicbrainz_album_wins_so_name_and_id_match(self) -> None:
+        assert preferred_album_name("Metallica", "Live Sh*t: Binge & Purge") == "Metallica"
+
+    def test_provider_album_is_the_fallback_without_version_markers(self) -> None:
+        assert preferred_album_name(None, "Nevermind (Remastered)") == "Nevermind"
+        assert preferred_album_name(None, "Sehnsucht (Remastered 2023)") == "Sehnsucht"
+
+    def test_no_album_anywhere(self) -> None:
+        assert preferred_album_name(None, None) is None

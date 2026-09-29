@@ -1,9 +1,13 @@
 from src.metadata.musicbrainz import RecordingIdentity, pick_album, recording_identity
 
 
-def _release(rg_id: str, title: str, rg_type: str, date: str | None, status: str = "Official") -> dict:
+def _release(
+    rg_id: str, title: str, rg_type: str, date: str | None, status: str = "Official",
+    secondary: list[str] | None = None,
+) -> dict:
     return {"title": title, "date": date, "status": status,
-            "release-group": {"id": rg_id, "title": title, "primary-type": rg_type}}
+            "release-group": {"id": rg_id, "title": title, "primary-type": rg_type,
+                              "secondary-types": secondary or []}}
 
 
 def test_earliest_official_album_wins_over_singles_and_compilations():
@@ -63,3 +67,18 @@ def test_recording_identity_drops_version_markers():
     rec = {"title": "Wake Me Up (Radio Edit)", "artist-credit": [_credit("Avicii")]}
     identity = recording_identity(rec)
     assert identity is not None and identity.title == "Wake Me Up"
+
+
+def test_live_albums_and_compilations_are_not_the_album():
+    releases = [
+        _release("live", "Live Sh*t", "Album", "1993-11-23", secondary=["Live"]),
+        _release("hits", "The 100 Collection: 90s", "Album", "1990-01-01", secondary=["Compilation"]),
+        _release("single", "Enter Sandman", "Single", "1991-07-29"),
+        _release("black", "Metallica", "Album", "1991-08-12"),
+    ]
+    assert pick_album(releases) == ("black", "Metallica")
+
+
+def test_only_live_or_compilation_releases_mean_no_album():
+    releases = [_release("live", "Live Sh*t", "Album", "1993-11-23", secondary=["Live"])]
+    assert pick_album(releases) == (None, None)

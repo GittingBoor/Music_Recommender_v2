@@ -1,11 +1,13 @@
 """Order YouTube search hits so the artist's own studio recording comes first.
 
 Works on the raw entries of a flat search (no extra YouTube call per video):
-who uploaded it, whether YouTube verified that channel (artists and labels),
-whether the title announces a different version, and how often it was viewed.
+whether the title names the searched song, who uploaded it, whether YouTube
+verified that channel (artists and labels), whether the title announces a
+different version, and how often it was viewed.
 """
 import math
 import re
+import unicodedata
 
 _TOPIC_SUFFIX = " - topic"
 _CHANNEL_NOISE_RE = re.compile(r"\s*-\s*topic$|vevo$|\s+official$|\s+music$|\s+tv$", re.IGNORECASE)
@@ -17,6 +19,12 @@ _VERSION_WORDS = (
     "instrumental", "slowed", "sped up", "nightcore", "8d", "loop", "hour", "acoustic",
 )
 
+# Query words that say nothing about which song is meant.
+_FILLER_WORDS = frozenset({"official", "audio", "video", "music", "lyrics", "lyric", "hd", "hq", "feat", "ft"})
+
+# Share of the searched words found in the title; outweighs every channel bonus,
+# so another song on the artist's own channel never beats the searched one.
+_TITLE_MATCH_WEIGHT = 8.0
 _TOPIC_BONUS = 3.0
 _ARTIST_CHANNEL_BONUS = 3.0
 _VERIFIED_BONUS = 2.0
@@ -26,7 +34,10 @@ _VIEWS_WEIGHT = 0.3
 
 
 def _normalise(text: str) -> str:
-    return " ".join(_WORD_RE.sub(" ", text.lower()).split())
+    """Lower-case words without punctuation or accents ("Gymnopédie" → "gymnopedie")."""
+    decomposed = unicodedata.normalize("NFKD", text.lower())
+    plain = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return " ".join(_WORD_RE.sub(" ", plain).split())
 
 
 def _channel_artist(channel: str) -> str:
@@ -37,14 +48,24 @@ def _has_word(text: str, word: str) -> bool:
     return re.search(rf"\b{re.escape(word)}\b", text) is not None
 
 
+def _title_match(query: str, title: str, channel_artist: str) -> float:
+    """Share of the query's song words (not filler, not the uploading artist's name) that appear in the title."""
+    artist_words = set(channel_artist.split())
+    wanted = [w for w in query.split() if w not in _FILLER_WORDS and w not in artist_words]
+    if not wanted:
+        return 1.0
+    title_words = set(title.split())
+    return sum(w in title_words for w in wanted) / len(wanted)
+
+
 def _score(query: str, entry: dict) -> float:
     title = _normalise(str(entry.get("title") or ""))
     channel = str(entry.get("channel") or entry.get("uploader") or "")
-    score = 0.0
+    artist = _channel_artist(channel)
+    score = _TITLE_MATCH_WEIGHT * _title_match(query, title, artist)
 
     if channel.lower().endswith(_TOPIC_SUFFIX):
         score += _TOPIC_BONUS
-    artist = _channel_artist(channel)
     if len(artist) >= 2 and _has_word(query, artist):
         score += _ARTIST_CHANNEL_BONUS
     if entry.get("channel_is_verified"):
