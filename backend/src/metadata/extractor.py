@@ -12,7 +12,7 @@ from pathlib import Path
 from src.metadata.acoustid_client import get_acoustid_metadata
 from src.metadata.cleaning import better_date, dedup_featured_artists, split_artist_featuring
 from src.metadata.file_tags import extract_file_metadata
-from src.metadata.identity import IdentityHint, resolve_identity
+from src.metadata.identity import AcoustidMatch, IdentityHint, resolve_identity
 from src.metadata.lastfm import fetch_artist_info, fetch_similar_tracks, fetch_track_info
 from src.metadata.musicbrainz import fetch_musicbrainz_data
 from src.metadata.spotify import fetch_spotify_info, get_token
@@ -38,19 +38,22 @@ def extract_all_metadata(
 
     # ── AcoustID fingerprint — preferred identity, no longer a gate ──────────
     if acoustid_api_key:
-        acoustid_match = get_acoustid_metadata(audio_path, acoustid_api_key)
+        preferred_title = hint.title if hint else tag_title
+        acoustid_match = get_acoustid_metadata(audio_path, acoustid_api_key, preferred_title or None)
     else:
         logger.warning("[AcoustID] No API key — falling back to hint/file tags for %s", audio_path.name)
-        acoustid_match = (None, None, None)
+        acoustid_match = AcoustidMatch(None, None, None)
 
     identity = resolve_identity(acoustid_match, hint, tag_title, tag_artist)
     if identity is None:
         logger.warning("[Metadata] No title/artist from AcoustID, hint or tags for %s", audio_path.name)
         return {}
 
-    # Split "David Guetta feat. Kid Cudi" → artist + featured artists
+    # Split "David Guetta feat. Kid Cudi" → artist + featured artists; AcoustID
+    # already credits featured artists separately.
     raw_aid_artist = identity.raw_artist
     artist, aid_feat = split_artist_featuring(raw_aid_artist)
+    aid_feat = list(identity.featured_artists) + [fa for fa in aid_feat if fa not in identity.featured_artists]
     title = identity.title
     acoustid_recording_id = identity.acoustid_id
 
