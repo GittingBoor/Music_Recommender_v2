@@ -26,7 +26,7 @@ from src.analysis.classifiers import (
 )
 from src.analysis.dsp import extract_all_dsp_features
 from src.metadata import extract_all_metadata
-from src.metadata.identity import IdentityHint, MetadataSource
+from src.metadata.identity import IdentityHint, MetadataSource, SongOrigin
 from src.analysis.model_manager import get_manager
 from src.analysis.other_features import extract_other_features
 from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, check_required_keys, settings
@@ -266,8 +266,14 @@ def _mood_ts(moods: dict, key: str) -> list[float] | None:
 
 
 
-def _save_to_database(result: dict[str, object], audio_path: Path) -> None:
-    """Persist analysis results to the database."""
+def _save_to_database(
+    result: dict[str, object], audio_path: Path, origin: SongOrigin | None = None
+) -> None:
+    """Persist analysis results to the database.
+
+    ``origin`` names the upload or video the audio came from; without it the
+    file name stands in.
+    """
     from src.db.session import get_session
     from src.db.models import (
         Song, generate_song_id,
@@ -304,6 +310,8 @@ def _save_to_database(result: dict[str, object], audio_path: Path) -> None:
             artist=artist,
             acoustid_id=meta.get("acoustid_id"),
             metadata_source=str(meta.get("metadata_source") or MetadataSource.ACOUSTID.value),
+            original_name=origin.original_name if origin else audio_path.name,
+            youtube_video_id=origin.youtube_video_id if origin else None,
         ))
 
         session.add(FileMetadata(
@@ -325,6 +333,7 @@ def _save_to_database(result: dict[str, object], audio_path: Path) -> None:
             mbid=lastfm.get("mbid"),
             url=lastfm.get("url"),
             album_mbid=meta.get("album_mbid"),
+            album=meta.get("album"),
             mb_genres=meta.get("genres") or [],
             featured_artists=meta.get("featured_artists") or [],
             similar_tracks=lastfm.get("similar_tracks"),

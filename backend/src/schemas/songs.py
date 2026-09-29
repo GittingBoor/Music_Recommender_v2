@@ -20,6 +20,7 @@ class TrackMetadataSchema(BaseModel):
     mbid: str | None = None
     url: str | None = None
     album_mbid: str | None = None
+    album: str | None = None
     mb_genres: list[str] | None = None
     featured_artists: list[str] | None = None
     similar_tracks: list | None = None
@@ -127,6 +128,11 @@ class SongResponse(BaseModel):
     id: str
     title: str | None = None
     artist: str | None = None
+    acoustid_id: str | None = None
+    metadata_source: str | None = None
+    metadata_reviewed: bool = False
+    original_name: str | None = None
+    youtube_video_id: str | None = None
     file_metadata: FileMetadataSchema | None = None
     track_metadata: TrackMetadataSchema | None = None
     dsp_features: DSPFeaturesSchema | None = None

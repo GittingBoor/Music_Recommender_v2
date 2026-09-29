@@ -7,6 +7,11 @@ export const FIELD_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'songs.id': 'Internal unique identifier of the song in the database.',
   'songs.title': 'Song title, taken from AcoustID/MusicBrainz or the file tags.',
   'songs.artist': 'Performing artist, taken from AcoustID/MusicBrainz or the file tags.',
+  'songs.original_name': 'Name the song arrived with: the uploaded filename or the YouTube video title, unchanged.',
+  'songs.metadata_source': 'Where title and artist came from: acoustid, youtube_title, user_input or file_tags.',
+  'songs.metadata_reviewed': 'Whether an admin has checked title and artist by hand.',
+  'songs.acoustid_id': 'AcoustID of the audio fingerprint match; empty if the fingerprint matched nothing.',
+  'songs.youtube_video_id': 'ID of the YouTube video the audio was downloaded from, if any.',
 
   // file_metadata
   'file_metadata.filename': 'Name of the audio file the analysis was run on.',
@@ -21,7 +26,8 @@ export const FIELD_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'track_metadata.playcount': 'Total number of plays recorded on Last.fm.',
   'track_metadata.listeners': 'Number of distinct Last.fm users who listened to the track.',
   'track_metadata.mbid': 'MusicBrainz ID of this recording.',
-  'track_metadata.album_mbid': 'MusicBrainz ID of the album the recording appears on.',
+  'track_metadata.album': 'Name of the album the recording appears on, from MusicBrainz.',
+  'track_metadata.album_mbid': 'MusicBrainz release-group ID of the album the recording appears on.',
   'track_metadata.url': 'Link to the track page on Last.fm.',
   'track_metadata.mb_genres': 'Genre tags the MusicBrainz community assigned to the recording.',
   'track_metadata.featured_artists': 'Additional artists credited on the track.',

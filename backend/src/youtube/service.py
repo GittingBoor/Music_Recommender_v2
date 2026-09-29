@@ -11,6 +11,8 @@ from urllib.parse import urlencode
 
 from yt_dlp import YoutubeDL
 
+from src.youtube.ranking import rank_entries
+
 logger = logging.getLogger(__name__)
 
 _WATCH_URL = "https://www.youtube.com/watch?v={video_id}"
@@ -38,11 +40,14 @@ _RETRY_BACKOFF_SECONDS = (2, 6)
 # Requires a JS runtime (deno) and yt-dlp-ejs in the image.
 _PLAYER_CLIENTS = ["web_embedded", "default"]
 
-_CLASSIFY_WORKERS = 8
+# Parallel category lookups; bursts of them are what trips YouTube's bot check.
+_CLASSIFY_WORKERS = 4
 # A video's category never changes; remembering it saves a YouTube call per repeat hit.
 _VERDICT_CACHE_SIZE = 5_000
 # Over-fetch so the music filter can drop hits and still fill the page.
 _SEARCH_OVERFETCH = 3
+# Ranked hits handed to the streaming search, each costing one category lookup.
+_CANDIDATE_FACTOR = 2
 
 _EXAMPLE_SEEDS = [
     "indie rock official music video",
@@ -243,20 +248,35 @@ class YoutubeService:
     # ── search ─────────────────────────────────────────────────────────────
 
     def search(self, query: str, limit: int = 10) -> list[YoutubeSearchResult]:
-        """Return up to ``limit`` music videos matching ``query``."""
+        """Return up to ``limit`` music videos matching ``query``, best match first.
+
+        Hits are checked in ranked order and only until ``limit`` are found,
+        so a search costs about ``limit`` category lookups. A hit whose lookup
+        fails (e.g. YouTube's bot check) is kept; only confirmed non-music goes.
+        """
         if not query.strip():
             raise ValueError("Search query must not be empty")
 
         entries = self._flat_entries(
             f"ytsearch{limit * _SEARCH_OVERFETCH}:{query.strip()}"
         )
-        return self._keep_music(entries, limit)
+        ranked = rank_entries(query, [e for e in entries if self._plausible_track(e)])
+        kept: list[dict] = []
+        for start in range(0, len(ranked), limit):
+            batch = ranked[start:start + limit]
+            with ThreadPoolExecutor(max_workers=_CLASSIFY_WORKERS) as pool:
+                verdicts = list(pool.map(self._entry_verdict, batch))
+            kept.extend(e for e, v in zip(batch, verdicts) if v is not MusicVerdict.NOT_MUSIC)
+            if len(kept) >= limit:
+                break
+        logger.info("[YouTube] %d hits → %d plausible → %d kept", len(entries), len(ranked), len(kept))
+        return [self._to_result(e) for e in kept[:limit]]
 
     def search_candidates(self, query: str, limit: int = 10) -> list[YoutubeSearchResult]:
-        """Return plausible tracks from one cheap flat search, without the category lookup.
+        """Return plausible tracks from one cheap flat search, best match first, without the category lookup.
 
-        Over-fetches so callers can still fill ``limit`` slots after
-        :meth:`verify_music` rejects some of them.
+        Returns up to ``limit * _CANDIDATE_FACTOR`` hits so callers can still
+        fill ``limit`` slots after :meth:`verify_music` rejects some of them.
 
         Raises:
             ValueError: If the query is empty.
@@ -266,7 +286,8 @@ class YoutubeService:
             raise ValueError("Search query must not be empty")
 
         entries = self._flat_entries(f"ytsearch{limit * _SEARCH_OVERFETCH}:{query.strip()}")
-        return [self._to_result(e) for e in entries if self._plausible_track(e)]
+        ranked = rank_entries(query, [e for e in entries if self._plausible_track(e)])
+        return [self._to_result(e) for e in ranked[:limit * _CANDIDATE_FACTOR]]
 
     def verify_music(self, results: list[YoutubeSearchResult]) -> Iterator[tuple[str, MusicVerdict]]:
         """Yield ``(video_id, verdict)`` for each result as soon as its lookup finishes."""
@@ -450,12 +471,14 @@ class YoutubeService:
             return False
         return _MIN_MUSIC_SECONDS <= int(duration) <= _MAX_MUSIC_SECONDS
 
-    def _is_music(self, entry: dict) -> bool:
-        """Strict check: a video whose lookup fails is dropped, not kept."""
-        verdict = self._music_verdict(
+    def _entry_verdict(self, entry: dict) -> MusicVerdict:
+        return self._music_verdict(
             str(entry.get("id") or ""), entry.get("uploader") or entry.get("channel")
         )
-        return verdict is MusicVerdict.MUSIC
+
+    def _is_music(self, entry: dict) -> bool:
+        """Strict check: a video whose lookup fails is dropped, not kept."""
+        return self._entry_verdict(entry) is MusicVerdict.MUSIC
 
     def _music_verdict(self, video_id: str, uploader: str | None) -> MusicVerdict:
         """Ask YouTube which category the video is filed under.

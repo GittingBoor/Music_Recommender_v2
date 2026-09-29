@@ -4,6 +4,7 @@ import logging
 import time
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.metadata.acoustid_client import get_recording_id
@@ -14,7 +15,65 @@ logger = logging.getLogger(__name__)
 _MB_USERAGENT = ("MusicRecommender", "0.1", "user@example.com")
 _mb_last_json_ts: float = 0.0
 
-_MB_EMPTY: dict[str, object] = {"genres": [], "release_date": None, "featured_artists": []}
+_MB_EMPTY: dict[str, object] = {
+    "genres": [], "release_date": None, "featured_artists": [], "album_mbid": None, "album": None,
+}
+
+# Release-group types in order of preference for "the album this song is on".
+_ALBUM_TYPE_RANK: dict[str, int] = {"Album": 0, "EP": 1, "Single": 2}
+_UNDATED = "9999"
+
+
+@dataclass(frozen=True)
+class RecordingIdentity:
+    """Title and credited artists of a MusicBrainz recording."""
+
+    title: str
+    artist: str
+    featured_artists: list[str] = field(default_factory=list)
+
+
+def recording_identity(rec_data: dict) -> RecordingIdentity | None:
+    """Read title, main artist and featured artists from a recording with ``artist-credits``.
+
+    The first credit is the main artist, every further one is featured.
+    Returns None when the recording lacks a title or an artist.
+    """
+    names = [
+        str((c.get("artist") or {}).get("name") or c.get("name") or "")
+        for c in rec_data.get("artist-credit") or [] if isinstance(c, dict)
+    ]
+    names = [n for n in names if n]
+    title = str(rec_data.get("title") or "")
+    if not title or not names:
+        return None
+    return RecordingIdentity(title=title, artist=names[0], featured_artists=names[1:])
+
+
+def fetch_recording_identity(recording_id: str) -> RecordingIdentity | None:
+    """Look up a recording's title and credited artists on MusicBrainz; None if unreachable or incomplete."""
+    rec_data = _mb_json_get(f"recording/{recording_id}", {"inc": "artist-credits"})
+    return recording_identity(rec_data) if rec_data else None
+
+
+def pick_album(releases: list[dict]) -> tuple[str | None, str | None]:
+    """Return ``(release_group_id, title)`` of the album a recording first appeared on.
+
+    Official releases only; an album beats an EP beats a single, and within
+    a type the earliest release wins (a reissue never beats the original).
+    """
+    candidates: list[tuple[int, str, str, str]] = []
+    for rel in releases:
+        group = rel.get("release-group") or {}
+        rank = _ALBUM_TYPE_RANK.get(group.get("primary-type") or "")
+        if rel.get("status") != "Official" or rank is None or not group.get("id"):
+            continue
+        title = group.get("title") or rel.get("title") or ""
+        candidates.append((rank, rel.get("date") or _UNDATED, group["id"], title))
+    if not candidates:
+        return None, None
+    _, _, group_id, title = min(candidates)
+    return group_id, title or None
 
 
 def _mb_json_get(path: str, params: dict[str, str]) -> dict | None:
@@ -87,9 +146,8 @@ def _get_recording_data(recording_id: str) -> dict[str, object]:
         f"recording/{recording_id}",
         {"inc": "tags+releases+artist-credits"},
     )
-    empty: dict[str, object] = {"genres": [], "release_date": None, "featured_artists": []}
     if not rec_data:
-        return empty
+        return dict(_MB_EMPTY)
 
     # ── Tags (recording-level) ────────────────────────────────────────────────
     recording_tags: list[dict] = rec_data.get("tags") or []
@@ -170,10 +228,15 @@ def _get_recording_data(recording_id: str) -> dict[str, object]:
     ][:10]
     logger.info("[MusicBrainz] Genres for %s: %s", recording_id, genres)
 
+    album_mbid, album = pick_album(releases)
+    logger.info("[MusicBrainz] Album for %s: %r (%s)", recording_id, album, album_mbid)
+
     return {
         "genres": genres,
         "release_date": earliest_date,
         "featured_artists": featured_artists,
+        "album_mbid": album_mbid,
+        "album": album,
     }
 
 
@@ -193,6 +256,10 @@ def _accumulate_partial(base: dict[str, object], update: dict[str, object]) -> N
 
     if not base.get("genres") and update.get("genres"):
         base["genres"] = list(update["genres"])
+
+    if not base.get("album_mbid") and update.get("album_mbid"):
+        base["album_mbid"] = update["album_mbid"]
+        base["album"] = update.get("album")
 
 
 def fetch_musicbrainz_data(

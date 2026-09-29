@@ -10,6 +10,7 @@ import { PlayButton } from "../PlayButton";
 import { StatCard } from "../StatCard";
 import { Figure, RankedBars } from "../analysis/layout";
 import { SongDetails } from "./SongDetails";
+import { VerificationBadge, metadataSourceLabel, youtubeUrl } from "./verification";
 import type { Song } from "../../types/song";
 import type { SongDetailTimeseries } from "../../types/analysis";
 import { COLOR, FONT_MONO, SERIES_EXTENDED as S, gridProps, numericAxis, tooltipProps } from "../../theme";
@@ -97,6 +98,50 @@ function Meter({ label, value }: { label: string; value: number }) {
         <div className="h-full bg-ink-2" style={{ width: `${value * 100}%` }} />
       </div>
     </div>
+  );
+}
+
+/** Where title/artist came from: verification status, source and the name as uploaded. */
+function SongOrigin({ song }: { song: Song }) {
+  const source = metadataSourceLabel(song.metadata_source);
+  const name = song.original_name;
+  const nameLabel = song.youtube_video_id ? "Original YouTube title" : "Original name";
+  return (
+    <dl className="mt-3 flex flex-wrap items-baseline gap-x-5 gap-y-1.5 font-mono text-2xs">
+      <div className="flex items-baseline gap-2">
+        <dt className="text-ink-3">Status</dt>
+        <dd><VerificationBadge song={song} /></dd>
+      </div>
+      {source && (
+        <div className="flex items-baseline gap-2">
+          <dt className="text-ink-3">Source</dt>
+          <dd className="text-ink-2">{source}</dd>
+        </div>
+      )}
+      {name && (
+        <div className="basis-full flex items-baseline gap-2 min-w-0">
+          <dt className="text-ink-3 shrink-0">{nameLabel}</dt>
+          <dd className="min-w-0 font-sans text-sm text-ink-2 break-words">
+            {song.youtube_video_id ? (
+              <a
+                href={youtubeUrl(song.youtube_video_id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group hover:text-ink underline decoration-line-strong underline-offset-2 hover:decoration-ink-3"
+              >
+                {name}
+                <svg aria-hidden className="inline w-2.5 h-2.5 ml-1 -mt-0.5 text-ink-3 group-hover:text-ink" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={1.3}>
+                  <path d="M4 1.5H1.5v7h7V6M6 1.5h2.5V4M8.5 1.5L4.5 5.5" />
+                </svg>
+                <span className="sr-only"> (opens YouTube in a new tab)</span>
+              </a>
+            ) : (
+              name
+            )}
+          </dd>
+        </div>
+      )}
+    </dl>
   );
 }
 
@@ -234,6 +279,7 @@ export function SongDetailPage({ songs, songId }: Props) {
                   <span className="text-ink-3"> feat. {track.featured_artists.join(", ")}</span>
                 )}
               </p>
+              <SongOrigin song={song} />
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 border-y border-line-strong mt-6 max-w-3xl">

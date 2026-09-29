@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 
+import essentia
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,6 +17,11 @@ from src.api.routes.youtube import router as youtube_router, warm_example_pool
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     check_required_keys()
+    # Essentia writes "No network created, or last created network has been
+    # deleted..." for every analysed frame, >100k lines per few songs; the CLI
+    # pipeline silences it the same way.
+    essentia.log.infoActive = False
+    essentia.log.warningActive = False
     warm_example_pool()
     yield
 

@@ -12,7 +12,7 @@ from src.api.routes.admin import process_audio_file
 from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
 from src.ingest.failures import record_failure
 from src.ingest.tracker import Stage, tracker
-from src.metadata.identity import IdentityHint, MetadataSource
+from src.metadata.identity import IdentityHint, MetadataSource, SongOrigin
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -55,7 +55,8 @@ def _analyse_upload(
     """
     result: dict = {}
     try:
-        for outcome in run_with_heartbeat(lambda: process_audio_file(dest, job_id, hint)):
+        origin = SongOrigin(original_name=original_name)
+        for outcome in run_with_heartbeat(lambda: process_audio_file(dest, job_id, hint, origin)):
             if outcome is None:
                 yield " "
             else:

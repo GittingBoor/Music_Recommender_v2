@@ -18,7 +18,7 @@ from src.db.models import Song
 from src.db.session import get_session
 from src.ingest.failures import record_failure
 from src.ingest.tracker import Stage, tracker
-from src.metadata.identity import IdentityHint, MetadataSource
+from src.metadata.identity import IdentityHint, MetadataSource, SongOrigin
 from src.youtube.download_queue import DownloadQueue
 from src.youtube.example_pool import ExamplePool
 from src.youtube.library_match import LibraryMatcher
@@ -326,7 +326,8 @@ def _download_steps(
     # 3) Run the full analysis pipeline and save to the database.
     yield _event("analyzing", 0.7)
     result: dict = {}
-    for outcome in run_with_heartbeat(lambda: process_audio_file(final_path, job_id, _title_hint(req))):
+    origin = SongOrigin(original_name=fallback_name, youtube_video_id=req.video_id)
+    for outcome in run_with_heartbeat(lambda: process_audio_file(final_path, job_id, _title_hint(req), origin)):
         if outcome is None:
             yield _event("analyzing", 0.7)  # keep-alive
         else:

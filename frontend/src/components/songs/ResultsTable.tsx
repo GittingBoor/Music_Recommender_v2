@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Song } from "../../types/song";
 import { Link, isPlainLeftClick, navigate, songPath } from "../../router";
 import { PlayButton } from "../PlayButton";
+import { VerificationDot } from "./verification";
 
 type SortDir = "asc" | "desc";
 
@@ -194,13 +195,16 @@ export function ResultsTable({ songs, onVisibleOrderChange }: Props) {
                     className={`px-2.5 py-1.5 ${numeric ? "text-right font-mono text-xs text-ink-2 tabular-nums" : "text-left"} ${col.cellClass ?? ""} ${v == null ? "!text-ink-4" : ""}`}
                   >
                     {col.link ? (
-                      <Link
-                        to={songPath(song.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        className={`block truncate hover:underline underline-offset-2 ${col.widthClass ?? "max-w-56"}`}
-                      >
-                        {text}
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <VerificationDot song={song} />
+                        <Link
+                          to={songPath(song.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className={`block truncate hover:underline underline-offset-2 ${col.widthClass ?? "max-w-56"}`}
+                        >
+                          {text}
+                        </Link>
+                      </div>
                     ) : (
                       <div className={`truncate ${col.widthClass ?? "max-w-56"}`}>{text}</div>
                     )}
