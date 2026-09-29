@@ -70,3 +70,4 @@ export function Link({ to, onClick, ...rest }: LinkProps) {
 }
 
 export const songPath = (id: string) => `/songs/${encodeURIComponent(id)}`;
+export const recommenderPath = (id: string) => `/recommender/${encodeURIComponent(id)}`;

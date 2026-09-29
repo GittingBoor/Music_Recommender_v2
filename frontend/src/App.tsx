@@ -8,19 +8,21 @@ import { AnalysisPage, ANALYSIS_SECTIONS } from "./components/analysis/AnalysisP
 import type { AnalysisSection } from "./components/analysis/AnalysisPage";
 import { PlayerBar } from "./components/PlayerBar";
 import { UploadPage } from "./components/upload/UploadPage";
+import { RecommenderPage } from "./components/recommender/RecommenderPage";
 import { setNeighborSource, setQueue } from "./audio/player";
-import { Link, navigate, usePath } from "./router";
+import { Link, navigate, recommenderPath, usePath } from "./router";
 
 // The player stays free of API imports; the app wires the lookup in once.
 setNeighborSource(fetchNeighbors);
 
 type Route =
   | { page: "songs"; songId: string | null }
+  | { page: "recommender"; songId: string | null }
   | { page: "analysis"; section: AnalysisSection }
   | { page: "upload" }
   | { page: "notfound" };
 
-/** URL → page:  /songs · /songs/:id · /analysis[/umap|/correlations|/timeseries] · /upload */
+/** URL → page:  /songs · /songs/:id · /recommender · /recommender/:id · /analysis[/umap|/correlations|/timeseries] · /upload */
 function matchRoute(path: string): Route {
   const parts = path.split("/").filter(Boolean);
   if (parts.length === 0) return { page: "songs", songId: null }; // "/" is redirected to /songs
@@ -28,6 +30,14 @@ function matchRoute(path: string): Route {
     if (parts.length === 1) return { page: "songs", songId: null };
     try {
       return { page: "songs", songId: decodeURIComponent(parts[1]) };
+    } catch {
+      return { page: "notfound" };
+    }
+  }
+  if (parts[0] === "recommender" && parts.length <= 2) {
+    if (parts.length === 1) return { page: "recommender", songId: null };
+    try {
+      return { page: "recommender", songId: decodeURIComponent(parts[1]) };
     } catch {
       return { page: "notfound" };
     }
@@ -41,9 +51,10 @@ function matchRoute(path: string): Route {
 }
 
 const NAV: { page: Route["page"]; label: string; to: string }[] = [
-  { page: "songs",    label: "Songs",    to: "/songs" },
-  { page: "analysis", label: "Analysis", to: "/analysis" },
-  { page: "upload",   label: "Upload",   to: "/upload" },
+  { page: "songs",       label: "Songs",       to: "/songs" },
+  { page: "recommender", label: "Recommender", to: "/recommender" },
+  { page: "analysis",    label: "Analysis",    to: "/analysis" },
+  { page: "upload",      label: "Upload",      to: "/upload" },
 ];
 
 function pageTitle(route: Route, songs: Song[]): string {
@@ -52,6 +63,11 @@ function pageTitle(route: Route, songs: Song[]): string {
       if (!route.songId) return "Songs";
       const s = songs.find((x) => x.id === route.songId);
       return s ? `${s.title ?? "Unknown"} – ${s.artist ?? "Unknown artist"}` : "Song";
+    }
+    case "recommender": {
+      if (!route.songId) return "Recommender";
+      const s = songs.find((x) => x.id === route.songId);
+      return `${s ? (s.title ?? "Unknown") : "Song"} · Recommender`;
     }
     case "analysis":
       return `${ANALYSIS_SECTIONS.find((s) => s.id === route.section)?.label ?? "Analysis"} · Analysis`;
@@ -65,10 +81,12 @@ function pageTitle(route: Route, songs: Song[]): string {
 const POLL_INTERVAL_MS = 8_000;
 
 /** True from the first render where `active` is set on — keeps a page mounted after its first visit. */
+// A ref, not state: a render-phase setState makes React 18 drop the effect that
+// syncs usePath()'s store snapshot, so navigating back to the previous URL no longer re-renders.
 function useVisited(active: boolean): boolean {
-  const [visited, setVisited] = useState(active);
-  if (active && !visited) setVisited(true);
-  return visited || active;
+  const visited = useRef(false);
+  if (active) visited.current = true;
+  return visited.current;
 }
 
 /** Full-size layer that stays mounted but hidden while another page is shown.
@@ -85,8 +103,13 @@ export default function App() {
 
   const path = usePath();
   const route = matchRoute(path);
-  // Songs and Upload keep their state (filters, scroll, running downloads) across page switches.
+  // Songs, Recommender and Upload keep their state (filters, scroll, running downloads) across page switches.
   const songsVisited = useVisited(route.page === "songs");
+  const recommenderVisited = useVisited(route.page === "recommender");
+  // The last seed stays loaded while the page is hidden; its tab leads back to it.
+  const recommenderSeedRef = useRef<string | null>(null);
+  if (route.page === "recommender") recommenderSeedRef.current = route.songId;
+  const recommenderSeed = recommenderSeedRef.current;
   const uploadVisited = useVisited(route.page === "upload");
 
   useEffect(() => {
@@ -146,7 +169,7 @@ export default function App() {
           {NAV.map((n) => (
             <Link
               key={n.page}
-              to={n.to}
+              to={n.page === "recommender" && recommenderSeed ? recommenderPath(recommenderSeed) : n.to}
               aria-current={route.page === n.page ? "page" : undefined}
               className="tab flex-1 justify-center md:flex-none"
             >
@@ -185,6 +208,17 @@ export default function App() {
               <div className="absolute inset-0 bg-ground">
                 <SongDetailPage key={route.songId} songs={songs} songId={route.songId} />
               </div>
+            )}
+            {recommenderVisited && (
+              // Must stay after SongsPage: both set the play queue when the page
+              // switches, and the page that becomes active has to write last.
+              <KeptPage active={route.page === "recommender"}>
+                <RecommenderPage
+                  songs={songs}
+                  seedId={recommenderSeed}
+                  active={route.page === "recommender"}
+                />
+              </KeptPage>
             )}
             {route.page === "analysis" && <AnalysisPage songs={songs} section={route.section} />}
             {uploadVisited && (
