@@ -2,6 +2,8 @@
 from dataclasses import dataclass
 from enum import Enum
 
+from src.metadata.cleaning import strip_version_markers
+
 
 class MetadataSource(str, Enum):
     """Origin of a stored song's title/artist. Anything but ACOUSTID awaits an admin check."""
@@ -22,6 +24,16 @@ class IdentityHint:
 
 
 @dataclass(frozen=True)
+class AcoustidMatch:
+    """What the AcoustID fingerprint lookup found; all None when it found nothing usable."""
+
+    recording_id: str | None
+    title: str | None
+    artist: str | None
+    featured_artists: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class SongOrigin:
     """Where a song's audio came from, kept so it can be traced and fetched again."""
 
@@ -37,24 +49,30 @@ class SongIdentity:
     raw_artist: str
     source: MetadataSource
     acoustid_id: str | None
+    featured_artists: tuple[str, ...] = ()
 
 
 def resolve_identity(
-    acoustid: tuple[str | None, str | None, str | None],
+    acoustid: AcoustidMatch,
     hint: IdentityHint | None,
     tag_title: str,
     tag_artist: str,
 ) -> SongIdentity | None:
     """Pick the most trustworthy title/artist: AcoustID, then the hint, then the file tags.
 
-    ``acoustid`` is ``(recording_id, title, artist)`` as returned by the lookup.
-    Returns None when no source names both title and artist.
+    Edit/remaster/live markers are dropped from the title, so every cut of a
+    song is stored under one name. Returns None when no source names both
+    title and artist.
     """
-    recording_id, aid_title, aid_artist = acoustid
-    if aid_title and aid_artist:
-        return SongIdentity(aid_title, aid_artist, MetadataSource.ACOUSTID, recording_id)
+    if acoustid.title and acoustid.artist:
+        return SongIdentity(
+            strip_version_markers(acoustid.title), acoustid.artist, MetadataSource.ACOUSTID,
+            acoustid.recording_id, acoustid.featured_artists,
+        )
     if hint and hint.title.strip() and hint.artist.strip():
-        return SongIdentity(hint.title.strip(), hint.artist.strip(), hint.source, None)
+        return SongIdentity(strip_version_markers(hint.title.strip()), hint.artist.strip(), hint.source, None)
     if tag_title.strip() and tag_artist.strip():
-        return SongIdentity(tag_title.strip(), tag_artist.strip(), MetadataSource.FILE_TAGS, None)
+        return SongIdentity(
+            strip_version_markers(tag_title.strip()), tag_artist.strip(), MetadataSource.FILE_TAGS, None
+        )
     return None

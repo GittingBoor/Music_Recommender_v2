@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.metadata.acoustid_client import get_recording_id
-from src.metadata.cleaning import better_date, normalize_date, split_artist_featuring
+from src.metadata.cleaning import better_date, normalize_date, split_artist_featuring, strip_version_markers
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def recording_identity(rec_data: dict) -> RecordingIdentity | None:
     title = str(rec_data.get("title") or "")
     if not title or not names:
         return None
-    return RecordingIdentity(title=title, artist=names[0], featured_artists=names[1:])
+    return RecordingIdentity(title=strip_version_markers(title), artist=names[0], featured_artists=names[1:])
 
 
 def fetch_recording_identity(recording_id: str) -> RecordingIdentity | None:
@@ -137,14 +137,14 @@ def _search_recording_ids(title: str, artist: str) -> list[str]:
 def _get_recording_data(recording_id: str) -> dict[str, object]:
     """Fetch genres, earliest release date, and featured artists for a MusicBrainz recording.
 
-    Uses a single request with inc=tags+releases+artist-credits, then fetches
+    Uses a single request with inc=tags+releases+release-groups+artist-credits, then fetches
     release-group tags from the release-group IDs found inside the releases list.
     The old approach of browsing release-groups by recording ID (release-group?recording=...)
     is not supported by the MB API and returns HTTP 400.
     """
     rec_data = _mb_json_get(
         f"recording/{recording_id}",
-        {"inc": "tags+releases+artist-credits"},
+        {"inc": "tags+releases+release-groups+artist-credits"},
     )
     if not rec_data:
         return dict(_MB_EMPTY)

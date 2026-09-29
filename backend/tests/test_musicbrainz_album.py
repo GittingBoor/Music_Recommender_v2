@@ -39,3 +39,27 @@ def test_recording_identity_splits_main_and_featured_artists():
 def test_recording_identity_needs_title_and_artist():
     assert recording_identity({"title": "So What", "artist-credit": []}) is None
     assert recording_identity({"artist-credit": [_credit("Miles Davis")]}) is None
+
+
+def test_recording_lookup_asks_for_release_groups(monkeypatch):
+    from src.metadata import musicbrainz
+
+    requested: list[str] = []
+
+    def fake_get(path: str, params: dict[str, str]) -> dict | None:
+        requested.append(params.get("inc", ""))
+        if path.startswith("recording/"):
+            return {"releases": [_release("ram", "Random Access Memories", "Album", "2013-05-17")]}
+        return {}
+
+    monkeypatch.setattr(musicbrainz, "_mb_json_get", fake_get)
+    data = musicbrainz._get_recording_data("rec-1")
+
+    assert "release-groups" in requested[0].split("+")
+    assert data["album_mbid"] == "ram"
+
+
+def test_recording_identity_drops_version_markers():
+    rec = {"title": "Wake Me Up (Radio Edit)", "artist-credit": [_credit("Avicii")]}
+    identity = recording_identity(rec)
+    assert identity is not None and identity.title == "Wake Me Up"

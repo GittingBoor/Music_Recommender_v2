@@ -5,6 +5,7 @@ from src.metadata.cleaning import (
     normalize_date,
     parse_featured_artists,
     split_artist_featuring,
+    strip_version_markers,
 )
 
 
@@ -70,3 +71,28 @@ class TestFeaturedArtists:
             ["Kid Cudi"],
         )
         assert split_artist_featuring("Adele") == ("Adele", [])
+
+
+class TestStripVersionMarkers:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("Remmidemmi (Yippie Yippie Yeah) (single-edit)", "Remmidemmi (Yippie Yippie Yeah)"),
+            ("Wake Me Up (Radio Edit)", "Wake Me Up"),
+            ("Paint It, Black (2002 Remaster)", "Paint It, Black"),
+            ("Come Together - Remastered 2009", "Come Together"),
+            ("Blitzkrieg Bop (album version)", "Blitzkrieg Bop"),
+            ("Help! (mono)", "Help!"),
+            ("Smells Like Teen Spirit (live)", "Smells Like Teen Spirit"),
+            ("Get Lucky [Radio Edit]", "Get Lucky"),
+        ],
+    )
+    def test_version_markers_are_removed(self, raw: str, expected: str) -> None:
+        assert strip_version_markers(raw) == expected
+
+    @pytest.mark.parametrize(
+        "title",
+        ["(I Can't Get No) Satisfaction", "Remmidemmi (Yippie Yippie Yeah)", "Live Forever", "Titanium (David Guetta Remix)"],
+    )
+    def test_titles_without_version_markers_stay(self, title: str) -> None:
+        assert strip_version_markers(title) == title

@@ -9,7 +9,10 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
+
+from src.metadata.identity import AcoustidMatch
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +86,56 @@ def _probe_key(api_key: str) -> None:
         logger.warning("[AcoustID] Rate limited — too many requests")
 
 
-def get_acoustid_metadata(
-    audio_path: Path, api_key: str
-) -> tuple[str | None, str | None, str | None]:
-    """Fingerprint via AcoustID and return (recording_id, title, artist).
+_NO_MATCH = AcoustidMatch(None, None, None)
 
-    All three values may be None on failure or low confidence.
+
+def split_credits(artists_raw: list[dict | str]) -> tuple[str | None, tuple[str, ...]]:
+    """Return ``(main_artist, featured_artists)`` from a recording's credited artists.
+
+    The first credit is the main artist, every further one is featured. Names
+    stay whole, so "Bob Marley & The Wailers" is one artist, not two.
+    """
+    names = [a if isinstance(a, str) else str(a.get("name") or "") for a in artists_raw]
+    names = [n.strip() for n in names if n and n.strip()]
+    if not names:
+        return None, ()
+    return names[0], tuple(names[1:])
+
+
+def _normalise_title(title: str) -> str:
+    return " ".join(re.sub(r"[^\w]", " ", title.lower()).split())
+
+
+def _rec_sort_key(preferred_title: str | None) -> Callable[[dict], tuple[int, int, int]]:
+    wanted = _normalise_title(preferred_title or "")
+
+    def key(rec: dict) -> tuple[int, int, int]:
+        title = rec.get("title") or ""
+        matches = 1 if wanted and _normalise_title(title) == wanted else 0
+        no_parens = 0 if "(" in title else 1
+        return (matches, int(rec.get("sources") or 0), no_parens)
+
+    return key
+
+
+def pick_recording(recordings: list[dict], preferred_title: str | None) -> dict:
+    """Choose which of a fingerprint's MusicBrainz recordings names the song.
+
+    A recording titled like ``preferred_title`` (video title or file tag,
+    ignoring case and punctuation spacing) wins; otherwise the one with the
+    most AcoustID submissions, titles without parentheses breaking ties.
+    """
+    return max(recordings, key=_rec_sort_key(preferred_title))
+
+
+def get_acoustid_metadata(
+    audio_path: Path, api_key: str, preferred_title: str | None = None
+) -> AcoustidMatch:
+    """Fingerprint via AcoustID and return the best recording's id, title and credited artists.
+
+    ``preferred_title`` is what the video or file calls the song; among the
+    recordings AcoustID links to the fingerprint, one with that title wins.
+    Every field is None on failure or low confidence.
     The title/artist come directly from the AcoustID/MusicBrainz response and
     reflect the canonical song name — useful as a fallback when the filename
     contains noise like '(Official Video)'.
@@ -97,7 +144,7 @@ def get_acoustid_metadata(
         import acoustid
     except ImportError:
         logger.warning("[AcoustID] pyacoustid not installed")
-        return None, None, None
+        return _NO_MATCH
 
     # Step 1: generate fingerprint separately so we can log what's actually sent.
     logger.info("[AcoustID] Fingerprinting: %s", audio_path.name)
@@ -109,17 +156,17 @@ def get_acoustid_metadata(
         )
     except acoustid.FingerprintGenerationError as exc:
         logger.warning("[AcoustID] Fingerprint generation failed: %s", exc)
-        return None, None, None
+        return _NO_MATCH
     except Exception as exc:
         logger.warning("[AcoustID] Fingerprint step failed (%s): %s", type(exc).__name__, exc)
-        return None, None, None
+        return _NO_MATCH
 
     if not fingerprint or duration <= 0:
         logger.warning(
             "[AcoustID] Empty fingerprint or zero duration (duration=%.1f) — skipping lookup",
             duration,
         )
-        return None, None, None
+        return _NO_MATCH
 
     # Step 2: raw lookup with sources so we can pick the most-voted recording.
     params = urllib.parse.urlencode({
@@ -140,45 +187,37 @@ def get_acoustid_metadata(
     except urllib.error.HTTPError as exc:
         _probe_key(api_key)
         logger.warning("[AcoustID] HTTP %s during lookup", exc.code)
-        return None, None, None
+        return _NO_MATCH
     except Exception as exc:
         logger.warning("[AcoustID] Lookup failed (%s): %s", type(exc).__name__, exc)
-        return None, None, None
+        return _NO_MATCH
 
     if data.get("status") != "ok":
         logger.warning("[AcoustID] Non-ok status: %s", data.get("status"))
-        return None, None, None
+        return _NO_MATCH
 
     results: list[dict] = data.get("results") or []
     if not results:
         logger.warning("[AcoustID] No matches for %s", audio_path.name)
-        return None, None, None
+        return _NO_MATCH
 
     # Take the highest-scored result above the threshold.
     best_result = max(results, key=lambda r: r.get("score", 0.0))
     score: float = float(best_result.get("score", 0.0))
     if score < 0.5:
         logger.warning("[AcoustID] Best score %.3f below 0.5 — discarding", score)
-        return None, None, None
+        return _NO_MATCH
 
     recordings: list[dict] = best_result.get("recordings") or []
     if not recordings:
         logger.warning("[AcoustID] Score %.3f match has no linked recordings", score)
-        return None, None, None
+        return _NO_MATCH
 
-    # Pick the recording with the most sources (community votes).
-    # Titles without parentheses are preferred as a tiebreaker.
-    def _rec_sort_key(rec: dict) -> tuple[int, int]:
-        sources = int(rec.get("sources") or 0)
-        title = rec.get("title") or ""
-        no_parens = 0 if re.search(r'\(', title) else 1
-        return (sources, no_parens)
-
-    recordings_sorted = sorted(recordings, key=_rec_sort_key, reverse=True)
-    best_rec = recordings_sorted[0]
+    best_rec = pick_recording(recordings, preferred_title)
+    recordings_sorted = sorted(recordings, key=_rec_sort_key(preferred_title), reverse=True)
 
     logger.info(
-        "[AcoustID] %d recording(s) for score=%.3f — picked by sources:",
+        "[AcoustID] %d recording(s) for score=%.3f — picked by title match, then sources:",
         len(recordings), score,
     )
     for rec in recordings_sorted:
@@ -195,16 +234,13 @@ def get_acoustid_metadata(
     recording_id: str | None = best_rec.get("id")
     aid_title: str | None = best_rec.get("title")
     artists_raw = best_rec.get("artists") or []
-    aid_artist: str | None = ", ".join(
-        a if isinstance(a, str) else a.get("name", "?") for a in artists_raw
-    ) or None
+    aid_artist, featured = split_credits(artists_raw)
 
     if not recording_id:
         logger.warning("[AcoustID] No MusicBrainz recording_id — title/artist from user metadata only")
 
-    return recording_id, aid_title, aid_artist
+    return AcoustidMatch(recording_id, aid_title, aid_artist, featured)
 
 
 def get_recording_id(audio_path: Path, api_key: str) -> str | None:
-    recording_id, _, _ = get_acoustid_metadata(audio_path, api_key)
-    return recording_id
+    return get_acoustid_metadata(audio_path, api_key).recording_id

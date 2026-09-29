@@ -51,6 +51,27 @@ _FEAT_IN_ARTIST_RE = re.compile(
 )
 
 
+# Which cut or release of a recording, not part of the song's name:
+# "(single-edit)", "[Radio Edit]", "(2002 Remaster)", "- Remastered 2009", "(mono)", "(live)".
+_VERSION_WORDS = (
+    r"(?:single|radio|album|original|extended|short)?[\s\-]*(?:edit|version|mix)|"
+    r"(?:(?:19|20)\d{2}\s*)?(?:digital(?:ly)?\s*)?remaster(?:ed)?(?:\s+(?:19|20)\d{2})?(?:\s+version)?|"
+    r"mono|stereo|live"
+)
+_VERSION_BRACKET_RE = re.compile(rf"\s*[\(\[]\s*(?:{_VERSION_WORDS})\s*[\)\]]", re.IGNORECASE)
+_VERSION_DASH_RE = re.compile(rf"\s+-\s+(?:{_VERSION_WORDS})\s*$", re.IGNORECASE)
+
+
+def strip_version_markers(title: str) -> str:
+    """Drop edit/remaster/mono/live markers so every cut of a song carries the same name.
+
+    Named remixes ("Titanium (David Guetta Remix)") are different songs and stay.
+    """
+    title = _VERSION_BRACKET_RE.sub("", title)
+    title = _VERSION_DASH_RE.sub("", title)
+    return title.strip()
+
+
 def clean_title(text: str) -> str:
     """Remove common YouTube/video-upload noise from a song title or artist string."""
     text = _NOISE_BRACKET_RE.sub("", text)
