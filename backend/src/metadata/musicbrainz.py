@@ -2,6 +2,7 @@
 import json
 import logging
 import re
+import threading
 import time
 import unicodedata
 import urllib.error
@@ -43,6 +44,8 @@ _FIRST_ARTIST_RE = re.compile(r",\s*|\s+&\s+|\s+x\s+|\s+and\s+|\s+(?:feat\.?|ft\
 
 # MusicBrainz answers 503 when more than ~1 request/second arrives from one IP.
 _MB_ATTEMPTS = 3
+_MB_MIN_INTERVAL_SECONDS = 1.1
+_MB_REQUEST_LOCK = threading.Lock()
 _MB_BUSY_CODES = (429, 503)
 _MB_BUSY_BACKOFF_SECONDS = 3
 
@@ -383,23 +386,15 @@ def _mb_json_get(path: str, params: dict[str, str]) -> dict | None:
     A busy server (503/429) is asked again after a pause; None only when every
     attempt failed.
     """
-    global _mb_last_json_ts
     query = urllib.parse.urlencode({**params, "fmt": "json"})
     url = f"https://musicbrainz.org/ws/2/{path}?{query}"
     ua = f"{_MB_USERAGENT[0]}/{_MB_USERAGENT[1]} ( {_MB_USERAGENT[2]} )"
     req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": "application/json"})
 
     for attempt in range(1, _MB_ATTEMPTS + 1):
-        wait = 1.1 - (time.time() - _mb_last_json_ts)
-        if wait > 0:
-            time.sleep(wait)
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode())
-            _mb_last_json_ts = time.time()
-            return data
+            return _mb_send(req)
         except urllib.error.HTTPError as exc:
-            _mb_last_json_ts = time.time()
             if exc.code not in _MB_BUSY_CODES or attempt == _MB_ATTEMPTS:
                 logger.warning("[MusicBrainz] JSON API failed (HTTP %s) for %s", exc.code, path)
                 return None
@@ -408,9 +403,26 @@ def _mb_json_get(path: str, params: dict[str, str]) -> dict | None:
             time.sleep(pause)
         except Exception as exc:
             logger.warning("[MusicBrainz] JSON API failed (%s): %s", type(exc).__name__, exc)
-            _mb_last_json_ts = time.time()
             return None
     return None
+
+
+def _mb_send(req: urllib.request.Request) -> dict:
+    """One request, at most one at a time and ``_MB_MIN_INTERVAL_SECONDS`` apart across all threads.
+
+    Several songs are identified in parallel; MusicBrainz answers 503 to
+    more than about one request per second from the same address.
+    """
+    global _mb_last_json_ts
+    with _MB_REQUEST_LOCK:
+        wait = _MB_MIN_INTERVAL_SECONDS - (time.time() - _mb_last_json_ts)
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read().decode())
+        finally:
+            _mb_last_json_ts = time.time()
 
 
 def _search_recording_ids(title: str, artist: str) -> list[str]:
