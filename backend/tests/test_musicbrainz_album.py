@@ -366,6 +366,15 @@ def test_soundtracks_only_count_for_fingerprinted_songs():
     assert album_from_search(search, "Spring", "Antonio Vivaldi") == ("game", "Mario & Sonic Original Soundtrack")
 
 
+def test_canonical_prefers_the_full_artist_over_its_first_name():
+    search = {"recordings": [
+        _credited_hit("Could You Be Loved", "Bob Marley"),
+        _credited_hit("Could You Be Loved", "Bob Marley & The Wailers"),
+    ]}
+    identity = canonical_from_search(search, "Could You Be Loved", "Bob Marley & The Wailers")
+    assert identity is not None and identity.artist == "Bob Marley & The Wailers"
+
+
 def test_canonical_prefers_the_exact_case():
     search = {"recordings": [_credited_hit("7 Rings", "Ariana Grande"), _credited_hit("7 rings", "Ariana Grande")]}
     identity = canonical_from_search(search, "7 rings", "Ariana Grande")

@@ -108,18 +108,29 @@ def _has_surname(rec: dict, surname: str) -> bool:
     return bool(comma) and bool(surname) and _comparable(family) == surname
 
 
-def _is_by(rec: dict, wanted_artist: str) -> bool:
-    """True when the recording's main artist is ``wanted_artist`` (already :func:`_comparable`).
+def _artist_match(rec: dict, wanted_artist: str) -> int | None:
+    """How well the recording's main artist fits ``wanted_artist`` (already :func:`_comparable`).
 
-    Accepts the same artist, the first of several ("Lady Gaga" for "Lady Gaga,
-    Bradley Cooper"), or a person of that surname ("Beethoven" → "Ludwig van
-    Beethoven", not the band "Electric Beethoven").
+    0 — the same artist; 1 — a person of that surname ("Beethoven" → "Ludwig
+    van Beethoven", not the band "Electric Beethoven"); 2 — the first of
+    several ("Lady Gaga" for "Lady Gaga, Bradley Cooper"); None — no fit.
     """
     identity = recording_identity(rec)
     main = _comparable(identity.artist) if identity else ""
-    return bool(main) and (
-        wanted_artist == main or wanted_artist.startswith(main + " ") or _has_surname(rec, wanted_artist)
-    )
+    if not main:
+        return None
+    if wanted_artist == main:
+        return 0
+    if _has_surname(rec, wanted_artist):
+        return 1
+    if wanted_artist.startswith(main + " "):
+        return 2
+    return None
+
+
+def _is_by(rec: dict, wanted_artist: str) -> bool:
+    """True when the recording's main artist fits ``wanted_artist`` in any way :func:`_artist_match` accepts."""
+    return _artist_match(rec, wanted_artist) is not None
 
 
 def canonical_from_search(search_data: dict, title: str, artist: str) -> RecordingIdentity | None:
@@ -131,18 +142,20 @@ def canonical_from_search(search_data: dict, title: str, artist: str) -> Recordi
     when no recording fits, e.g. a performer credited for a composer's piece.
     """
     wanted_title, wanted_artist = _comparable(title), _comparable(artist)
-    matches: list[RecordingIdentity] = []
+    wanted = strip_version_markers(title)
+    ranked: list[tuple[int, int, RecordingIdentity]] = []
     for rec in search_data.get("recordings") or []:
         identity = recording_identity(rec)
         if identity is None or _comparable(identity.title) != wanted_title:
             continue
-        if _is_by(rec, wanted_artist):
-            matches.append(identity)
-    # "Gymnopédie" over "Gymnopedie" when the video spells it that way.
-    wanted = strip_version_markers(title)
-    same_case = [m for m in matches if m.title == wanted]
-    same_letters = [m for m in matches if m.title.casefold() == wanted.casefold()]
-    return (same_case or same_letters or matches or [None])[0]
+        artist_rank = _artist_match(rec, wanted_artist)
+        if artist_rank is None:
+            continue
+        # "Gymnopédie" over "Gymnopedie", "7 rings" over "7 Rings" when the video spells it that way.
+        spelling_rank = 0 if identity.title == wanted else 1 if identity.title.casefold() == wanted.casefold() else 2
+        ranked.append((artist_rank, spelling_rank, identity))
+    # The full "Bob Marley & The Wailers" beats a recording credited to just "Bob Marley".
+    return min(ranked, key=lambda r: (r[0], r[1]))[2] if ranked else None
 
 
 def fetch_canonical_recording(title: str, artist: str) -> RecordingIdentity | None:
