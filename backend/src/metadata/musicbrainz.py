@@ -70,7 +70,8 @@ def _credit_name(credit: dict) -> str:
     "Tchaikovsky, Pyotr Ilyich" → "Pyotr Ilyich Tchaikovsky".
     """
     artist = credit.get("artist") or {}
-    name = str(artist.get("name") or credit.get("name") or "")
+    # As credited on the recording ("Kanye West"), not the artist's current name ("Ye").
+    name = str(credit.get("name") or artist.get("name") or "")
     family, comma, given = str(artist.get("sort-name") or "").partition(",")
     if name and not _is_latin(name) and comma and _is_latin(family + given):
         return f"{given.strip()} {family.strip()}".strip()
@@ -186,13 +187,19 @@ _ALBUM_SEARCH_LIMIT = 100
 _FIRST_RELEASE_LOOKUPS = 4
 
 
+def _first_credit_is(credits: list[dict], artist: str) -> bool:
+    """True when the first credit names ``artist``, as credited ("Kanye West") or under the artist's current name ("Ye")."""
+    if not credits:
+        return False
+    first = credits[0]
+    names = {str(first.get("name") or ""), str((first.get("artist") or {}).get("name") or "")}
+    return artist.casefold() in {n.casefold() for n in names if n}
+
+
 def _released_by(release: dict, artist: str) -> bool:
     """True when the release's first credited artist is ``artist``; releases without own credit inherit the recording's."""
     credits = release.get("artist-credit") or []
-    if not credits:
-        return True
-    name = str((credits[0].get("artist") or {}).get("name") or credits[0].get("name") or "")
-    return name.casefold() == artist.casefold()
+    return not credits or _first_credit_is(credits, artist)
 
 
 def _same_song_title(a: str, b: str) -> bool:
@@ -205,9 +212,7 @@ def _song_album_candidates(
     """Album candidates from search hits with the same title by the same main artist, on that artist's releases."""
     candidates: list[_AlbumCandidate] = []
     for rec in search_data.get("recordings") or []:
-        credits = rec.get("artist-credit") or []
-        main = str(((credits[0] if credits else {}).get("artist") or {}).get("name") or "")
-        if _same_song_title(str(rec.get("title") or ""), title) and main.casefold() == artist.casefold():
+        if _same_song_title(str(rec.get("title") or ""), title) and _first_credit_is(rec.get("artist-credit") or [], artist):
             candidates.extend(
                 c for c in (
                     _album_candidate(rel, allow_soundtracks)

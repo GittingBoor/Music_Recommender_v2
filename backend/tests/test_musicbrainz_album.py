@@ -366,6 +366,20 @@ def test_soundtracks_only_count_for_fingerprinted_songs():
     assert album_from_search(search, "Spring", "Antonio Vivaldi") == ("game", "Mario & Sonic Original Soundtrack")
 
 
+def test_an_artist_credited_under_an_old_name_still_counts():
+    credit = [{"name": "Kanye West", "artist": {"name": "Ye", "sort-name": "Ye"}}]
+    release = _release("grad", "Graduation", "Album", "2007-09-11")
+    release["artist-credit"] = credit
+    search = {"recordings": [{"title": "Stronger", "score": 100, "artist-credit": credit, "releases": [release]}]}
+    assert album_from_search(search, "Stronger", "Kanye West") == ("grad", "Graduation")
+
+
+def test_recording_identity_uses_the_credited_name():
+    rec = {"title": "Stronger", "artist-credit": [{"name": "Kanye West", "artist": {"name": "Ye", "sort-name": "Ye"}}]}
+    identity = recording_identity(rec)
+    assert identity is not None and identity.artist == "Kanye West"
+
+
 def test_canonical_prefers_the_full_artist_over_its_first_name():
     search = {"recordings": [
         _credited_hit("Could You Be Loved", "Bob Marley"),
