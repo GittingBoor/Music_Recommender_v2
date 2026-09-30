@@ -214,7 +214,8 @@ def _identify(audio_file: Path, hint: IdentityHint | None) -> dict:
 
 def _analyse(audio_file: Path, metadata: dict, song_id: str | None, origin: SongOrigin | None) -> dict:
     """DSP/ML analysis and save; call with the analysis lock held."""
-    from src.analysis.pipeline import run_full_pipeline, _save_to_database
+    from src.analysis.pipeline import _save_to_database
+    from src.analysis.worker import get_analysis_worker
 
     # Another download of the same song may have been saved while this one was identified.
     if _already_saved(song_id, metadata.get("acoustid_id")):
@@ -222,7 +223,7 @@ def _analyse(audio_file: Path, metadata: dict, song_id: str | None, origin: Song
         return _skipped("duplicate", metadata, song_id)
 
     logger.info("[Ingest] Processing %s", audio_file.name)
-    result = run_full_pipeline(audio_file, metadata=metadata)
+    result = get_analysis_worker().analyse(audio_file, metadata)
     _save_to_database(result, audio_file, origin)
 
     title  = str((result.get("metadata") or {}).get("title")  or "") or None

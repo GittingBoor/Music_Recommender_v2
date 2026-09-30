@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from src.analysis import pipeline
+from src.analysis.worker import AnalysisWorker
 from src.api.routes import admin
 
 _META = {"title": "Get Lucky", "artist": "Daft Punk", "acoustid_id": "rec-1"}
@@ -17,12 +18,12 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
         held["metadata"] = admin._ANALYSIS_LOCK.locked()
         return None, dict(_META), "song-1"
 
-    def analyse(audio: Path, metadata: dict | None = None) -> dict:
+    def analyse(worker: AnalysisWorker, audio: Path, metadata: dict) -> dict:
         held["analysis"] = admin._ANALYSIS_LOCK.locked()
         return {"metadata": metadata}
 
     monkeypatch.setattr(pipeline, "precheck_skip", precheck)
-    monkeypatch.setattr(pipeline, "run_full_pipeline", analyse)
+    monkeypatch.setattr(AnalysisWorker, "analyse", analyse)
     monkeypatch.setattr(pipeline, "_save_to_database", lambda result, audio, origin=None: None)
     monkeypatch.setattr(admin, "_get_duration_seconds", lambda audio: 200.0)
     monkeypatch.setattr(admin, "_update_umap_for_song", lambda song_id: None)
