@@ -157,6 +157,7 @@ export function SongDetailPage({ songs, songId }: Props) {
   // Everything but the timeseries is already in the song list; the per-second
   // arrays are large, so they are only fetched for the song being viewed.
   const [timeseries, setTimeseries] = useState<SongDetailTimeseries | null>(null);
+  const [tonalTimeseries, setTonalTimeseries] = useState<number[] | null>(null);
   const [tsError,    setTsError]    = useState<string | null>(null);
   const [visibleTs,  setVisibleTs]  = useState<Set<string>>(
     new Set(["loudness", "arousal", "valence", "happy"]),
@@ -167,9 +168,14 @@ export function SongDetailPage({ songs, songId }: Props) {
     if (!exists) return;
     let cancelled = false;
     setTimeseries(null);
+    setTonalTimeseries(null);
     setTsError(null);
     fetchSongDetail(songId)
-      .then((d) => { if (!cancelled) setTimeseries(d.timeseries); })
+      .then((d) => {
+        if (cancelled) return;
+        setTimeseries(d.timeseries);
+        setTonalTimeseries(d.tonal_timeseries);
+      })
       .catch((e: Error) => { if (!cancelled) setTsError(e.message); });
     return () => { cancelled = true; };
   }, [songId, exists]);
@@ -545,7 +551,7 @@ export function SongDetailPage({ songs, songId }: Props) {
         {/* Raw values — every stored field, as in the database */}
         <div className="border-t border-line-strong pt-5">
           <Figure title="All Stored Fields" note="raw database values">
-            <SongDetails song={song} />
+            <SongDetails song={song} tonalTimeseries={tonalTimeseries} />
           </Figure>
         </div>
 

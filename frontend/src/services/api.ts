@@ -1,5 +1,5 @@
 import type { Song } from "../types/song";
-import type { UmapResponse } from "../types/umap";
+import type { UmapResponse, UmapStatus } from "../types/umap";
 import type { CorrelationResponse, TimeAxisMode, TimeseriesResponse, SongDetail } from "../types/analysis";
 
 export async function fetchSongs(): Promise<Song[]> {
@@ -30,6 +30,12 @@ export async function fetchUmap(features?: string[]): Promise<UmapResponse> {
   const params =
     features && features.length > 0 ? `?features=${features.join(",")}` : "";
   const res = await fetch(`/api/umap${params}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function fetchUmapStatus(): Promise<UmapStatus> {
+  const res = await fetch("/api/umap/status");
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }

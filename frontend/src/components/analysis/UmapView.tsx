@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { Song } from "../../types/song";
-import type { UmapResponse } from "../../types/umap";
+import type { UmapResponse, UmapStatus } from "../../types/umap";
 import type { PreviewSegment } from "../../services/api";
-import { fetchPreviewSegment, fetchUmap } from "../../services/api";
+import { fetchPreviewSegment, fetchUmap, fetchUmapStatus } from "../../services/api";
+import { loadDefaultUmap } from "../../services/umapCache";
 import { getSnapshot, playPreview, subscribe, toggle } from "../../audio/player";
 import { Link, songPath } from "../../router";
 import { UmapCanvas2D } from "./UmapCanvas2D";
@@ -45,7 +46,6 @@ const FEATURE_OPTIONS = [
 type FeatureValue = (typeof FEATURE_OPTIONS)[number]["value"];
 type FeatureMode  = "all" | "custom";
 
-const ALL_FEATURE_VALUES: string[] = FEATURE_OPTIONS.map((o) => o.value);
 const FEATURE_LABEL: Record<string, string> = Object.fromEntries(
   FEATURE_OPTIONS.map((o) => [o.value, o.label])
 );
@@ -456,6 +456,75 @@ function SongInfoPanel({ song }: { song: Song }) {
   );
 }
 
+// ─── Fit progress ─────────────────────────────────────────────────────────────
+
+const STATUS_POLL_MS = 1_000;
+/** The bar never fills completely on an estimate; the map replacing it is the 100%. */
+const MAX_ESTIMATED_PROGRESS = 0.95;
+
+/** Polls the server-side fit while `active`; null until the first answer. */
+function useUmapStatus(active: boolean): UmapStatus | null {
+  const [status, setStatus] = useState<UmapStatus | null>(null);
+
+  useEffect(() => {
+    if (!active) {
+      setStatus(null);
+      return;
+    }
+    let cancelled = false;
+    const poll = () => {
+      fetchUmapStatus()
+        .then((s) => { if (!cancelled) setStatus(s); })
+        .catch(() => { /* the map request itself reports errors */ });
+    };
+    poll();
+    const id = window.setInterval(poll, STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [active]);
+
+  return status;
+}
+
+/** Loading overlay of the plot: a time-based estimate while the server fits, a sweep otherwise. */
+function UmapLoading({ status }: { status: UmapStatus | null }) {
+  const fitting = status?.phase === "fitting";
+  const remaining = fitting ? Math.ceil(status.estimated_seconds - status.elapsed_seconds) : 0;
+  const progress = fitting
+    ? Math.min(MAX_ESTIMATED_PROGRESS, status.elapsed_seconds / status.estimated_seconds)
+    : 0;
+
+  return (
+    <>
+      <div className="absolute inset-x-0 top-0 h-[2px] overflow-hidden z-20">
+        {fitting ? (
+          <div
+            className="h-full bg-signal transition-[width] duration-1000 ease-linear motion-reduce:transition-none"
+            style={{ width: `${progress * 100}%` }}
+            role="progressbar"
+            aria-label="UMAP computation"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress * 100)}
+          />
+        ) : (
+          <div className="sweep h-full w-1/4 bg-signal" />
+        )}
+      </div>
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 z-10 bg-ground/70">
+        <p className="font-mono text-xs text-ink-2">Computing UMAP…</p>
+        {fitting && (
+          <p className="font-mono text-2xs text-ink-3 tabular-nums">
+            {remaining > 0 ? `about ${remaining}s left` : "taking longer than last time"}
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
 // ─── Main UMAP view ───────────────────────────────────────────────────────────
 
 interface Props { songs: Song[] }
@@ -495,24 +564,35 @@ export function UmapView({ songs }: Props) {
     return top ? (genreColorMap[top.genre] ?? GENRE_PALETTE[0]) : GENRE_PALETTE[0];
   }, [songMap, genreColorMap]);
 
-  const loadUmap = useCallback(async (features: string[]) => {
-    setLoading(true);
+  // Only the newest request may write its result.
+  const requestRef = useRef(0);
+  const loadUmap = useCallback(async (request: Promise<UmapResponse>, showLoading: boolean) => {
+    const id = ++requestRef.current;
+    if (showLoading) setLoading(true);
     setError(null);
     try {
-      const data = await fetchUmap(features);
-      setUmapData(data);
+      const data = await request;
+      if (id === requestRef.current) setUmapData(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      if (id === requestRef.current) setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
-      setLoading(false);
+      if (id === requestRef.current) setLoading(false);
     }
   }, []);
 
   // Changes apply immediately — switching mode or swapping an axis reloads.
+  // A grown library only refreshes the map in place, without the loading overlay.
+  const songCount = songs.length;
+  const shownModeRef = useRef<string | null>(null);
   useEffect(() => {
-    if (featureMode === "all") loadUmap(ALL_FEATURE_VALUES);
-    else loadUmap([customX, customY]);
-  }, [featureMode, customX, customY, loadUmap]);
+    const mode = featureMode === "all" ? "all" : `${customX}/${customY}`;
+    const modeChanged = shownModeRef.current !== mode;
+    shownModeRef.current = mode;
+    if (featureMode === "all") loadUmap(loadDefaultUmap(songCount), modeChanged);
+    else loadUmap(fetchUmap([customX, customY]), modeChanged);
+  }, [featureMode, customX, customY, songCount, loadUmap]);
+
+  const fitStatus = useUmapStatus(loading && featureMode === "all");
 
   const xLabel2D = featureMode === "custom" ? (FEATURE_LABEL[customX] ?? "") : "";
   const yLabel2D = featureMode === "custom" ? (FEATURE_LABEL[customY] ?? "") : "";
@@ -639,16 +719,7 @@ export function UmapView({ songs }: Props) {
           </svg>
           {featureMode === "all" ? "UMAP" : "Custom"} · Legend
         </button>
-        {loading && (
-          <>
-            <div className="absolute inset-x-0 top-0 h-[2px] overflow-hidden z-20">
-              <div className="sweep h-full w-1/4 bg-signal" />
-            </div>
-            <div className="absolute inset-0 flex items-center justify-center z-10 bg-ground/70">
-              <p className="font-mono text-xs text-ink-2">Computing UMAP…</p>
-            </div>
-          </>
-        )}
+        {loading && <UmapLoading status={fitStatus} />}
         {error && !loading && (
           <div className="absolute inset-0 flex items-center justify-center">
             <p className="font-mono text-xs text-bad">Error: {error}</p>

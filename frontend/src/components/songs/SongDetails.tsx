@@ -100,8 +100,8 @@ function MultiTable({ name, columns, rows }: { name: string; columns: string[]; 
 }
 
 /** Full dump of every stored field for one song — the last section of the
- *  song detail page. */
-export function SongDetails({ song }: { song: Song }) {
+ *  song detail page. `tonalTimeseries` is loaded with the detail, not the song list. */
+export function SongDetails({ song, tonalTimeseries }: { song: Song; tonalTimeseries: number[] | null }) {
   const dsp = song.dsp_features;
   const profile = song.ml_profile;
   const moods = song.ml_moods;
@@ -221,7 +221,7 @@ export function SongDetails({ song }: { song: Song }) {
           ['gmbi_timeliness', other.gmbi_timeliness],
           ['gmbi_complexity', other.gmbi_complexity],
           ['tonal', other.tonal],
-          ['tonal_timeseries', other.tonal_timeseries],
+          ['tonal_timeseries', tonalTimeseries],
           ['hpcp_mean', other.hpcp_mean],
           ['tristimulus_mean', other.tristimulus_mean],
         ]} />

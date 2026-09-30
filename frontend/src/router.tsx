@@ -70,4 +70,6 @@ export function Link({ to, onClick, ...rest }: LinkProps) {
 }
 
 export const songPath = (id: string) => `/songs/${encodeURIComponent(id)}`;
-export const recommenderPath = (id: string) => `/recommender/${encodeURIComponent(id)}`;
+/** Nearest-neighbours recommender, optionally with its seed song. */
+export const NEIGHBORS_PATH = "/recommender/neighbors";
+export const recommenderPath = (id: string) => `${NEIGHBORS_PATH}/${encodeURIComponent(id)}`;
