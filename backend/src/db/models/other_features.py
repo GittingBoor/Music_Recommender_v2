@@ -2,7 +2,7 @@ from sqlalchemy import Float, ForeignKey, String
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.db.models.base import Base
+from src.db.models.base import Base, timeseries_column
 
 
 class OtherFeatures(Base):
@@ -30,7 +30,7 @@ class OtherFeatures(Base):
 
     # Tonal/Atonal (MusiCNN) — probability of "tonal" class, 0..1
     tonal: Mapped[float | None] = mapped_column(Float)
-    tonal_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    tonal_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     # Low-level harmony (Essentia, no external model needed)
     hpcp_mean: Mapped[list[float] | None] = mapped_column(ARRAY(Float))        # 12-bin chroma

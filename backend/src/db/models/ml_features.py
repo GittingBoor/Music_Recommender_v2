@@ -2,7 +2,7 @@ from sqlalchemy import Float, ForeignKey, String
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.db.models.base import Base
+from src.db.models.base import Base, timeseries_column
 
 
 class MLProfileFeatures(Base):
@@ -19,25 +19,25 @@ class MLProfileFeatures(Base):
 
     niche_score: Mapped[float | None] = mapped_column(Float)
     mainstream_score: Mapped[float | None] = mapped_column(Float)
-    approachability_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    approachability_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     background_score: Mapped[float | None] = mapped_column(Float)
     active_score: Mapped[float | None] = mapped_column(Float)
-    engagement_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    engagement_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     instrumental_score: Mapped[float | None] = mapped_column(Float)
     vocal_score: Mapped[float | None] = mapped_column(Float)
-    voice_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    voice_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     female_score: Mapped[float | None] = mapped_column(Float)
     male_score: Mapped[float | None] = mapped_column(Float)
-    gender_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    gender_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     arousal: Mapped[float | None] = mapped_column(Float)                    # 0–1
-    arousal_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    arousal_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     valence: Mapped[float | None] = mapped_column(Float)                    # 0–1
-    valence_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    valence_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     song: Mapped["Song"] = relationship(back_populates="ml_profile")
 
@@ -48,24 +48,24 @@ class MLMoodFeatures(Base):
     id: Mapped[str] = mapped_column(String(22), ForeignKey("songs.id"), primary_key=True)
 
     happy: Mapped[float | None] = mapped_column(Float)
-    happy_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    happy_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     sad: Mapped[float | None] = mapped_column(Float)
-    sad_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    sad_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     aggressive: Mapped[float | None] = mapped_column(Float)
-    aggressive_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    aggressive_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     party: Mapped[float | None] = mapped_column(Float)
-    party_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    party_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     relaxed: Mapped[float | None] = mapped_column(Float)
-    relaxed_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    relaxed_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     acoustic: Mapped[float | None] = mapped_column(Float)
-    acoustic_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    acoustic_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     electronic: Mapped[float | None] = mapped_column(Float)
-    electronic_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    electronic_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     song: Mapped["Song"] = relationship(back_populates="ml_moods")

@@ -2,12 +2,13 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer_group
 
 from src.analysis.chorus import get_chorus_locator
 from src.api.deps import get_db
 from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
 from src.db.models import DSPFeatures, FileMetadata
+from src.db.models.base import TIMESERIES_GROUP
 from src.schemas.songs import PreviewSegmentSchema
 
 router = APIRouter()
@@ -52,7 +53,7 @@ def get_preview_segment(song_id: str, db: Session = Depends(get_db)):
     The client plays the full audio file and seeks to this offset, so no
     separate preview file has to be cut.
     """
-    dsp = db.get(DSPFeatures, song_id)
+    dsp = db.get(DSPFeatures, song_id, options=[undefer_group(TIMESERIES_GROUP)])
     meta = db.get(FileMetadata, song_id)
     if dsp is None or meta is None or not meta.duration_seconds:
         raise HTTPException(status_code=404, detail="No analysis data for this song")

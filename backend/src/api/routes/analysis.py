@@ -16,6 +16,7 @@ from src.analysis.timeseries_aggregation import (
 )
 from src.api.deps import get_db
 from src.db.models import Song
+from src.db.models.base import TIMESERIES_GROUP
 
 router = APIRouter()
 
@@ -153,18 +154,22 @@ def get_timeseries(
     if mood and mood not in MOOD_FIELDS:
         raise HTTPException(status_code=400, detail=f"Unknown mood '{mood}'")
 
+    table_attr, col = TIMESERIES_FEATURES[feature]
+    # Only the one requested array is loaded; all other timeseries stay deferred.
+    relation = getattr(Song, table_attr)
+    series_column = getattr(relation.property.mapper.class_, col)
+    loaders = {
+        "dsp_features": selectinload(Song.dsp_features),
+        "ml_profile": selectinload(Song.ml_profile),
+        "ml_moods": selectinload(Song.ml_moods),
+    }
+    loaders[table_attr] = loaders[table_attr].undefer(series_column)
+
     songs = (
         db.query(Song)
-        .options(
-            selectinload(Song.dsp_features),
-            selectinload(Song.ml_profile),
-            selectinload(Song.ml_moods),
-            selectinload(Song.file_metadata),
-        )
+        .options(*loaders.values(), selectinload(Song.file_metadata))
         .all()
     )
-
-    table_attr, col = TIMESERIES_FEATURES[feature]
 
     def get_series(song: Song) -> SongSeries:
         obj = getattr(song, table_attr, None)
@@ -237,9 +242,10 @@ def get_song_detail(song_id: str, db: Session = Depends(get_db)) -> dict[str, An
             selectinload(Song.parent_genres),
             selectinload(Song.detailed_genres),
             selectinload(Song.instruments),
-            selectinload(Song.ml_profile),
-            selectinload(Song.ml_moods),
-            selectinload(Song.dsp_features),
+            selectinload(Song.ml_profile).undefer_group(TIMESERIES_GROUP),
+            selectinload(Song.ml_moods).undefer_group(TIMESERIES_GROUP),
+            selectinload(Song.dsp_features).undefer_group(TIMESERIES_GROUP),
+            selectinload(Song.other_features).undefer_group(TIMESERIES_GROUP),
         )
         .filter(Song.id == song_id)
         .first()
@@ -280,6 +286,8 @@ def get_song_detail(song_id: str, db: Session = Depends(get_db)) -> dict[str, An
         "title":      song.title,
         "artist":     song.artist,
         "timeseries": ts,
+        # Not in the song list (too large); the detail page shows it with the raw fields.
+        "tonal_timeseries": song.other_features.tonal_timeseries if song.other_features else None,
     }
 
     if song.dsp_features:
