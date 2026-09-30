@@ -12,6 +12,7 @@ import {
   stop,
   setVolume,
   setNnMode,
+  DEFAULT_VOLUME,
 } from "../audio/player";
 import type { Song } from "../types/song";
 
@@ -36,7 +37,7 @@ export function PlayerBar({ songs }: Props) {
   const [nnHint, setNnHint]            = useState(false);
 
   const barRef = useRef<HTMLDivElement>(null);
-  const lastVolumeRef = useRef(volume || 1);
+  const lastVolumeRef = useRef(volume || DEFAULT_VOLUME);
 
   // Attach timeupdate / metadata listeners directly to the audio element.
   // Re-attaches whenever currentId changes (new audio source loaded).
@@ -105,7 +106,7 @@ export function PlayerBar({ songs }: Props) {
       lastVolumeRef.current = volume;
       setVolume(0);
     } else {
-      setVolume(lastVolumeRef.current || 1);
+      setVolume(lastVolumeRef.current || DEFAULT_VOLUME);
     }
   }
 
