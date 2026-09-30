@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Song } from "../../types/song";
 import { Link, isPlainLeftClick, navigate, songPath } from "../../router";
 import { PlayButton } from "../PlayButton";
@@ -28,6 +28,11 @@ function fmtDuration(s: number): string {
 }
 
 const score = (v: number) => v.toFixed(2);
+
+/** Rows rendered at first and added each time the end of the table comes near. */
+const ROW_BATCH = 50;
+/** Distance from the last rendered row at which the next batch is added. */
+const LOAD_AHEAD_PX = 800;
 
 const MOOD_KEYS = ["happy", "sad", "aggressive", "party", "relaxed", "acoustic", "electronic"] as const;
 
@@ -117,8 +122,25 @@ export function ResultsTable({ songs, onVisibleOrderChange }: Props) {
     onVisibleOrderChange?.(sorted.map((s) => s.id));
   }, [sorted, onVisibleOrderChange]);
 
+  // Only a slice of the rows is in the DOM; scrolling towards the end adds more.
+  // The play queue above still covers every song, rendered or not.
+  const [rowLimit, setRowLimit] = useState(ROW_BATCH);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const hasMoreRows = rowLimit < sorted.length;
+  useEffect(() => {
+    const marker = loadMoreRef.current;
+    if (!marker || !hasMoreRows) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setRowLimit((n) => n + ROW_BATCH);
+    });
+    observer.observe(marker);
+    return () => observer.disconnect();
+    // rowLimit: re-observe after each batch, in case the marker is still in view.
+  }, [hasMoreRows, rowLimit]);
+
   // Click cycle per column: default direction → flipped → sorting off.
   const handleHeaderClick = (col: Column) => {
+    setRowLimit(ROW_BATCH);
     if (sortKey !== col.key) {
       setSortKey(col.key);
       setSortDir(col.defaultDir);
@@ -138,7 +160,7 @@ export function ResultsTable({ songs, onVisibleOrderChange }: Props) {
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full text-sm whitespace-nowrap">
         <thead>
           <tr className="border-b border-line-strong">
@@ -169,7 +191,7 @@ export function ResultsTable({ songs, onVisibleOrderChange }: Props) {
           </tr>
         </thead>
         <tbody>
-          {sorted.map((song) => (
+          {sorted.slice(0, rowLimit).map((song) => (
             <tr
               key={song.id}
               onClick={(e) => { if (isPlainLeftClick(e)) navigate(songPath(song.id)); }}
@@ -215,6 +237,14 @@ export function ResultsTable({ songs, onVisibleOrderChange }: Props) {
           ))}
         </tbody>
       </table>
+      {hasMoreRows && (
+        <div
+          ref={loadMoreRef}
+          aria-hidden="true"
+          className="absolute inset-x-0 bottom-0 pointer-events-none"
+          style={{ height: LOAD_AHEAD_PX }}
+        />
+      )}
     </div>
   );
 }
