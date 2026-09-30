@@ -25,8 +25,17 @@ export interface PlayerSnapshot {
 type Listener = () => void;
 /** Resolves a song's most similar songs, closest first. */
 type NeighborSource = (songId: string) => Promise<string[]>;
+/** Resolves a song's integrated loudness in LUFS, null when unknown. */
+type LoudnessSource = (songId: string) => number | null;
 
-const DEFAULT_VOLUME = 1;
+export const DEFAULT_VOLUME = 0.6;
+const VOLUME_STORAGE_KEY = "player.volume";
+/**
+ * Loudness every song is turned down to. An audio element cannot amplify, so
+ * the target sits below most masters: louder songs are attenuated to it,
+ * quieter ones play unchanged.
+ */
+const TARGET_LUFS = -16;
 /** Seconds into a track after which "previous" restarts it instead of going back. */
 const PREVIOUS_RESTART_THRESHOLD_S = 3;
 /** How many recently played songs to avoid when picking a neighbour. */
@@ -37,22 +46,54 @@ let _queue: string[] = [];
 let _state: PlayerSnapshot = {
   currentId: null,
   playing: false,
-  volume: DEFAULT_VOLUME,
+  volume: _storedVolume(),
   previewId: null,
   nnMode: false,
 };
 /** Set by the app so the player can look up similar songs without importing the API. */
 let _neighborSource: NeighborSource | null = null;
+/** Set by the app so songs can be levelled without the player knowing the library. */
+let _loudnessSource: LoudnessSource | null = null;
 /** Recently played IDs, newest last — keeps the radio from ping-ponging. */
 let _recent: string[] = [];
 /** Absolute time (s) at which the current preview stops, or null for full playback. */
 let _previewEnd: number | null = null;
 const _listeners = new Set<Listener>();
 
+function _storedVolume(): number {
+  try {
+    const stored = parseFloat(localStorage.getItem(VOLUME_STORAGE_KEY) ?? "");
+    return stored >= 0 && stored <= 1 ? stored : DEFAULT_VOLUME;
+  } catch {
+    return DEFAULT_VOLUME; // storage unavailable
+  }
+}
+
+/** Factor (0–1] that brings the song down to TARGET_LUFS; 1 when its loudness is unknown. */
+function _loudnessGain(songId: string | null): number {
+  const lufs = songId ? _loudnessSource?.(songId) ?? null : null;
+  if (lufs == null) return 1;
+  return Math.min(1, 10 ** ((TARGET_LUFS - lufs) / 20));
+}
+
+/** Output level: the slider on a perceptual (squared) curve, times the song's levelling gain. */
+function _applyVolume(): void {
+  if (_audio) _audio.volume = _state.volume ** 2 * _loudnessGain(_state.currentId);
+}
+
+/** Start the loaded song; a failure clears the player unless a newer song has taken over. */
+function _startPlayback(songId: string): void {
+  _getAudio().play().catch((e: unknown) => {
+    // Loading another song aborts this play() — that is not a failure.
+    if (e instanceof DOMException && e.name === "AbortError") return;
+    if (_state.currentId !== songId) return;
+    _emit({ ..._state, currentId: null, playing: false });
+  });
+}
+
 function _getAudio(): HTMLAudioElement {
   if (!_audio) {
     _audio = new Audio();
-    _audio.volume = _state.volume;
     _audio.addEventListener("play",  () => _emit({ ..._state, playing: true  }));
     _audio.addEventListener("pause", () => _emit({ ..._state, playing: false }));
     _audio.addEventListener("ended", () => next());
@@ -81,7 +122,8 @@ function _play(songId: string): void {
   _previewEnd = null;
   _remember(songId);
   _emit({ ..._state, currentId: songId, playing: false, previewId: null });
-  audio.play().catch(() => _emit({ ..._state, currentId: null, playing: false }));
+  _applyVolume();
+  _startPlayback(songId);
 }
 
 function _remember(songId: string): void {
@@ -91,6 +133,12 @@ function _remember(songId: string): void {
 /** Register the lookup used for nearest-neighbour playback. */
 export function setNeighborSource(source: NeighborSource): void {
   _neighborSource = source;
+}
+
+/** Register the lookup used to level songs to the same loudness. */
+export function setLoudnessSource(source: LoudnessSource): void {
+  _loudnessSource = source;
+  _applyVolume();
 }
 
 /** Turn nearest-neighbour playback on or off. */
@@ -136,7 +184,8 @@ export function playPreview(
   audio.addEventListener("loadedmetadata", seekToStart);
 
   _emit({ ..._state, currentId: songId, playing: false, previewId: songId });
-  audio.play().catch(() => _emit({ ..._state, currentId: null, playing: false }));
+  _applyVolume();
+  _startPlayback(songId);
 }
 
 function _indexOfCurrent(): number {
@@ -156,7 +205,7 @@ export function toggle(songId: string): void {
     if (_state.playing) {
       audio.pause();
     } else {
-      audio.play().catch(() => _emit({ ..._state, currentId: null, playing: false }));
+      _startPlayback(songId);
     }
   } else {
     _play(songId);
@@ -179,6 +228,8 @@ export function next(): void {
   const current = _state.currentId;
   if (_state.nnMode && current) {
     void _pickNeighbor(current).then((neighborId) => {
+      // The lookup takes a moment; if another song was started meanwhile, that choice wins.
+      if (_state.currentId !== current) return;
       if (neighborId) _play(neighborId);
       else _playNextInQueue();
     });
@@ -238,8 +289,9 @@ export function stop(): void {
 /** Set output volume in the range [0, 1]. */
 export function setVolume(volume: number): void {
   const clamped = Math.max(0, Math.min(1, volume));
-  if (_audio) _audio.volume = clamped;
+  try { localStorage.setItem(VOLUME_STORAGE_KEY, String(clamped)); } catch { /* storage unavailable */ }
   _emit({ ..._state, volume: clamped });
+  _applyVolume();
 }
 
 /** Seek to an absolute time in seconds. */
