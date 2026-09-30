@@ -9,6 +9,7 @@ all features and keeps its own cache.
 
 import logging
 import threading
+from collections.abc import Callable
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
@@ -32,20 +33,27 @@ class SimilarityIndex:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        # Serialises rebuilds so parallel requests do not each load the library.
+        self._build_lock = threading.Lock()
         self._neighbors: dict[str, list[str]] = {}
         self._song_count = 0
 
-    def neighbors_for(self, song_id: str, songs: list) -> list[str]:
+    def neighbors_for(self, song_id: str, song_count: int, load_songs: Callable[[], list]) -> list[str]:
         """Return the most similar song IDs, closest first.
 
         Args:
             song_id: The song to find neighbours for.
-            songs: All songs, with dsp/mood/profile relations loaded.
+            song_count: Current number of songs in the library.
+            load_songs: Loads all songs with dsp/mood/profile relations; only
+                called when the index has to be rebuilt.
 
         Returns:
             Neighbour IDs, or an empty list if the song or index is unavailable.
         """
-        self._ensure_built(songs)
+        if not self._is_current(song_count):
+            with self._build_lock:
+                if not self._is_current(song_count):
+                    self._build(load_songs())
         with self._lock:
             return list(self._neighbors.get(song_id, []))
 
@@ -57,11 +65,11 @@ class SimilarityIndex:
 
     # ── internals ──────────────────────────────────────────────────────────
 
-    def _ensure_built(self, songs: list) -> None:
+    def _is_current(self, song_count: int) -> bool:
         with self._lock:
-            if self._neighbors and self._song_count == len(songs):
-                return
+            return bool(self._neighbors) and self._song_count == song_count
 
+    def _build(self, songs: list) -> None:
         if len(songs) < 2:
             with self._lock:
                 self._neighbors = {}
@@ -86,10 +94,6 @@ class SimilarityIndex:
         with self._lock:
             self._neighbors = built
             self._song_count = len(songs)
-
-    @staticmethod
-    def _unused() -> None:  # pragma: no cover - placeholder for symmetry
-        return None
 
 
 _index = SimilarityIndex()

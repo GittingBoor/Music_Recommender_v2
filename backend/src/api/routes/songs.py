@@ -35,19 +35,22 @@ def get_song_neighbors(song_id: str, db: Session = Depends(get_db)) -> dict[str,
     Computed over all audio features and independent of the UMAP view's
     current axis selection, so playback recommendations stay stable.
     """
-    songs = (
-        db.query(Song)
-        .options(
-            selectinload(Song.dsp_features),
-            selectinload(Song.ml_moods),
-            selectinload(Song.ml_profile),
-        )
-        .all()
-    )
-    if not any(s.id == song_id for s in songs):
+    if db.get(Song, song_id) is None:
         raise HTTPException(status_code=404, detail="Song not found")
 
-    return {"neighbors": get_similarity_index().neighbors_for(song_id, songs)}
+    def load_songs() -> list[Song]:
+        return (
+            db.query(Song)
+            .options(
+                selectinload(Song.dsp_features),
+                selectinload(Song.ml_moods),
+                selectinload(Song.ml_profile),
+            )
+            .all()
+        )
+
+    neighbors = get_similarity_index().neighbors_for(song_id, db.query(Song).count(), load_songs)
+    return {"neighbors": neighbors}
 
 
 @router.get("/songs", response_model=list[SongResponse])
