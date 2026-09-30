@@ -52,6 +52,8 @@ export interface SongDetail {
   id: string;
   title: string | null;
   artist: string | null;
+  /** other_features.tonal_timeseries — too large for the song list. */
+  tonal_timeseries: number[] | null;
   dsp?: {
     bpm: number | null;
     beat_count: number | null;

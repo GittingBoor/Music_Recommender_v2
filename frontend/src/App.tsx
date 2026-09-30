@@ -8,8 +8,10 @@ import { AnalysisPage, ANALYSIS_SECTIONS } from "./components/analysis/AnalysisP
 import type { AnalysisSection } from "./components/analysis/AnalysisPage";
 import { PlayerBar } from "./components/PlayerBar";
 import { UploadPage } from "./components/upload/UploadPage";
-import { RecommenderPage } from "./components/recommender/RecommenderPage";
-import { setNeighborSource, setQueue } from "./audio/player";
+import { RecommenderPage, RECOMMENDER_METHODS } from "./components/recommender/RecommenderPage";
+import type { RecommenderMethod } from "./components/recommender/RecommenderPage";
+import { setLoudnessSource, setNeighborSource, setQueue } from "./audio/player";
+import { loadDefaultUmap } from "./services/umapCache";
 import { Link, navigate, recommenderPath, usePath } from "./router";
 
 // The player stays free of API imports; the app wires the lookup in once.
@@ -17,12 +19,12 @@ setNeighborSource(fetchNeighbors);
 
 type Route =
   | { page: "songs"; songId: string | null }
-  | { page: "recommender"; songId: string | null }
+  | { page: "recommender"; method: RecommenderMethod; songId: string | null }
   | { page: "analysis"; section: AnalysisSection }
   | { page: "upload" }
   | { page: "notfound" };
 
-/** URL → page:  /songs · /songs/:id · /recommender · /recommender/:id · /analysis[/umap|/correlations|/timeseries] · /upload */
+/** URL → page:  /songs · /songs/:id · /recommender/neighbors[/:id] · /analysis[/umap|/correlations|/timeseries] · /upload */
 function matchRoute(path: string): Route {
   const parts = path.split("/").filter(Boolean);
   if (parts.length === 0) return { page: "songs", songId: null }; // "/" is redirected to /songs
@@ -34,10 +36,12 @@ function matchRoute(path: string): Route {
       return { page: "notfound" };
     }
   }
-  if (parts[0] === "recommender" && parts.length <= 2) {
-    if (parts.length === 1) return { page: "recommender", songId: null };
+  if (parts[0] === "recommender" && parts.length <= 3) {
+    // Paths without a known method are old links; App redirects them.
+    const method = RECOMMENDER_METHODS.find((m) => m.path === `/recommender/${parts[1]}`) ?? RECOMMENDER_METHODS[0];
+    if (parts.length < 3) return { page: "recommender", method: method.id, songId: null };
     try {
-      return { page: "recommender", songId: decodeURIComponent(parts[1]) };
+      return { page: "recommender", method: method.id, songId: decodeURIComponent(parts[2]) };
     } catch {
       return { page: "notfound" };
     }
@@ -78,6 +82,17 @@ function pageTitle(route: Route, songs: Song[]): string {
   }
 }
 
+/**
+ * Recommender URLs from before the methods had sub-pages:
+ * "/recommender" and "/recommender/:songId" now live under the first method.
+ */
+function legacyRecommenderRedirect(path: string): string | null {
+  const parts = path.split("/").filter(Boolean);
+  if (parts[0] !== "recommender" || parts.length > 2) return null;
+  if (parts.length === 1) return RECOMMENDER_METHODS[0].path;
+  return RECOMMENDER_METHODS.some((m) => m.path === path) ? null : `${RECOMMENDER_METHODS[0].path}/${parts[1]}`;
+}
+
 const POLL_INTERVAL_MS = 8_000;
 
 /** True from the first render where `active` is set on — keeps a page mounted after its first visit. */
@@ -108,12 +123,18 @@ export default function App() {
   const recommenderVisited = useVisited(route.page === "recommender");
   // The last seed stays loaded while the page is hidden; its tab leads back to it.
   const recommenderSeedRef = useRef<string | null>(null);
-  if (route.page === "recommender") recommenderSeedRef.current = route.songId;
+  const recommenderMethodRef = useRef<RecommenderMethod>(RECOMMENDER_METHODS[0].id);
+  if (route.page === "recommender") {
+    recommenderSeedRef.current = route.songId;
+    recommenderMethodRef.current = route.method;
+  }
   const recommenderSeed = recommenderSeedRef.current;
   const uploadVisited = useVisited(route.page === "upload");
 
   useEffect(() => {
     if (path === "/") navigate("/songs", { replace: true });
+    const legacy = legacyRecommenderRedirect(path);
+    if (legacy) navigate(legacy, { replace: true });
   }, [path]);
 
   const title = pageTitle(route, songs);
@@ -125,6 +146,10 @@ export default function App() {
     songsRef.current = data;
     setSongs(data);
     setQueue(data.map((s) => s.id));
+    const lufsById = new Map(data.map((s) => [s.id, s.dsp_features?.integrated_lufs ?? null]));
+    setLoudnessSource((id) => lufsById.get(id) ?? null);
+    // The UMAP takes a while, so it is fetched right away, not when its tab is opened.
+    if (data.length > 0) loadDefaultUmap(data.length).catch(() => {});
   };
 
   const refreshSongs = () =>
@@ -215,6 +240,7 @@ export default function App() {
               <KeptPage active={route.page === "recommender"}>
                 <RecommenderPage
                   songs={songs}
+                  method={recommenderMethodRef.current}
                   seedId={recommenderSeed}
                   active={route.page === "recommender"}
                 />

@@ -98,7 +98,6 @@ export interface OtherFeatures {
   gmbi_timeliness: number | null;
   gmbi_complexity: number | null;
   tonal: number | null;
-  tonal_timeseries: number[] | null;
   hpcp_mean: number[] | null;
   tristimulus_mean: number[] | null;
 }
