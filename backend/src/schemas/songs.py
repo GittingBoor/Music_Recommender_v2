@@ -112,7 +112,6 @@ class OtherFeaturesSchema(BaseModel):
     gmbi_timeliness: float | None = None
     gmbi_complexity: float | None = None
     tonal: float | None = None
-    tonal_timeseries: list[float] | None = None
     hpcp_mean: list[float] | None = None
     tristimulus_mean: list[float] | None = None
 

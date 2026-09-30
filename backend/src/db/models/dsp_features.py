@@ -2,7 +2,7 @@ from sqlalchemy import Float, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.db.models.base import Base
+from src.db.models.base import Base, timeseries_column
 
 
 class DSPFeatures(Base):
@@ -43,11 +43,11 @@ class DSPFeatures(Base):
     dissonance: Mapped[float | None] = mapped_column(Float)
 
     # Timeseries (1 value/second)
-    loudness_short_term_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
-    spectral_centroid_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
-    spectral_rolloff_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
-    spectral_flux_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
-    zero_crossing_rate_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
-    dissonance_timeseries: Mapped[list[float] | None] = mapped_column(ARRAY(Float))
+    loudness_short_term_timeseries: Mapped[list[float] | None] = timeseries_column()
+    spectral_centroid_timeseries: Mapped[list[float] | None] = timeseries_column()
+    spectral_rolloff_timeseries: Mapped[list[float] | None] = timeseries_column()
+    spectral_flux_timeseries: Mapped[list[float] | None] = timeseries_column()
+    zero_crossing_rate_timeseries: Mapped[list[float] | None] = timeseries_column()
+    dissonance_timeseries: Mapped[list[float] | None] = timeseries_column()
 
     song: Mapped["Song"] = relationship(back_populates="dsp_features")
