@@ -1,6 +1,9 @@
 import logging
 import threading
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
@@ -11,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 MIN_FIT_SONGS = 10  # Show a first preview once we have this many songs
 NEIGHBOR_COUNT = 5  # Nearest neighbours reported per song
+# Guess for the first fit after a start, which also compiles UMAP's numba code.
+FIRST_FIT_ESTIMATE_SECONDS = 30.0
 
 FEATURE_DEFINITIONS: dict[str, tuple[str, str]] = {
     "bpm": ("dsp_features", "bpm"),
@@ -44,6 +49,22 @@ FEATURE_DEFINITIONS: dict[str, tuple[str, str]] = {
 }
 
 ALL_FEATURES: list[str] = list(FEATURE_DEFINITIONS.keys())
+
+
+class FitPhase(str, Enum):
+    EMPTY = "empty"      # nothing fitted yet
+    FITTING = "fitting"  # a fit is running
+    READY = "ready"      # embedding available
+
+
+@dataclass(frozen=True)
+class FitStatus:
+    """Where the embedding stands; the estimate is the duration of the last fit."""
+
+    phase: FitPhase
+    elapsed_seconds: float
+    estimated_seconds: float
+    song_count: int
 
 
 @dataclass
@@ -94,6 +115,10 @@ class UmapState:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        # Held for a whole fit, so parallel requests wait instead of fitting twice.
+        self._fit_lock = threading.Lock()
+        self._fit_started_at: float | None = None
+        self._last_fit_seconds: float | None = None
         self._reducer_2d: UMAP | None = None
         self._scaler: StandardScaler | None = None
         self._feature_keys: list[str] = []
@@ -122,11 +147,51 @@ class UmapState:
 
     # ── public methods ─────────────────────────────────────────────────────
 
+    def status(self) -> FitStatus:
+        """Report whether the embedding is ready, and how far a running fit is."""
+        started_at = self._fit_started_at
+        if started_at is not None:
+            phase = FitPhase.FITTING
+        else:
+            phase = FitPhase.READY if self.is_fitted else FitPhase.EMPTY
+        return FitStatus(
+            phase=phase,
+            elapsed_seconds=0.0 if started_at is None else time.monotonic() - started_at,
+            estimated_seconds=self._last_fit_seconds or FIRST_FIT_ESTIMATE_SECONDS,
+            song_count=self.song_count,
+        )
+
+    def ensure_fitted(self, load_songs: Callable[[], list], feature_keys: list[str]) -> None:
+        """Fit once if there is no embedding yet.
+
+        Args:
+            load_songs: Loads all songs with dsp/mood/profile relations; only
+                called when a fit is actually needed.
+            feature_keys: Features to fit on.
+        """
+        if self.is_fitted:
+            return
+        with self._fit_lock:
+            if self.is_fitted:
+                return
+            self._fit(load_songs(), feature_keys)
+
     def fit(self, songs: list, feature_keys: list[str]) -> None:
         """Fit UMAP from scratch on all given songs."""
+        with self._fit_lock:
+            self._fit(songs, feature_keys)
+
+    def _fit(self, songs: list, feature_keys: list[str]) -> None:
         if len(songs) < 3:
             return
+        self._fit_started_at = time.monotonic()
+        try:
+            self._fit_embedding(songs, feature_keys)
+            self._last_fit_seconds = time.monotonic() - self._fit_started_at
+        finally:
+            self._fit_started_at = None
 
+    def _fit_embedding(self, songs: list, feature_keys: list[str]) -> None:
         keys = [k for k in feature_keys if k in FEATURE_DEFINITIONS]
         logger.info("[UMAP] Fitting on %d songs × %d features", len(songs), len(keys))
 

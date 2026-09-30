@@ -15,3 +15,12 @@ class UmapPoint2D(BaseModel):
 class UmapResponse(BaseModel):
     points_2d: list[UmapPoint2D]
     features_used: list[str]
+
+
+class UmapStatusResponse(BaseModel):
+    # "empty" | "fitting" | "ready"
+    phase: str
+    elapsed_seconds: float
+    # Duration of the previous fit (a fixed guess before the first one).
+    estimated_seconds: float
+    song_count: int

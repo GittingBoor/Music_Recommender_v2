@@ -10,7 +10,7 @@ from src.api.routes.analysis import router as analysis_router
 from src.api.routes.audio import router as audio_router
 from src.api.routes.ingest import router as ingest_router
 from src.api.routes.songs import router as songs_router
-from src.api.routes.umap import router as umap_router
+from src.api.routes.umap import router as umap_router, warm_umap
 from src.api.routes.upload import router as upload_router
 from src.api.routes.youtube import router as youtube_router, warm_example_pool
 
@@ -23,6 +23,7 @@ async def _lifespan(app: FastAPI):
     essentia.log.infoActive = False
     essentia.log.warningActive = False
     warm_example_pool()
+    warm_umap()
     yield
 
 
