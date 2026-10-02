@@ -1,5 +1,5 @@
 import type { RadarAxis } from "./featureConfig";
-import { COLOR } from "../../theme";
+import { COLOR, SERIES } from "../../theme";
 
 const W = 200;
 const H = 200;
@@ -31,17 +31,24 @@ interface Props {
   thresholds: Record<string, number>;
   /** Mean normalised value per axis over the currently filtered songs. */
   profile: Record<string, number>;
+  /** Normalised values of the song in the player, null when nothing is loaded. */
+  current: Record<string, number> | null;
   enabled: boolean;
 }
 
+/** Colour of the now-playing outline — a series hue, distinct from the signal-coloured filter. */
+export const CURRENT_SONG_COLOR = SERIES[0];
+
 /** Read-only radar: visualises the filter thresholds set in the sidebar
- *  against the average profile of the songs that pass them. Axes with an
- *  active threshold are set in the signal colour, like their slider rows. */
+ *  against the average profile of the songs that pass them and the song
+ *  that is playing. Axes with an active threshold are set in the signal
+ *  colour, like their slider rows. */
 export function RadarChart({
   title,
   axes,
   thresholds,
   profile,
+  current,
   enabled,
 }: Props) {
   const n = axes.length;
@@ -56,6 +63,7 @@ export function RadarChart({
       .join(" ");
 
   const hasProfile = axes.some((ax) => profile[ax.key] != null);
+  const currentValues = current && axes.some((ax) => current[ax.key] != null) ? current : null;
 
   return (
     <div className={`flex flex-col gap-1 pb-4 border-b border-line last:border-b-0 ${enabled ? "" : "opacity-40"}`}>
@@ -127,6 +135,25 @@ export function RadarChart({
             />
           );
         })}
+
+        {/* song in the player — on top so it stays readable over the filter */}
+        {currentValues && (
+          <>
+            <polygon
+              points={toPoints(currentValues)}
+              fill="none"
+              stroke={CURRENT_SONG_COLOR}
+              strokeWidth={1.5}
+              strokeLinejoin="round"
+            />
+            {axes.map((ax, i) => {
+              const v = currentValues[ax.key];
+              if (v == null) return null;
+              const pt = axisPoint(i, n, v);
+              return <circle key={ax.key} cx={pt.x} cy={pt.y} r={2} fill={CURRENT_SONG_COLOR} />;
+            })}
+          </>
+        )}
       </svg>
     </div>
   );

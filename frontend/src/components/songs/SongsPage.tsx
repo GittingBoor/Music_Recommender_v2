@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Song } from "../../types/song";
-import { setQueue } from "../../audio/player";
+import { setQueue, subscribe, getSnapshot } from "../../audio/player";
 import {
   MOOD_AXES, DSP_AXES, OTHER_AXES,
   computeAxisStats,
 } from "../filter/featureConfig";
 import type { RadarAxis, AxisStatsMap } from "../filter/featureConfig";
-import { RadarChart } from "../filter/RadarChart";
+import { RadarChart, CURRENT_SONG_COLOR } from "../filter/RadarChart";
 import { BarSliderFilter } from "../filter/BarSliderFilter";
 import type { BarRow } from "../filter/BarSliderFilter";
 import { ResultsTable } from "./ResultsTable";
@@ -264,6 +264,16 @@ export function SongsPage({ songs, active }: Props) {
   const dspProfile   = useMemo(() => meanProfile(filtered, DSP_AXES,   dspStats),   [filtered, dspStats]);
   const otherProfile = useMemo(() => meanProfile(filtered, OTHER_AXES, otherStats), [filtered, otherStats]);
 
+  // ── song in the player (drawn on the radars whether or not it passes the filters) ──
+  const { currentId } = useSyncExternalStore(subscribe, getSnapshot);
+  const currentSong = useMemo(
+    () => (currentId ? songs.find((s) => s.id === currentId) ?? null : null),
+    [songs, currentId],
+  );
+  const moodCurrent  = useMemo(() => currentSong && meanProfile([currentSong], MOOD_AXES,  moodStats),  [currentSong, moodStats]);
+  const dspCurrent   = useMemo(() => currentSong && meanProfile([currentSong], DSP_AXES,   dspStats),   [currentSong, dspStats]);
+  const otherCurrent = useMemo(() => currentSong && meanProfile([currentSong], OTHER_AXES, otherStats), [currentSong, otherStats]);
+
   // ── play queue follows the visible table order while this page is open ────
   // ("open" includes a song detail page on top of the list.)
   const visibleOrderRef = useRef<string[]>([]);
@@ -450,19 +460,30 @@ export function SongsPage({ songs, active }: Props) {
 
       {/* ── right: radar visualisation of thresholds vs. filtered average ── */}
       <aside ref={radarPanelRef} className={`w-64 shrink-0 overflow-y-auto border-l border-line bg-panel flex-col gap-4 px-4 py-4 ${showPanels ? "hidden lg:flex" : "hidden"}`}>
-        <div className="flex items-center gap-4 font-mono text-2xs text-ink-3 pb-3 border-b border-line">
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-2 bg-signal/25 border border-signal" /> Filter
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-2 border border-dashed border-ink/70" /> Ø filtered songs
-          </span>
+        <div className="flex flex-col gap-1.5 font-mono text-2xs text-ink-3 pb-3 border-b border-line">
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-2 bg-signal/25 border border-signal" /> Filter
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-2 border border-dashed border-ink/70" /> Ø filtered songs
+            </span>
+          </div>
+          {currentSong && (
+            <span className="flex items-center gap-1.5 min-w-0" title={`${currentSong.title} — ${currentSong.artist}`}>
+              <span className="w-3 h-2 shrink-0 border-[1.5px]" style={{ borderColor: CURRENT_SONG_COLOR }} />
+              <span className="truncate">
+                Playing: <span className="text-ink-2">{currentSong.title}</span>
+              </span>
+            </span>
+          )}
         </div>
         <RadarChart
           title="Moods"
           axes={MOOD_AXES}
           thresholds={moodThresh}
           profile={moodProfile}
+          current={moodCurrent}
           enabled={moodEnabled}
         />
         <RadarChart
@@ -470,6 +491,7 @@ export function SongsPage({ songs, active }: Props) {
           axes={DSP_AXES}
           thresholds={dspThresh}
           profile={dspProfile}
+          current={dspCurrent}
           enabled={dspEnabled}
         />
         <RadarChart
@@ -477,6 +499,7 @@ export function SongsPage({ songs, active }: Props) {
           axes={OTHER_AXES}
           thresholds={otherThresh}
           profile={otherProfile}
+          current={otherCurrent}
           enabled={otherEnabled}
         />
       </aside>
