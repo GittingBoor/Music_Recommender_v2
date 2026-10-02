@@ -193,16 +193,22 @@ def _log(model_key: str, value: object) -> None:
     logger.debug("[Classifier] %s = %s", model_key, value)
 
 
-def _binary_with_timeseries(model_key: str, embedding: np.ndarray, output_layer: str, positive_index: int = 1) -> dict[str, object]:
-    """Run a binary classifier and return mean + per-patch timeseries for the positive class."""
+def _binary_with_timeseries(model_key: str, embedding: np.ndarray, output_layer: str) -> dict[str, object]:
+    """Run a binary mood classifier and return mean + per-patch timeseries for the positive class.
+
+    The positive class is column 1 for every mood head. The Essentia metadata JSONs list
+    happy/aggressive/acoustic/electronic first, but the models' output disagrees: reading
+    column 0 gave e.g. mood "electronic" a -0.93 correlation with the Electronic parent
+    genre and "happy" a -0.67 correlation with valence.
+    """
     raw = _run_classifier_raw(model_key, embedding, output_layer)
-    timeseries = [round(float(p[positive_index]), 4) for p in raw]
-    mean_val = round(float(np.mean(raw, axis=0)[positive_index]), 4)
+    timeseries = [round(float(p[1]), 4) for p in raw]
+    mean_val = round(float(np.mean(raw, axis=0)[1]), 4)
     return {"mean": mean_val, "timeseries": timeseries}
 
 
 def predict_mood_happy(embedding: np.ndarray) -> dict[str, object]:
-    result = _binary_with_timeseries("mood_happy", embedding, "model/Softmax", positive_index=0)
+    result = _binary_with_timeseries("mood_happy", embedding, "model/Softmax")
     _log("mood_happy", result["mean"])
     return result
 
@@ -214,7 +220,7 @@ def predict_mood_sad(embedding: np.ndarray) -> dict[str, object]:
 
 
 def predict_mood_aggressive(embedding: np.ndarray) -> dict[str, object]:
-    result = _binary_with_timeseries("mood_aggressive", embedding, "model/Softmax", positive_index=0)
+    result = _binary_with_timeseries("mood_aggressive", embedding, "model/Softmax")
     _log("mood_aggressive", result["mean"])
     return result
 
@@ -232,13 +238,13 @@ def predict_mood_relaxed(embedding: np.ndarray) -> dict[str, object]:
 
 
 def predict_mood_acoustic(embedding: np.ndarray) -> dict[str, object]:
-    result = _binary_with_timeseries("mood_acoustic", embedding, "model/Softmax", positive_index=0)
+    result = _binary_with_timeseries("mood_acoustic", embedding, "model/Softmax")
     _log("mood_acoustic", result["mean"])
     return result
 
 
 def predict_mood_electronic(embedding: np.ndarray) -> dict[str, object]:
-    result = _binary_with_timeseries("mood_electronic", embedding, "model/Softmax", positive_index=0)
+    result = _binary_with_timeseries("mood_electronic", embedding, "model/Softmax")
     _log("mood_electronic", result["mean"])
     return result
 
