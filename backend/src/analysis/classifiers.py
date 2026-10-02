@@ -193,17 +193,18 @@ def _log(model_key: str, value: object) -> None:
     logger.debug("[Classifier] %s = %s", model_key, value)
 
 
-def _binary_with_timeseries(model_key: str, embedding: np.ndarray, output_layer: str) -> dict[str, object]:
-    """Run a binary mood classifier and return mean + per-patch timeseries for the positive class.
+# Essentia metadata lists these classes first ("aggressive", "not_aggressive"); sad/party/relaxed
+# list the positive class second. Checked on 1046 songs: mood "electronic" read this way
+# correlates +0.89 with the Electronic parent genre, "aggressive" +0.55 with arousal.
+_POSITIVE_FIRST = frozenset({"mood_happy", "mood_aggressive", "mood_acoustic", "mood_electronic"})
 
-    The positive class is column 1 for every mood head. The Essentia metadata JSONs list
-    happy/aggressive/acoustic/electronic first, but the models' output disagrees: reading
-    column 0 gave e.g. mood "electronic" a -0.93 correlation with the Electronic parent
-    genre and "happy" a -0.67 correlation with valence.
-    """
+
+def _binary_with_timeseries(model_key: str, embedding: np.ndarray, output_layer: str) -> dict[str, object]:
+    """Run a binary mood classifier and return mean + per-patch timeseries for the positive class."""
+    positive_index = 0 if model_key in _POSITIVE_FIRST else 1
     raw = _run_classifier_raw(model_key, embedding, output_layer)
-    timeseries = [round(float(p[1]), 4) for p in raw]
-    mean_val = round(float(np.mean(raw, axis=0)[1]), 4)
+    timeseries = [round(float(p[positive_index]), 4) for p in raw]
+    mean_val = round(float(np.mean(raw, axis=0)[positive_index]), 4)
     return {"mean": mean_val, "timeseries": timeseries}
 
 
