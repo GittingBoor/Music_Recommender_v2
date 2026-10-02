@@ -1,5 +1,4 @@
 import logging
-import threading
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -12,6 +11,7 @@ from src.core.config import SUPPORTED_AUDIO_EXTENSIONS, settings
 from src.db.models import Song, TrackMetadata
 from src.db.session import get_session
 from src.ingest.failures import record_failure
+from src.ingest.slot import processing_slot
 from src.ingest.tracker import Stage, tracker
 from src.metadata.identity import IdentityHint, MetadataSource, SongOrigin
 from src.metadata.musicbrainz import fetch_recording_identity
@@ -136,23 +136,19 @@ def _is_recognized_by_acoustid(audio_path: Path, api_key: str) -> bool:
 
 _MAX_DURATION_WITHOUT_RECOGNITION = 600.0  # 10 minutes
 
-# The cached Essentia model instances are shared and not thread-safe, and two
-# analyses at once saturate the mini-PC. Parallel requests queue up here.
-_ANALYSIS_LOCK = threading.Lock()
-
-
 def process_audio_file(
     audio_file: Path,
     job_id: int | None = None,
     hint: IdentityHint | None = None,
     origin: SongOrigin | None = None,
+    slot_held: bool = False,
 ) -> dict:
     """Run the full ingest pipeline on a single audio file.
 
     The duration gate and the metadata lookup (AcoustID, MusicBrainz, Last.fm,
     Spotify, duplicate check) mostly wait on the network, so they run before
-    the analysis lock: the next song gets identified while the current one is
-    analysed. Only DSP/ML analysis, DB save and the UMAP update hold the lock.
+    the processing slot: the next song gets identified while the current one is
+    analysed. Only DSP/ML analysis, DB save and the UMAP update hold the slot.
 
     Returns a dict with keys:
         status  : "saved" | "skipped" | "error"
@@ -162,18 +158,22 @@ def process_audio_file(
         song_id : str | None
 
     ``job_id`` is the song's entry in the pipeline tracker, if any; it shows
-    as waiting until the analysis lock is free, then as analysing.
+    as waiting until the processing slot is free, then as analysing.
+    ``slot_held`` means the caller already holds the slot (YouTube keeps it
+    from trimming to the end of the analysis).
     ``hint`` names the song when AcoustID does not know it (video title,
     user input). ``origin`` is the upload filename or YouTube video the audio
     came from; it is stored with the song.
     """
     if job_id is not None:
-        tracker.update(job_id, stage=Stage.WAITING)
+        tracker.update(job_id, stage=Stage.ANALYZING if slot_held else Stage.WAITING)
     try:
         identified = _identify(audio_file, hint)
         if "status" in identified:
             return identified
-        with _ANALYSIS_LOCK:
+        if slot_held:
+            return _analyse(audio_file, identified["metadata"], identified["song_id"], origin)
+        with processing_slot.hold():
             if job_id is not None:
                 tracker.update(job_id, stage=Stage.ANALYZING)
             return _analyse(audio_file, identified["metadata"], identified["song_id"], origin)
@@ -184,7 +184,7 @@ def process_audio_file(
 
 
 def _identify(audio_file: Path, hint: IdentityHint | None) -> dict:
-    """Duration gate and metadata lookup, no analysis lock needed.
+    """Duration gate and metadata lookup, no processing slot needed.
 
     Returns a finished skip result (has ``status``), or ``{"metadata", "song_id"}``
     for a song to analyse.
@@ -213,7 +213,7 @@ def _identify(audio_file: Path, hint: IdentityHint | None) -> dict:
 
 
 def _analyse(audio_file: Path, metadata: dict, song_id: str | None, origin: SongOrigin | None) -> dict:
-    """DSP/ML analysis and save; call with the analysis lock held."""
+    """DSP/ML analysis and save; call with the processing slot held."""
     from src.analysis.pipeline import _save_to_database
     from src.analysis.worker import get_analysis_worker
 
