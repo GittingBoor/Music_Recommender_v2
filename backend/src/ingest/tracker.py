@@ -17,7 +17,7 @@ class Stage(str, Enum):
     SEARCHING = "searching"      # bulk: looking for a YouTube hit
     DOWNLOADING = "downloading"
     TRIMMING = "trimming"
-    WAITING = "waiting"          # audio ready, waiting for the analysis lock
+    WAITING = "waiting"          # audio ready, waiting for the processing slot
     ANALYZING = "analyzing"
 
 

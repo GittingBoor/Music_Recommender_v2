@@ -5,21 +5,22 @@ import pytest
 from src.analysis import pipeline
 from src.analysis.worker import AnalysisWorker
 from src.api.routes import admin
+from src.ingest.slot import processing_slot
 
 _META = {"title": "Get Lucky", "artist": "Daft Punk", "acoustid_id": "rec-1"}
 
 
 @pytest.fixture
 def calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
-    """Stub the slow steps; record whether the analysis lock was held during each."""
+    """Stub the slow steps; record whether the processing slot was held during each."""
     held: dict[str, bool] = {}
 
     def precheck(audio: Path, hint: object) -> tuple[None, dict, str]:
-        held["metadata"] = admin._ANALYSIS_LOCK.locked()
+        held["metadata"] = processing_slot.locked()
         return None, dict(_META), "song-1"
 
     def analyse(worker: AnalysisWorker, audio: Path, metadata: dict) -> dict:
-        held["analysis"] = admin._ANALYSIS_LOCK.locked()
+        held["analysis"] = processing_slot.locked()
         return {"metadata": metadata}
 
     monkeypatch.setattr(pipeline, "precheck_skip", precheck)
@@ -31,7 +32,7 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
     return held
 
 
-def test_metadata_lookup_runs_outside_the_analysis_lock(calls: dict[str, bool]):
+def test_metadata_lookup_runs_outside_the_processing_slot(calls: dict[str, bool]):
     result = admin.process_audio_file(Path("song.mp3"))
     assert result["status"] == "saved"
     assert calls == {"metadata": False, "analysis": True}
@@ -42,3 +43,10 @@ def test_a_song_saved_meanwhile_is_not_analysed_twice(calls: dict[str, bool], mo
     result = admin.process_audio_file(Path("song.mp3"))
     assert result["status"] == "skipped" and result["reason"] == "duplicate"
     assert "analysis" not in calls
+
+
+def test_a_caller_holding_the_slot_is_not_blocked_by_it(calls: dict[str, bool]):
+    with processing_slot.hold():
+        result = admin.process_audio_file(Path("song.mp3"), slot_held=True)
+    assert result["status"] == "saved"
+    assert calls == {"metadata": True, "analysis": True}
