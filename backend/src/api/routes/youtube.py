@@ -1,7 +1,8 @@
 import json
 import logging
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
@@ -17,6 +18,7 @@ from src.core.config import settings
 from src.db.models import Song
 from src.db.session import get_session
 from src.ingest.failures import record_failure
+from src.ingest.slot import processing_slot
 from src.ingest.tracker import Stage, tracker
 from src.metadata.identity import IdentityHint, MetadataSource, SongOrigin
 from src.youtube.download_queue import DownloadQueue
@@ -310,30 +312,21 @@ def _download_steps(
         yield _event("done", 1.0, result)
         return
 
-    # 2) Trim non-music intro/outro (YouTube only).
-    yield _event("trimming", 0.45)
-    tracker.update(job_id, stage=Stage.TRIMMING)
-    final_path = _unique_path(_YOUTUBE_DIR, _safe_name(f"{fallback_name}.mp3"))
-    trimmed = False
-    try:
-        trimmed = get_music_trimmer().trim_to(downloaded, final_path)
-    except Exception as exc:
-        logger.error("[YouTube] Trim failed for %s: %s", req.video_id, exc)
-
-    if trimmed:
-        downloaded.unlink(missing_ok=True)
-    else:
-        downloaded.rename(final_path)  # fall back to the untrimmed download
-
-    # 3) Run the full analysis pipeline and save to the database.
-    yield _event("analyzing", 0.7)
+    # 2) + 3) Trimming and analysis run as one block, one song at a time.
+    tracker.update(job_id, stage=Stage.WAITING)
     result: dict = {}
-    origin = SongOrigin(original_name=fallback_name, youtube_video_id=req.video_id)
-    for outcome in run_with_heartbeat(lambda: process_audio_file(final_path, job_id, _title_hint(req), origin)):
-        if outcome is None:
-            yield _event("analyzing", 0.7)  # keep-alive
-        else:
-            result = outcome
+    with processing_slot.hold():
+        final_path = yield from _trim(req, downloaded, fallback_name, job_id)
+        yield _event("analyzing", 0.7)
+        origin = SongOrigin(original_name=fallback_name, youtube_video_id=req.video_id)
+        hint = _title_hint(req)
+        for outcome in run_with_heartbeat(
+            lambda: process_audio_file(final_path, job_id, hint, origin, slot_held=True)
+        ):
+            if outcome is None:
+                yield _event("analyzing", 0.7)  # keep-alive
+            else:
+                result = outcome
     result["filename"] = fallback_name
     result.setdefault("error", None)
     if log_failures:
@@ -347,6 +340,26 @@ def _download_steps(
             pass
 
     yield _event("done", 1.0, result)
+
+
+def _trim(
+    req: YoutubeDownloadRequest, downloaded: Path, fallback_name: str, job_id: int
+) -> Generator[str, None, Path]:
+    """Cut non-music intro/outro (YouTube only); returns the file to analyse."""
+    yield _event("trimming", 0.45)
+    tracker.update(job_id, stage=Stage.TRIMMING)
+    final_path = _unique_path(_YOUTUBE_DIR, _safe_name(f"{fallback_name}.mp3"))
+    trimmed = False
+    try:
+        trimmed = get_music_trimmer().trim_to(downloaded, final_path)
+    except Exception as exc:
+        logger.error("[YouTube] Trim failed for %s: %s", req.video_id, exc)
+
+    if trimmed:
+        downloaded.unlink(missing_ok=True)
+    else:
+        downloaded.rename(final_path)  # fall back to the untrimmed download
+    return final_path
 
 
 def _title_hint(req: YoutubeDownloadRequest) -> IdentityHint | None:
