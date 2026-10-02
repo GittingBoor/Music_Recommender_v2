@@ -4,10 +4,12 @@ import { COLOR } from "../../theme";
 export interface BarRow {
   key: string;
   label: string;
-  /** Library frequency — rendered as a proportional background bar. */
+  /** Library frequency — shown as the row's number, and as a proportional bar if there is no histogram. */
   count?: number;
   /** Library value distribution (bin counts over 0–1) — rendered instead of the count bar. */
   histogram?: number[];
+  /** Tooltip explaining the value and the slider scale. */
+  description?: string;
 }
 
 interface Props {
@@ -85,9 +87,9 @@ export function BarSliderFilter({
             const thresh = thresholds[row.key] ?? 0;
             const isActive = thresh > 0;
             return (
-              <div key={row.key} className="space-y-1">
+              <div key={row.key} className="space-y-1" title={row.description}>
                 <div className="flex items-baseline justify-between text-xs">
-                  <span className={`truncate max-w-[170px] ${isActive ? "text-ink" : "text-ink-2"}`}>
+                  <span className={`truncate max-w-[170px] ${row.description ? "cursor-help" : ""} ${isActive ? "text-ink" : "text-ink-2"}`}>
                     {row.label}
                   </span>
                   <span className={`font-mono text-2xs shrink-0 ml-2 tabular-nums ${isActive ? "text-signal" : "text-ink-4"}`}>

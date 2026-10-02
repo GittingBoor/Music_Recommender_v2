@@ -48,11 +48,12 @@ const COLUMNS: Column[] = [
     key: "artist", label: "Artist", defaultDir: "asc",
     get: (s) => s.artist,
     cellClass: "text-ink-2",
-    widthClass: "max-w-32",
+    widthClass: "max-w-28",
   },
   {
     key: "key", label: "Key", defaultDir: "asc",
-    get: (s) => (s.dsp_features?.key ? `${s.dsp_features.key} ${s.dsp_features.scale ?? ""}`.trim() : null),
+    // Chord-symbol notation ("C#m", "G") keeps the column narrow.
+    get: (s) => (s.dsp_features?.key ? `${s.dsp_features.key}${s.dsp_features.scale === "minor" ? "m" : ""}` : null),
     cellClass: "font-mono text-xs text-ink-2",
   },
   {
@@ -164,27 +165,30 @@ export function ResultsTable({ songs, onVisibleOrderChange }: Props) {
       <table className="w-full text-sm whitespace-nowrap">
         <thead>
           <tr className="border-b border-line-strong">
-            <th className="w-10 px-2.5 h-8" />
+            <th className="w-9 px-2 h-8" />
             {COLUMNS.map((col) => (
               <th
                 key={col.key}
-                className={`px-2.5 h-8 font-normal ${col.align === "right" ? "text-right" : "text-left"}`}
+                className={`px-2 h-8 font-normal ${col.align === "right" ? "text-right" : "text-left"}`}
               >
                 <button
                   onClick={() => handleHeaderClick(col)}
-                  className={`inline-flex items-center gap-1 max-md:h-8 font-mono text-2xs ${
+                  className={`relative inline-flex items-center max-md:h-8 font-mono text-2xs ${
                     sortKey === col.key ? "text-ink" : "text-ink-3 hover:text-ink"
                   }`}
                   title={`Sort by ${col.label}`}
                 >
                   {col.label}
-                  <span className="w-2 inline-flex text-signal">
-                    {sortKey === col.key && (
-                      <svg className="w-2 h-2" viewBox="0 0 8 8" fill="currentColor">
-                        <path d={sortDir === "asc" ? "M4 1l3.5 5h-7z" : "M4 7L.5 2h7z"} />
-                      </svg>
-                    )}
-                  </span>
+                  {/* Sits in the cell padding (outside the label) so it takes no column width. */}
+                  {sortKey === col.key && (
+                    <svg
+                      className={`absolute w-2 h-2 text-signal ${col.align === "right" ? "-left-2.5" : "-right-2.5"}`}
+                      viewBox="0 0 8 8"
+                      fill="currentColor"
+                    >
+                      <path d={sortDir === "asc" ? "M4 1l3.5 5h-7z" : "M4 7L.5 2h7z"} />
+                    </svg>
+                  )}
                 </button>
               </th>
             ))}
@@ -197,7 +201,7 @@ export function ResultsTable({ songs, onVisibleOrderChange }: Props) {
               onClick={(e) => { if (isPlainLeftClick(e)) navigate(songPath(song.id)); }}
               className="border-b border-line cursor-pointer hover:bg-raised/70"
             >
-              <td className="px-2.5 py-1.5">
+              <td className="px-2 py-1.5">
                 <PlayButton songId={song.id} />
               </td>
               {COLUMNS.map((col) => {
@@ -214,7 +218,7 @@ export function ResultsTable({ songs, onVisibleOrderChange }: Props) {
                 return (
                   <td
                     key={col.key}
-                    className={`px-2.5 py-1.5 ${numeric ? "text-right font-mono text-xs text-ink-2 tabular-nums" : "text-left"} ${col.cellClass ?? ""} ${v == null ? "!text-ink-4" : ""}`}
+                    className={`px-2 py-1.5 ${numeric ? "text-right font-mono text-xs text-ink-2 tabular-nums" : "text-left"} ${col.cellClass ?? ""} ${v == null ? "!text-ink-4" : ""}`}
                   >
                     {col.link ? (
                       <div className="flex items-center gap-2">
