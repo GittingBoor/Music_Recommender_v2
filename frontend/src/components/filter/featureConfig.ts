@@ -10,17 +10,17 @@ export type AxisStatsMap = Record<string, AxisStats>;
 export interface RadarAxis {
   key: string;
   label: string;
+  /** FIELD_DESCRIPTIONS key ("<table>.<column>") explaining the value. */
+  field: string;
   get: (s: Song) => number | null;
   /** Returns a normalised 0–1 value for filtering. stats is provided but may be ignored. */
   norm: (v: number, stats: AxisStats) => number;
+  /** How a slider position maps onto the raw value. */
+  scaleHint: string;
 }
 
 function clamp(v: number, lo = 0, hi = 1): number {
   return Math.max(lo, Math.min(hi, v));
-}
-
-function identity(v: number): number {
-  return clamp(v);
 }
 
 function minMax(v: number, stats: AxisStats): number {
@@ -28,37 +28,54 @@ function minMax(v: number, stats: AxisStats): number {
   return clamp((v - stats.min) / (stats.max - stats.min));
 }
 
+// Normalisations, each with the explanation shown in the slider tooltip.
+const PROBABILITY = {
+  norm: (v: number) => clamp(v),
+  scaleHint: "Slider = the probability itself (50% = 0.50).",
+};
+const LIBRARY_RANGE = {
+  norm: minMax,
+  scaleHint: "Slider runs from the lowest (0%) to the highest (100%) value in your library.",
+};
+/** GMBI scores are z-scores; ±2 covers practically all songs. */
+const Z_SCORE = {
+  norm: (v: number) => clamp((v + 2) / 4),
+  scaleHint: "Slider maps the score from −2 (0%) over 0 (50%) to +2 (100%).",
+};
+
 // ── Moods ──────────────────────────────────────────────────────────────────
 export const MOOD_AXES: RadarAxis[] = [
-  { key: "happy",      label: "Happy",      get: s => s.ml_moods?.happy      ?? null, norm: v => identity(v) },
-  { key: "sad",        label: "Sad",        get: s => s.ml_moods?.sad        ?? null, norm: v => identity(v) },
-  { key: "aggressive", label: "Aggressive", get: s => s.ml_moods?.aggressive ?? null, norm: v => identity(v) },
-  { key: "party",      label: "Party",      get: s => s.ml_moods?.party      ?? null, norm: v => identity(v) },
-  { key: "relaxed",    label: "Relaxed",    get: s => s.ml_moods?.relaxed    ?? null, norm: v => identity(v) },
-  { key: "acoustic",   label: "Acoustic",   get: s => s.ml_moods?.acoustic   ?? null, norm: v => identity(v) },
-  { key: "electronic", label: "Electronic", get: s => s.ml_moods?.electronic ?? null, norm: v => identity(v) },
+  { key: "happy",      label: "Happy",      field: "ml_mood_features.happy",      get: s => s.ml_moods?.happy      ?? null, ...PROBABILITY },
+  { key: "sad",        label: "Sad",        field: "ml_mood_features.sad",        get: s => s.ml_moods?.sad        ?? null, ...PROBABILITY },
+  { key: "aggressive", label: "Aggressive", field: "ml_mood_features.aggressive", get: s => s.ml_moods?.aggressive ?? null, ...PROBABILITY },
+  { key: "party",      label: "Party",      field: "ml_mood_features.party",      get: s => s.ml_moods?.party      ?? null, ...PROBABILITY },
+  { key: "relaxed",    label: "Relaxed",    field: "ml_mood_features.relaxed",    get: s => s.ml_moods?.relaxed    ?? null, ...PROBABILITY },
+  { key: "acoustic",   label: "Acoustic",   field: "ml_mood_features.acoustic",   get: s => s.ml_moods?.acoustic   ?? null, ...PROBABILITY },
+  { key: "electronic", label: "Electronic", field: "ml_mood_features.electronic", get: s => s.ml_moods?.electronic ?? null, ...PROBABILITY },
 ];
 
 // ── DSP features (curated subset, readable in a radar) ─────────────────────
+// All on the library range: even the 0–1 ones (danceability, key strength) only
+// use a narrow band of it, and beat confidence goes up to ~5.3.
 export const DSP_AXES: RadarAxis[] = [
-  { key: "danceability",          label: "Dance",       get: s => s.dsp_features?.danceability          ?? null, norm: v => identity(v) },
-  { key: "beat_confidence",       label: "Beat Conf.",  get: s => s.dsp_features?.beat_confidence       ?? null, norm: v => identity(v) },
-  { key: "key_strength",          label: "Key Str.",    get: s => s.dsp_features?.key_strength          ?? null, norm: v => identity(v) },
-  { key: "dynamic_complexity",    label: "Dyn. Compl.", get: s => s.dsp_features?.dynamic_complexity    ?? null, norm: (v, stats) => minMax(v, stats) },
-  { key: "onset_rate",            label: "Onset Rate",  get: s => s.dsp_features?.onset_rate            ?? null, norm: (v, stats) => minMax(v, stats) },
-  { key: "dissonance",            label: "Dissonance",  get: s => s.dsp_features?.dissonance            ?? null, norm: (v, stats) => minMax(v, stats) },
-  { key: "bpm",                   label: "BPM",         get: s => s.dsp_features?.bpm                   ?? null, norm: (v, stats) => minMax(v, stats) },
-  { key: "spectral_centroid_mean",label: "Spec. Cent.", get: s => s.dsp_features?.spectral_centroid_mean ?? null, norm: (v, stats) => minMax(v, stats) },
+  { key: "danceability",          label: "Dance",       field: "dsp_features.danceability",           get: s => s.dsp_features?.danceability          ?? null, ...LIBRARY_RANGE },
+  { key: "beat_confidence",       label: "Beat Conf.",  field: "dsp_features.beat_confidence",        get: s => s.dsp_features?.beat_confidence       ?? null, ...LIBRARY_RANGE },
+  { key: "key_strength",          label: "Key Str.",    field: "dsp_features.key_strength",           get: s => s.dsp_features?.key_strength          ?? null, ...LIBRARY_RANGE },
+  { key: "dynamic_complexity",    label: "Dyn. Compl.", field: "dsp_features.dynamic_complexity",     get: s => s.dsp_features?.dynamic_complexity    ?? null, ...LIBRARY_RANGE },
+  { key: "onset_rate",            label: "Onset Rate",  field: "dsp_features.onset_rate",             get: s => s.dsp_features?.onset_rate            ?? null, ...LIBRARY_RANGE },
+  { key: "dissonance",            label: "Dissonance",  field: "dsp_features.dissonance",             get: s => s.dsp_features?.dissonance            ?? null, ...LIBRARY_RANGE },
+  { key: "bpm",                   label: "BPM",         field: "dsp_features.bpm",                    get: s => s.dsp_features?.bpm                   ?? null, ...LIBRARY_RANGE },
+  { key: "spectral_centroid_mean",label: "Spec. Cent.", field: "dsp_features.spectral_centroid_mean", get: s => s.dsp_features?.spectral_centroid_mean ?? null, ...LIBRARY_RANGE },
 ];
 
 // ── Other features (arrays excluded) ──────────────────────────────────────
 export const OTHER_AXES: RadarAxis[] = [
-  { key: "gmbi_valence",      label: "GMBI Val.",   get: s => s.other_features?.gmbi_valence      ?? null, norm: v => clamp((v + 2) / 4) },
-  { key: "gmbi_arousal",      label: "GMBI Arous.", get: s => s.other_features?.gmbi_arousal      ?? null, norm: v => clamp((v + 2) / 4) },
-  { key: "gmbi_authenticity", label: "Authentic.",  get: s => s.other_features?.gmbi_authenticity ?? null, norm: v => clamp((v + 2) / 4) },
-  { key: "gmbi_timeliness",   label: "Timely",      get: s => s.other_features?.gmbi_timeliness   ?? null, norm: v => clamp((v + 2) / 4) },
-  { key: "gmbi_complexity",   label: "Complexity",  get: s => s.other_features?.gmbi_complexity   ?? null, norm: v => clamp((v + 2) / 4) },
-  { key: "tonal",             label: "Tonal",       get: s => s.other_features?.tonal             ?? null, norm: v => identity(v) },
+  { key: "gmbi_valence",      label: "GMBI Val.",   field: "other_features.gmbi_valence",      get: s => s.other_features?.gmbi_valence      ?? null, ...Z_SCORE },
+  { key: "gmbi_arousal",      label: "GMBI Arous.", field: "other_features.gmbi_arousal",      get: s => s.other_features?.gmbi_arousal      ?? null, ...Z_SCORE },
+  { key: "gmbi_authenticity", label: "Authentic.",  field: "other_features.gmbi_authenticity", get: s => s.other_features?.gmbi_authenticity ?? null, ...Z_SCORE },
+  { key: "gmbi_timeliness",   label: "Timely",      field: "other_features.gmbi_timeliness",   get: s => s.other_features?.gmbi_timeliness   ?? null, ...Z_SCORE },
+  { key: "gmbi_complexity",   label: "Complexity",  field: "other_features.gmbi_complexity",   get: s => s.other_features?.gmbi_complexity   ?? null, ...Z_SCORE },
+  { key: "tonal",             label: "Tonal",       field: "other_features.tonal",             get: s => s.other_features?.tonal             ?? null, ...PROBABILITY },
 ];
 
 /** Compute per-axis min/max stats from the library for MinMax-normalised axes. */

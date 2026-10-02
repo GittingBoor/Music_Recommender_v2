@@ -10,6 +10,7 @@ import { RadarChart } from "../filter/RadarChart";
 import { BarSliderFilter } from "../filter/BarSliderFilter";
 import type { BarRow } from "../filter/BarSliderFilter";
 import { ResultsTable } from "./ResultsTable";
+import { FIELD_DESCRIPTIONS } from "./fieldDescriptions";
 
 type ThresholdsMap = Record<string, number>;
 
@@ -19,6 +20,15 @@ function emptyThresholds(keys: string[]): ThresholdsMap {
 
 const HIST_BINS = 20;
 
+const HISTOGRAM_HINT = "Bars: how many songs lie at each slider position; orange = songs that pass.";
+
+/** Bin counts of 0–1 values. */
+function histogramOf(values: number[]): number[] {
+  const histogram = new Array<number>(HIST_BINS).fill(0);
+  for (const v of values) histogram[Math.min(HIST_BINS - 1, Math.floor(v * HIST_BINS))]++;
+  return histogram;
+}
+
 /** Slider rows for radar axes, each with the library's distribution of normalised values. */
 function axisRows(
   songs: Song[],
@@ -26,15 +36,48 @@ function axisRows(
   stats: AxisStatsMap,
 ): BarRow[] {
   return axes.map((ax) => {
-    const histogram = new Array<number>(HIST_BINS).fill(0);
+    const values: number[] = [];
     for (const s of songs) {
       const raw = ax.get(s);
-      if (raw == null) continue;
-      const v = ax.norm(raw, stats[ax.key]);
-      histogram[Math.min(HIST_BINS - 1, Math.floor(v * HIST_BINS))]++;
+      if (raw != null) values.push(ax.norm(raw, stats[ax.key]));
     }
-    return { key: ax.key, label: ax.label, histogram };
+    const description = [FIELD_DESCRIPTIONS[ax.field], ax.scaleHint, HISTOGRAM_HINT].join("\n");
+    return { key: ax.key, label: ax.label, histogram: histogramOf(values), description };
   });
+}
+
+/**
+ * Slider rows for per-song lists (genres, instruments): the 25 entries most often
+ * in a song's top N, each with the distribution of its value over the songs that have it.
+ */
+function listRows<T>(
+  songs: Song[],
+  itemsOf: (s: Song) => T[],
+  name: (item: T) => string,
+  value: (item: T) => number,
+  topN: number,
+  describe: (count: number) => string,
+): BarRow[] {
+  const counts: Record<string, number> = {};
+  const values: Record<string, number[]> = {};
+  for (const s of songs) {
+    const items = [...itemsOf(s)].sort((a, b) => value(b) - value(a));
+    items.forEach((item, rank) => {
+      const key = name(item);
+      (values[key] ??= []).push(value(item));
+      if (rank < topN) counts[key] = (counts[key] ?? 0) + 1;
+    });
+  }
+  return Object.entries(counts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 25)
+    .map(([key, count]) => ({
+      key,
+      label: key,
+      count,
+      histogram: histogramOf(values[key]),
+      description: describe(count),
+    }));
 }
 
 /** Mean normalised value per axis over the given songs (missing values skipped). */
@@ -122,38 +165,27 @@ export function SongsPage({ songs, active }: Props) {
   const otherRows = useMemo(() => axisRows(songs, OTHER_AXES, otherStats), [songs, otherStats]);
 
   // ── genre rows ────────────────────────────────────────────────────────────
-  const genreRows = useMemo<BarRow[]>(() => {
-    const counts: Record<string, number> = {};
-    for (const s of songs) {
-      const top3 = [...s.parent_genres]
-        .sort((a, b) => b.percentage - a.percentage)
-        .slice(0, 3);
-      for (const g of top3) {
-        counts[g.genre] = (counts[g.genre] ?? 0) + 1;
-      }
-    }
-    return Object.entries(counts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 25)
-      .map(([genre, count]) => ({ key: genre, label: genre, count }));
-  }, [songs]);
+  // percentage is a 0-1 share (despite the name)
+  const genreRows = useMemo(() => listRows(
+    songs, (s) => s.parent_genres, (g) => g.genre, (g) => g.percentage, 3,
+    (count) => [
+      "Share of this genre in the song; all parent genres of a song add up to 100%.",
+      "Slider = minimum share (30% = at least 30% of the song is this genre).",
+      `Number: ${count} songs have it among their top 3 genres.`,
+      "Bars: how the share spreads over the songs that have this genre; orange = songs that pass.",
+    ].join("\n"),
+  ), [songs]);
 
   // ── instrument rows ───────────────────────────────────────────────────────
-  const instrRows = useMemo<BarRow[]>(() => {
-    const counts: Record<string, number> = {};
-    for (const s of songs) {
-      const top10 = [...s.instruments]
-        .sort((a, b) => b.probability - a.probability)
-        .slice(0, 10);
-      for (const inst of top10) {
-        counts[inst.instrument] = (counts[inst.instrument] ?? 0) + 1;
-      }
-    }
-    return Object.entries(counts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 25)
-      .map(([name, count]) => ({ key: name, label: name, count }));
-  }, [songs]);
+  const instrRows = useMemo(() => listRows(
+    songs, (s) => s.instruments, (i) => i.instrument, (i) => i.probability, 10,
+    (count) => [
+      "Model probability that the instrument is present; independent per instrument, they don't add up to 100%.",
+      "Slider = minimum probability (50% = 0.50).",
+      `Number: ${count} songs have it among their top 10 instruments.`,
+      "Bars: how the probability spreads over the songs that have this instrument; orange = songs that pass.",
+    ].join("\n"),
+  ), [songs]);
 
   // ── filtered result ───────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -301,7 +333,7 @@ export function SongsPage({ songs, active }: Props) {
     <div className="h-full flex relative">
 
       {/* ── left: all filters (full-screen overlay on phones) ── */}
-      <aside ref={filterPanelRef} className={`absolute inset-0 z-30 md:static md:z-auto w-full md:w-72 xl:w-80 shrink-0 overflow-y-auto border-r border-line bg-panel ${mobileFilters ? "block" : "hidden"} ${showPanels ? "md:block" : "md:hidden"}`}>
+      <aside ref={filterPanelRef} className={`absolute inset-0 z-30 md:static md:z-auto w-full md:w-72 shrink-0 overflow-y-auto border-r border-line bg-panel ${mobileFilters ? "block" : "hidden"} ${showPanels ? "md:block" : "md:hidden"}`}>
         <div className="md:hidden sticky top-0 z-10 flex items-center justify-between px-4 py-2 bg-panel border-b border-line">
           <span className="font-mono text-2xs text-ink-3 tabular-nums">
             <span className="text-sm text-ink">{filtered.length}</span> / {songs.length} songs
@@ -367,7 +399,7 @@ export function SongsPage({ songs, active }: Props) {
 
       {/* ── center: search + results (sortable; visible order = play queue) ── */}
       <section ref={resultsRef} className="flex-1 min-w-0 overflow-y-auto">
-        <div className="px-3 py-3 md:px-5 md:py-4 space-y-3 md:space-y-4">
+        <div className="px-3 py-3 md:px-4 md:py-4 space-y-3 md:space-y-4">
           <div className="flex items-center gap-2 md:gap-3 flex-wrap">
             <button
               onClick={() => (window.matchMedia("(min-width: 768px)").matches ? togglePanels() : setMobileFilters(true))}
@@ -417,7 +449,7 @@ export function SongsPage({ songs, active }: Props) {
       </section>
 
       {/* ── right: radar visualisation of thresholds vs. filtered average ── */}
-      <aside ref={radarPanelRef} className={`w-64 xl:w-72 shrink-0 overflow-y-auto border-l border-line bg-panel flex-col gap-4 px-4 py-4 ${showPanels ? "hidden lg:flex" : "hidden"}`}>
+      <aside ref={radarPanelRef} className={`w-64 shrink-0 overflow-y-auto border-l border-line bg-panel flex-col gap-4 px-4 py-4 ${showPanels ? "hidden lg:flex" : "hidden"}`}>
         <div className="flex items-center gap-4 font-mono text-2xs text-ink-3 pb-3 border-b border-line">
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-2 bg-signal/25 border border-signal" /> Filter
