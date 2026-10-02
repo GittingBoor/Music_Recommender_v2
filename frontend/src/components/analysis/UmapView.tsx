@@ -1,46 +1,47 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { Song } from "../../types/song";
-import type { UmapResponse, UmapStatus } from "../../types/umap";
+import type { UmapPoint2D, UmapResponse, UmapStatus } from "../../types/umap";
 import type { PreviewSegment } from "../../services/api";
-import { fetchPreviewSegment, fetchUmap, fetchUmapStatus } from "../../services/api";
+import { fetchPreviewSegment, fetchUmapStatus } from "../../services/api";
 import { loadDefaultUmap } from "../../services/umapCache";
 import { getSnapshot, playPreview, subscribe, toggle } from "../../audio/player";
 import { Link, songPath } from "../../router";
 import { UmapCanvas2D } from "./UmapCanvas2D";
+import type { PlotAxes } from "./UmapCanvas2D";
 import { COLOR, SERIES_EXTENDED } from "../../theme";
 
 // ─── Feature definitions ──────────────────────────────────────────────────────
 
 const FEATURE_OPTIONS = [
-  { value: "bpm",                    label: "BPM",               group: "Rhythm"   },
-  { value: "danceability",           label: "Danceability",      group: "Rhythm"   },
-  { value: "beat_confidence",        label: "Beat Confidence",   group: "Rhythm"   },
-  { value: "onset_rate",             label: "Onset Rate",        group: "Rhythm"   },
-  { value: "key_strength",           label: "Key Strength",      group: "Tonal"    },
-  { value: "chord_strength_mean",    label: "Chord Strength",    group: "Tonal"    },
-  { value: "chord_change_rate",      label: "Chord Change Rate", group: "Tonal"    },
-  { value: "integrated_lufs",        label: "Loudness (LUFS)",   group: "Loudness" },
-  { value: "loudness_range_lu",      label: "Loudness Range",    group: "Loudness" },
-  { value: "dynamic_complexity",     label: "Dyn. Complexity",   group: "Loudness" },
-  { value: "loudness_db",            label: "Loudness (dB)",     group: "Loudness" },
-  { value: "spectral_centroid_mean", label: "Spectral Centroid", group: "Spectral" },
-  { value: "spectral_rolloff_mean",  label: "Spectral Rolloff",  group: "Spectral" },
-  { value: "spectral_flux_mean",     label: "Spectral Flux",     group: "Spectral" },
-  { value: "zero_crossing_rate",     label: "Zero Crossing",     group: "Spectral" },
-  { value: "dissonance",             label: "Dissonance",        group: "Spectral" },
-  { value: "happy",                  label: "Happy",             group: "Mood"     },
-  { value: "sad",                    label: "Sad",               group: "Mood"     },
-  { value: "aggressive",             label: "Aggressive",        group: "Mood"     },
-  { value: "party",                  label: "Party",             group: "Mood"     },
-  { value: "relaxed",                label: "Relaxed",           group: "Mood"     },
-  { value: "acoustic",               label: "Acoustic",          group: "Mood"     },
-  { value: "electronic",             label: "Electronic",        group: "Mood"     },
-  { value: "arousal",                label: "Arousal",           group: "Profile"  },
-  { value: "valence",                label: "Valence",           group: "Profile"  },
-  { value: "mainstream_score",        label: "Approachability",   group: "Profile"  },
-  { value: "active_score",           label: "Engagement",        group: "Profile"  },
-  { value: "vocal_score",            label: "Voice",             group: "Profile"  },
+  { value: "bpm",                    label: "BPM",               group: "Rhythm",   rel: "dsp_features" },
+  { value: "danceability",           label: "Danceability",      group: "Rhythm",   rel: "dsp_features" },
+  { value: "beat_confidence",        label: "Beat Confidence",   group: "Rhythm",   rel: "dsp_features" },
+  { value: "onset_rate",             label: "Onset Rate",        group: "Rhythm",   rel: "dsp_features" },
+  { value: "key_strength",           label: "Key Strength",      group: "Tonal",    rel: "dsp_features" },
+  { value: "chord_strength_mean",    label: "Chord Strength",    group: "Tonal",    rel: "dsp_features" },
+  { value: "chord_change_rate",      label: "Chord Change Rate", group: "Tonal",    rel: "dsp_features" },
+  { value: "integrated_lufs",        label: "Loudness (LUFS)",   group: "Loudness", rel: "dsp_features" },
+  { value: "loudness_range_lu",      label: "Loudness Range",    group: "Loudness", rel: "dsp_features" },
+  { value: "dynamic_complexity",     label: "Dyn. Complexity",   group: "Loudness", rel: "dsp_features" },
+  { value: "loudness_db",            label: "Loudness (dB)",     group: "Loudness", rel: "dsp_features" },
+  { value: "spectral_centroid_mean", label: "Spectral Centroid", group: "Spectral", rel: "dsp_features" },
+  { value: "spectral_rolloff_mean",  label: "Spectral Rolloff",  group: "Spectral", rel: "dsp_features" },
+  { value: "spectral_flux_mean",     label: "Spectral Flux",     group: "Spectral", rel: "dsp_features" },
+  { value: "zero_crossing_rate",     label: "Zero Crossing",     group: "Spectral", rel: "dsp_features" },
+  { value: "dissonance",             label: "Dissonance",        group: "Spectral", rel: "dsp_features" },
+  { value: "happy",                  label: "Happy",             group: "Mood",     rel: "ml_moods"     },
+  { value: "sad",                    label: "Sad",               group: "Mood",     rel: "ml_moods"     },
+  { value: "aggressive",             label: "Aggressive",        group: "Mood",     rel: "ml_moods"     },
+  { value: "party",                  label: "Party",             group: "Mood",     rel: "ml_moods"     },
+  { value: "relaxed",                label: "Relaxed",           group: "Mood",     rel: "ml_moods"     },
+  { value: "acoustic",               label: "Acoustic",          group: "Mood",     rel: "ml_moods"     },
+  { value: "electronic",             label: "Electronic",        group: "Mood",     rel: "ml_moods"     },
+  { value: "arousal",                label: "Arousal",           group: "Profile",  rel: "ml_profile"   },
+  { value: "valence",                label: "Valence",           group: "Profile",  rel: "ml_profile"   },
+  { value: "mainstream_score",       label: "Approachability",   group: "Profile",  rel: "ml_profile"   },
+  { value: "active_score",           label: "Engagement",        group: "Profile",  rel: "ml_profile"   },
+  { value: "vocal_score",            label: "Voice",             group: "Profile",  rel: "ml_profile"   },
 ] as const;
 
 type FeatureValue = (typeof FEATURE_OPTIONS)[number]["value"];
@@ -50,8 +51,34 @@ const FEATURE_LABEL: Record<string, string> = Object.fromEntries(
   FEATURE_OPTIONS.map((o) => [o.value, o.label])
 );
 const FEATURE_GROUPS = [...new Set(FEATURE_OPTIONS.map((o) => o.group))];
+const FEATURE_REL = Object.fromEntries(
+  FEATURE_OPTIONS.map((o) => [o.value, o.rel])
+) as Record<FeatureValue, (typeof FEATURE_OPTIONS)[number]["rel"]>;
+
+/** Raw value of a feature — the same field the backend's FEATURE_DEFINITIONS reads. */
+function featureValue(song: Song, key: FeatureValue): number | null {
+  const rel = song[FEATURE_REL[key]] as unknown as Record<string, unknown> | null;
+  const v = rel?.[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
 
 const GENRE_PALETTE: readonly string[] = SERIES_EXTENDED;
+
+// ─── Point size (remembered per browser) ─────────────────────────────────────
+
+const POINT_SIZE_KEY = "umap.pointRadius";
+const POINT_SIZE_MIN = 2;
+const POINT_SIZE_MAX = 12;
+const POINT_SIZE_DEFAULT = 3;
+
+function storedPointSize(): number {
+  try {
+    const stored = parseInt(localStorage.getItem(POINT_SIZE_KEY) ?? "", 10);
+    return stored >= POINT_SIZE_MIN && stored <= POINT_SIZE_MAX ? stored : POINT_SIZE_DEFAULT;
+  } catch {
+    return POINT_SIZE_DEFAULT; // storage unavailable
+  }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -544,25 +571,43 @@ export function UmapView({ songs }: Props) {
   // Phones only: the legend panel is an overlay, the song panel a bottom sheet.
   const [showControls,   setShowControls]   = useState(false);
 
+  const [hiddenGenres,   setHiddenGenres]   = useState<ReadonlySet<string>>(() => new Set());
+  const [pointRadius,    setPointRadius]    = useState(storedPointSize);
+
+  const changePointRadius = (r: number) => {
+    setPointRadius(r);
+    try { localStorage.setItem(POINT_SIZE_KEY, String(r)); } catch { /* storage unavailable */ }
+  };
+
   const songMap = useMemo(() => new Map(songs.map((s) => [s.id, s])), [songs]);
 
-  const genreColorMap = useMemo(() => {
-    const genres = new Set<string>();
+  /** Strongest parent genre per song — drives colour, legend and hiding. */
+  const topGenreById = useMemo(() => {
+    const map = new Map<string, string>();
     songs.forEach((s) => {
       const top = [...s.parent_genres].sort((a, b) => b.percentage - a.percentage)[0];
-      if (top) genres.add(top.genre);
+      if (top) map.set(s.id, top.genre);
     });
-    const map: Record<string, string> = {};
-    [...genres].forEach((g, i) => { map[g] = GENRE_PALETTE[i % GENRE_PALETTE.length]; });
     return map;
   }, [songs]);
 
+  const genreColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    [...new Set(topGenreById.values())].forEach((g, i) => {
+      map[g] = GENRE_PALETTE[i % GENRE_PALETTE.length];
+    });
+    return map;
+  }, [topGenreById]);
+
   const getPointColor = useCallback((songId: string): string => {
-    const s = songMap.get(songId);
-    if (!s) return GENRE_PALETTE[0];
-    const top = [...s.parent_genres].sort((a, b) => b.percentage - a.percentage)[0];
-    return top ? (genreColorMap[top.genre] ?? GENRE_PALETTE[0]) : GENRE_PALETTE[0];
-  }, [songMap, genreColorMap]);
+    const genre = topGenreById.get(songId);
+    return genre ? (genreColorMap[genre] ?? GENRE_PALETTE[0]) : GENRE_PALETTE[0];
+  }, [topGenreById, genreColorMap]);
+
+  const isPointVisible = useCallback((songId: string): boolean => {
+    const genre = topGenreById.get(songId);
+    return genre === undefined || !hiddenGenres.has(genre);
+  }, [topGenreById, hiddenGenres]);
 
   // Only the newest request may write its result.
   const requestRef = useRef(0);
@@ -580,35 +625,71 @@ export function UmapView({ songs }: Props) {
     }
   }, []);
 
-  // Changes apply immediately — switching mode or swapping an axis reloads.
-  // A grown library only refreshes the map in place, without the loading overlay.
+  // The all-features UMAP is always loaded: custom mode borrows its neighbour
+  // links. A grown library only refreshes the map in place, without the overlay.
   const songCount = songs.length;
-  const shownModeRef = useRef<string | null>(null);
+  const loadedOnceRef = useRef(false);
   useEffect(() => {
-    const mode = featureMode === "all" ? "all" : `${customX}/${customY}`;
-    const modeChanged = shownModeRef.current !== mode;
-    shownModeRef.current = mode;
-    if (featureMode === "all") loadUmap(loadDefaultUmap(songCount), modeChanged);
-    else loadUmap(fetchUmap([customX, customY]), modeChanged);
-  }, [featureMode, customX, customY, songCount, loadUmap]);
+    loadUmap(loadDefaultUmap(songCount), !loadedOnceRef.current);
+    loadedOnceRef.current = true;
+  }, [songCount, loadUmap]);
 
   const fitStatus = useUmapStatus(loading && featureMode === "all");
 
-  const xLabel2D = featureMode === "custom" ? (FEATURE_LABEL[customX] ?? "") : "";
-  const yLabel2D = featureMode === "custom" ? (FEATURE_LABEL[customY] ?? "") : "";
+  // Custom mode is a plain scatter plot of raw values, computed right here;
+  // songs missing either value are left out.
+  const customPoints = useMemo((): UmapPoint2D[] => {
+    const neighbors = new Map(umapData?.points_2d.map((p) => [p.song_id, p.neighbors]));
+    const pts: UmapPoint2D[] = [];
+    for (const s of songs) {
+      const x = featureValue(s, customX);
+      const y = featureValue(s, customY);
+      if (x === null || y === null) continue;
+      pts.push({
+        song_id: s.id, x, y, title: s.title, artist: s.artist,
+        neighbors: neighbors.get(s.id) ?? [],
+      });
+    }
+    return pts;
+  }, [songs, customX, customY, umapData]);
+
+  const points = featureMode === "all" ? (umapData?.points_2d ?? null) : customPoints;
+
+  const axes = useMemo((): PlotAxes | null => (
+    featureMode === "custom" ? { x: FEATURE_LABEL[customX], y: FEATURE_LABEL[customY] } : null
+  ), [featureMode, customX, customY]);
 
   const selectedSong = selectedSongId ? songMap.get(selectedSongId) : null;
 
+  // Genres present on the current map, largest first.
   const legendEntries = useMemo(() => {
-    if (!umapData) return [];
-    const present = new Set<string>();
-    umapData.points_2d.forEach((p) => {
-      const s = songMap.get(p.song_id);
-      const top = s ? [...s.parent_genres].sort((a, b) => b.percentage - a.percentage)[0] : null;
-      if (top) present.add(top.genre);
+    const counts = new Map<string, number>();
+    points?.forEach((p) => {
+      const genre = topGenreById.get(p.song_id);
+      if (genre) counts.set(genre, (counts.get(genre) ?? 0) + 1);
     });
-    return [...present].map((g) => ({ genre: g, color: genreColorMap[g] ?? COLOR.ink4 }));
-  }, [umapData, songMap, genreColorMap]);
+    return [...counts]
+      .sort((a, b) => b[1] - a[1])
+      .map(([genre, count]) => ({ genre, count, color: genreColorMap[genre] ?? COLOR.ink4 }));
+  }, [points, topGenreById, genreColorMap]);
+
+  const visibleCount = useMemo(
+    () => points?.filter((p) => isPointVisible(p.song_id)).length ?? 0,
+    [points, isPointVisible]
+  );
+
+  const toggleGenre = (genre: string) => {
+    setHiddenGenres((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(genre)) next.add(genre);
+      return next;
+    });
+  };
+  const soloGenre = (genre: string) => {
+    setHiddenGenres(new Set(legendEntries.map((e) => e.genre).filter((g) => g !== genre)));
+  };
+  const showAllGenres = () => setHiddenGenres(new Set());
+  const hideAllGenres = () => setHiddenGenres(new Set(legendEntries.map((e) => e.genre)));
 
   return (
     <div className="h-full flex overflow-hidden relative">
@@ -674,8 +755,32 @@ export function UmapView({ songs }: Props) {
             <div className="space-y-3 mt-4">
               <AxisSelect label="X" value={customX} onChange={setCustomX} />
               <AxisSelect label="Y" value={customY} onChange={setCustomY} />
+              {songs.length > customPoints.length && (
+                <p className="font-mono text-2xs text-ink-3">
+                  {songs.length - customPoints.length} songs without a value left out
+                </p>
+              )}
             </div>
           )}
+
+          <div className="mt-5 pt-4 border-t border-line">
+            <div className="flex items-baseline justify-between mb-1.5">
+              <label htmlFor="umap-point-size" className="text-xs font-semibold text-ink">
+                Point size
+              </label>
+              <span className="font-mono text-2xs text-ink-3 tabular-nums">{pointRadius}</span>
+            </div>
+            <input
+              id="umap-point-size"
+              type="range"
+              min={POINT_SIZE_MIN}
+              max={POINT_SIZE_MAX}
+              step={1}
+              value={pointRadius}
+              onChange={(e) => changePointRadius(Number(e.target.value))}
+              className="range w-full"
+            />
+          </div>
 
           <div className="mt-5 pt-4 border-t border-line">
             <p className="text-xs font-semibold text-ink mb-1.5">
@@ -683,7 +788,11 @@ export function UmapView({ songs }: Props) {
             </p>
             <ul className="list-[square] pl-4 space-y-1 text-xs text-ink-2 leading-relaxed marker:text-ink-4">
               <li>Each song links to its 5 nearest neighbours</li>
-              <li>Measured on all features, before the 2D projection</li>
+              <li>
+                {featureMode === "all"
+                  ? "Measured on all features, before the 2D projection"
+                  : "Measured on all features, not just the two axes"}
+              </li>
               <li><span className="text-ink">Hover</span> a dot for a faint preview</li>
               <li><span className="text-ink">Click</span> it to pin the lines</li>
             </ul>
@@ -691,17 +800,55 @@ export function UmapView({ songs }: Props) {
 
           {legendEntries.length > 0 && (
             <div className="mt-5 pt-4 border-t border-line">
-              <p className="text-xs font-semibold text-ink mb-2">
-                Color = Genre
-              </p>
-              <div className="space-y-1">
-                {legendEntries.map(({ genre, color }) => (
-                  <div key={genre} className="flex items-center gap-2">
-                    <div className="w-2 h-2 flex-shrink-0" style={{ backgroundColor: color }} />
-                    <span className="text-xs text-ink-2 truncate">{genre}</span>
-                  </div>
-                ))}
+              <div className="flex items-baseline justify-between mb-1.5">
+                <p className="text-xs font-semibold text-ink">
+                  Color = Genre
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={showAllGenres} disabled={hiddenGenres.size === 0} className="btn-quiet">
+                    All
+                  </button>
+                  <button onClick={hideAllGenres} disabled={visibleCount === 0} className="btn-quiet">
+                    None
+                  </button>
+                </div>
               </div>
+              <p className="font-mono text-2xs text-ink-3 mb-2 tabular-nums">
+                {hiddenGenres.size > 0
+                  ? `${visibleCount} of ${points?.length ?? 0} songs shown`
+                  : "Click a genre to hide it"}
+              </p>
+              <ul className="space-y-px">
+                {legendEntries.map(({ genre, count, color }) => {
+                  const hidden = hiddenGenres.has(genre);
+                  return (
+                    <li key={genre} className="group flex items-center gap-2">
+                      <button
+                        onClick={() => toggleGenre(genre)}
+                        aria-pressed={!hidden}
+                        title={hidden ? "Show genre" : "Hide genre"}
+                        className="flex-1 min-w-0 flex items-center gap-2 py-0.5 text-left"
+                      >
+                        <span
+                          className="w-2 h-2 flex-shrink-0 border"
+                          style={{ borderColor: color, backgroundColor: hidden ? "transparent" : color }}
+                        />
+                        <span className={`text-xs truncate ${hidden ? "text-ink-4 line-through" : "text-ink-2 group-hover:text-ink"}`}>
+                          {genre}
+                        </span>
+                        <span className="ml-auto font-mono text-2xs text-ink-4 tabular-nums">{count}</span>
+                      </button>
+                      <button
+                        onClick={() => soloGenre(genre)}
+                        title="Show only this genre"
+                        className="font-mono text-2xs text-ink-3 hover:text-ink md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100"
+                      >
+                        only
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           )}
         </div>
@@ -719,26 +866,28 @@ export function UmapView({ songs }: Props) {
           </svg>
           {featureMode === "all" ? "UMAP" : "Custom"} · Legend
         </button>
-        {loading && <UmapLoading status={fitStatus} />}
-        {error && !loading && (
+        {/* Custom mode doesn't wait for the UMAP — it only lacks lines meanwhile */}
+        {featureMode === "all" && loading && <UmapLoading status={fitStatus} />}
+        {featureMode === "all" && error && !loading && (
           <div className="absolute inset-0 flex items-center justify-center">
             <p className="font-mono text-xs text-bad">Error: {error}</p>
           </div>
         )}
-        {!umapData && !loading && !error && (
+        {points?.length === 0 || (!points && !loading && !error) ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <p className="font-mono text-xs text-ink-3">No data</p>
           </div>
-        )}
+        ) : null}
 
-        {umapData && (
+        {points && points.length > 0 && (
           <UmapCanvas2D
-            points={umapData.points_2d}
+            points={points}
             selectedSongId={selectedSongId}
             getColor={getPointColor}
+            isVisible={isPointVisible}
             onSelect={setSelectedSongId}
-            xLabel={xLabel2D}
-            yLabel={yLabel2D}
+            pointRadius={pointRadius}
+            axes={axes}
           />
         )}
       </div>
