@@ -18,7 +18,8 @@ export interface TimeseriesResponse {
   mode: TimeAxisMode;
   song_count: number;
   min_songs: number;
-  selected_song: TimeseriesSong | null;
+  /** Overlay songs, in the order they were requested. */
+  selected_songs: TimeseriesSong[];
   positions: number[];
   avg_timeseries: (number | null)[];
   p25_timeseries: (number | null)[];

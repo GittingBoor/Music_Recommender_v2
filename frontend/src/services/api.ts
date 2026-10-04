@@ -62,12 +62,12 @@ export async function fetchTimeseries(
   feature: string,
   mood: string | null,
   threshold: number,
-  songId: string | null,
+  songIds: string[],
   mode: TimeAxisMode,
 ): Promise<TimeseriesResponse> {
   const params = new URLSearchParams({ feature, threshold: String(threshold), mode });
   if (mood) params.set("mood", mood);
-  if (songId) params.set("song_id", songId);
+  for (const id of songIds) params.append("song_id", id);
   const res = await fetch(`/api/analysis/timeseries?${params}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();

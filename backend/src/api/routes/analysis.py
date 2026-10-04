@@ -44,6 +44,8 @@ TIMESERIES_FEATURES: dict[str, tuple[str, str]] = {
 
 MOOD_FIELDS = ["happy", "sad", "aggressive", "party", "relaxed", "acoustic", "electronic"]
 
+MAX_OVERLAY_SONGS = 3
+
 
 def _normalize_array(values: list[float]) -> list[float]:
     arr = np.array(values, dtype=float)
@@ -144,7 +146,7 @@ def get_timeseries(
     feature: str = Query(default="loudness"),
     mood: str | None = Query(default=None),
     threshold: float = Query(default=0.7, ge=0.0, le=1.0),
-    song_id: str | None = Query(default=None),
+    song_ids: list[str] = Query(default=[], alias="song_id"),
     mode: TimeAxisMode = Query(default=TimeAxisMode.RELATIVE),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
@@ -153,6 +155,12 @@ def get_timeseries(
 
     if mood and mood not in MOOD_FIELDS:
         raise HTTPException(status_code=400, detail=f"Unknown mood '{mood}'")
+
+    song_ids = list(dict.fromkeys(song_ids))
+    if len(song_ids) > MAX_OVERLAY_SONGS:
+        raise HTTPException(
+            status_code=400, detail=f"At most {MAX_OVERLAY_SONGS} overlay songs allowed"
+        )
 
     table_attr, col = TIMESERIES_FEATURES[feature]
     # Only the one requested array is loaded; all other timeseries stay deferred.
@@ -180,13 +188,13 @@ def get_timeseries(
     def get_mood_val(song: Song, mood_name: str) -> float | None:
         return None if song.ml_moods is None else getattr(song.ml_moods, mood_name, None)
 
-    selected_song: Song | None = None
+    selected_by_id: dict[str, Song] = {}
     filtered: list[Song] = []
 
     for s in songs:
-        # Always capture selected song regardless of mood filter
-        if s.id == song_id:
-            selected_song = s
+        # Always capture selected songs regardless of mood filter
+        if s.id in song_ids:
+            selected_by_id[s.id] = s
 
         if mood:
             score = get_mood_val(s, mood)
@@ -195,35 +203,37 @@ def get_timeseries(
 
         filtered.append(s)
 
+    selected_songs = [selected_by_id[sid] for sid in song_ids if sid in selected_by_id]
+
     resampler = resampler_for(feature)
     try:
         aggregate = TimeseriesAggregator(resampler).aggregate([get_series(s) for s in filtered], mode)
-        selected_series = None if selected_song is None else get_series(selected_song)
+        selected_series = [(s, get_series(s)) for s in selected_songs]
     except TimeseriesDataError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     aggregate = AggregateNormalizer().normalize(aggregate)
 
-    selected_song_data: dict[str, Any] | None = None
-    if selected_song is not None and selected_series is not None:
+    selected_songs_data: list[dict[str, Any]] = []
+    for song, series in selected_series:
         resampled = (
-            resampler.to_relative(selected_series)
+            resampler.to_relative(series)
             if mode is TimeAxisMode.RELATIVE
-            else resampler.to_absolute(selected_series)
+            else resampler.to_absolute(series)
         )
-        selected_song_data = {
-            "song_id":          selected_song.id,
-            "title":            selected_song.title,
-            "artist":           selected_song.artist,
-            "duration_seconds": selected_series.duration_seconds,
+        selected_songs_data.append({
+            "song_id":          song.id,
+            "title":            song.title,
+            "artist":           song.artist,
+            "duration_seconds": series.duration_seconds,
             "values":           _normalize_array(resampled.tolist()),
-        }
+        })
 
     return {
         "feature":        feature,
         "mode":           mode.value,
         "song_count":     len(filtered),
         "min_songs":      MIN_SONGS,
-        "selected_song":  selected_song_data,
+        "selected_songs": selected_songs_data,
         "positions":      aggregate.positions.tolist(),
         "avg_timeseries": _nan_to_none(aggregate.mean),
         "p25_timeseries": _nan_to_none(aggregate.p25),

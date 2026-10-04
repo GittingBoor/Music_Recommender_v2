@@ -7,7 +7,7 @@ import type { TooltipProps } from "recharts";
 import { fetchTimeseries } from "../../services/api";
 import type { Song } from "../../types/song";
 import type { TimeAxisMode, TimeseriesResponse } from "../../types/analysis";
-import { COLOR, gridProps, numericAxis, tooltipStyle } from "../../theme";
+import { COLOR, SERIES, gridProps, numericAxis, tooltipStyle } from "../../theme";
 
 const FEATURES: { key: string; label: string; group: string; tooltip: string }[] = [
   { key: "loudness",           label: "Loudness",           group: "DSP",        tooltip: "Short-term loudness changes over the song (in dB)." },
@@ -44,6 +44,13 @@ const ABSOLUTE_TICK_STEP = 20;
 const ABSOLUTE_AXIS_ROUNDING = 60;
 const ABSOLUTE_STEP_SECONDS = 1;
 
+/** Overlay songs are told apart by colour; the first keeps the signal colour. */
+const OVERLAY_COLORS = [COLOR.signal, SERIES[0], SERIES[2]] as const;
+const MAX_OVERLAY_SONGS = OVERLAY_COLORS.length;
+
+type OverlayKey = `song${number}`;
+const overlayKey = (index: number): OverlayKey => `song${index}`;
+
 const MODE_OPTIONS: { readonly mode: TimeAxisMode; readonly label: string }[] = [
   { mode: "relative", label: "Relative time (%)" },
   { mode: "absolute", label: "Absolute time (s)" },
@@ -64,8 +71,9 @@ interface ChartEntry {
   x: number;
   avg?: number;
   band?: [number, number];
-  song?: number;
   count: number;
+  /** song0 … songN: normalized values of the overlay songs. */
+  [key: OverlayKey]: number | undefined;
 }
 
 
@@ -77,7 +85,7 @@ export function TimeseriesSection({ songs }: Props) {
   const [feature,   setFeature]   = useState("loudness");
   const [mood,      setMood]      = useState<string>("");
   const [threshold, setThreshold] = useState(0.7);
-  const [songId,    setSongId]    = useState<string>("");
+  const [overlays,  setOverlays]  = useState<{ id: string; color: string }[]>([]);
   const [search,    setSearch]    = useState("");
   const [showDrop,  setShowDrop]  = useState(false);
   const [mode,      setMode]      = useState<TimeAxisMode>("relative");
@@ -88,30 +96,50 @@ export function TimeseriesSection({ songs }: Props) {
 
   const dropRef = useRef<HTMLDivElement>(null);
 
+  const songIds = useMemo(() => overlays.map((o) => o.id), [overlays]);
+
+  // A song keeps its colour while it stays selected, even when others are removed.
+  const colorOf = (id: string): string =>
+    overlays.find((o) => o.id === id)?.color ?? OVERLAY_COLORS[0];
+
   const filteredSongs = useMemo(() => {
     const q = search.toLowerCase();
     return songs
       .filter(
         (s) =>
           (s.title?.toLowerCase().includes(q) || s.artist?.toLowerCase().includes(q)) &&
-          s.id !== songId,
+          !songIds.includes(s.id),
       )
       .slice(0, 30);
-  }, [songs, search, songId]);
+  }, [songs, search, songIds]);
 
-  const selectedSong = useMemo(
-    () => songs.find((s) => s.id === songId) ?? null,
-    [songs, songId],
+  const selectedSongs = useMemo(
+    () => songIds.map((id) => songs.find((s) => s.id === id)).filter((s): s is Song => s != null),
+    [songs, songIds],
   );
+
+  const canAddSong = songIds.length < MAX_OVERLAY_SONGS;
+
+  const addSong = (id: string) => {
+    setOverlays((prev) => {
+      if (prev.length >= MAX_OVERLAY_SONGS || prev.some((o) => o.id === id)) return prev;
+      const color = OVERLAY_COLORS.find((c) => !prev.some((o) => o.color === c)) ?? OVERLAY_COLORS[0];
+      return [...prev, { id, color }];
+    });
+    setSearch("");
+    setShowDrop(false);
+  };
+
+  const removeSong = (id: string) => setOverlays((prev) => prev.filter((o) => o.id !== id));
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetchTimeseries(feature, mood || null, threshold, songId || null, mode)
+    fetchTimeseries(feature, mood || null, threshold, songIds, mode)
       .then(setTsData)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [feature, mood, threshold, songId, mode]);
+  }, [feature, mood, threshold, songIds, mode]);
 
   useEffect(() => {
     load();
@@ -131,18 +159,19 @@ export function TimeseriesSection({ songs }: Props) {
 
   const chartData = useMemo<ChartEntry[]>(() => {
     if (!tsData) return [];
-    const songValues = tsData.selected_song?.values ?? [];
-    const len        = Math.max(tsData.positions.length, songValues.length);
+    const overlaySongs = tsData.selected_songs;
+    const len      = Math.max(tsData.positions.length, ...overlaySongs.map((o) => o.values.length));
     return Array.from({ length: len }, (_, i) => {
       const p25 = roundValue(tsData.p25_timeseries[i]);
       const p75 = roundValue(tsData.p75_timeseries[i]);
-      return {
+      const entry: ChartEntry = {
         x:     tsData.positions[i] ?? i * ABSOLUTE_STEP_SECONDS,
         avg:   roundValue(tsData.avg_timeseries[i]),
         band:  p25 != null && p75 != null ? [p25, p75] : undefined,
-        song:  roundValue(songValues[i]),
         count: tsData.counts_at_time[i] ?? 0,
       };
+      overlaySongs.forEach((o, k) => { entry[overlayKey(k)] = roundValue(o.values[i]); });
+      return entry;
     });
   }, [tsData]);
 
@@ -276,51 +305,64 @@ export function TimeseriesSection({ songs }: Props) {
         {/* Divider */}
         <div className="h-px md:h-auto md:w-px bg-line shrink-0" />
 
-        {/* Section 3: Individual song overlay */}
+        {/* Section 3: Individual song overlays (up to MAX_OVERLAY_SONGS) */}
         <div className="flex-1 min-w-0 md:pl-5 py-3" ref={dropRef}>
           <label className="block t-label mb-2">
-            Individual song overlay
+            Song overlays{" "}
+            <span className="font-mono text-ink-4">{songIds.length}/{MAX_OVERLAY_SONGS}</span>
           </label>
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search song…"
-              value={
-                selectedSong
-                  ? `${selectedSong.title ?? "?"} – ${selectedSong.artist ?? "?"}`
-                  : search
-              }
-              onFocus={() => { setShowDrop(true); if (selectedSong) setSearch(""); }}
-              onChange={(e) => { setSearch(e.target.value); setSongId(""); setShowDrop(true); }}
-              className="field w-full pr-7"
-            />
-            {songId && (
-              <button
-                onClick={() => { setSongId(""); setSearch(""); }}
-                aria-label="Clear song"
-                className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-ink-3 hover:text-ink text-xs"
-              >
-                ✕
-              </button>
-            )}
-            {showDrop && !songId && (
-              <div className="absolute z-20 left-0 right-0 top-full mt-1 bg-raised border border-line-strong rounded-sm max-h-56 overflow-y-auto">
-                {filteredSongs.length === 0 && (
-                  <p className="px-3 py-2 font-mono text-2xs text-ink-3">No matches</p>
-                )}
-                {filteredSongs.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => { setSongId(s.id); setSearch(""); setShowDrop(false); }}
-                    className="w-full text-left px-3 py-2 text-xs text-ink-2 hover:bg-line truncate border-b border-line last:border-b-0"
-                  >
+          {selectedSongs.length > 0 && (
+            <ul className="mb-2 space-y-0.5">
+              {selectedSongs.map((s) => (
+                <li key={s.id} className="flex items-center gap-2 text-xs min-w-0">
+                  <span
+                    className="inline-block w-4 h-0.5 shrink-0"
+                    style={{ backgroundColor: colorOf(s.id) }}
+                  />
+                  <span className="truncate flex-1 min-w-0">
                     <span className="text-ink">{s.title ?? "?"}</span>
                     <span className="text-ink-3"> – {s.artist ?? "?"}</span>
+                  </span>
+                  <button
+                    onClick={() => removeSong(s.id)}
+                    aria-label={`Remove ${s.title ?? "song"}`}
+                    className="w-6 h-6 flex items-center justify-center text-ink-3 hover:text-ink shrink-0"
+                  >
+                    ✕
                   </button>
-                ))}
-              </div>
-            )}
-          </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {canAddSong && (
+            <div className="relative">
+              <input
+                type="text"
+                placeholder={songIds.length === 0 ? "Search song…" : "Add another song…"}
+                value={search}
+                onFocus={() => setShowDrop(true)}
+                onChange={(e) => { setSearch(e.target.value); setShowDrop(true); }}
+                className="field w-full"
+              />
+              {showDrop && (
+                <div className="absolute z-20 left-0 right-0 top-full mt-1 bg-raised border border-line-strong rounded-sm max-h-56 overflow-y-auto">
+                  {filteredSongs.length === 0 && (
+                    <p className="px-3 py-2 font-mono text-2xs text-ink-3">No matches</p>
+                  )}
+                  {filteredSongs.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => addSong(s.id)}
+                      className="w-full text-left px-3 py-2 text-xs text-ink-2 hover:bg-line truncate border-b border-line last:border-b-0"
+                    >
+                      <span className="text-ink">{s.title ?? "?"}</span>
+                      <span className="text-ink-3"> – {s.artist ?? "?"}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -336,12 +378,11 @@ export function TimeseriesSection({ songs }: Props) {
                 <span> ({mood} ≥ {threshold.toFixed(2)})</span>
               )}
             </span>
-            {tsData.selected_song && (
-              <span className="text-signal">
-                + {tsData.selected_song.title ?? "?"}{" "}
-                ({formatTime(Math.round(tsData.selected_song.duration_seconds))})
+            {tsData.selected_songs.map((o) => (
+              <span key={o.song_id} className="truncate" style={{ color: colorOf(o.song_id) }}>
+                + {o.title ?? "?"} ({formatTime(Math.round(o.duration_seconds))})
               </span>
-            )}
+            ))}
             {error && <span className="text-bad">{error}</span>}
           </>
         ) : null}
@@ -409,18 +450,19 @@ export function TimeseriesSection({ songs }: Props) {
                   connectNulls
                   isAnimationActive={false}
                 />
-                {tsData?.selected_song && (
+                {tsData?.selected_songs.map((o, k) => (
                   <Line
+                    key={o.song_id}
                     type="monotone"
-                    dataKey="song"
-                    name={tsData.selected_song.title ?? "Song"}
-                    stroke={COLOR.signal}
+                    dataKey={overlayKey(k)}
+                    name={o.title ?? "Song"}
+                    stroke={colorOf(o.song_id)}
                     strokeWidth={2}
                     dot={false}
                     connectNulls
                     isAnimationActive={false}
                   />
-                )}
+                ))}
               </ComposedChart>
             </ResponsiveContainer>
 
@@ -467,12 +509,12 @@ export function TimeseriesSection({ songs }: Props) {
                 <span className="inline-block w-5 h-2.5 bg-ink-3/20" />
                 P25–P75
               </span>
-              {tsData?.selected_song && (
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-5 h-0.5 bg-signal" />
-                  {tsData.selected_song.title ?? "Song"}
+              {tsData?.selected_songs.map((o) => (
+                <span key={o.song_id} className="flex items-center gap-1.5">
+                  <span className="inline-block w-5 h-0.5" style={{ backgroundColor: colorOf(o.song_id) }} />
+                  {o.title ?? "Song"}
                 </span>
-              )}
+              ))}
             </div>
           </>
         )}
