@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     acoustid_api_key: str = ""
     spotify_client_id: str = ""
     spotify_client_secret: str = ""
+    # Site login (prod only). Hash: `python -m src.auth.hash_password`;
+    # secret: any long random string. Both empty = nobody can log in.
+    site_password_hash: str = ""
+    session_secret: str = ""
+    session_days: int = 30
+    session_cookie_secure: bool = True
 
     class Config:
         env_file = ".env"

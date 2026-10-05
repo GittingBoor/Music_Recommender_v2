@@ -8,6 +8,7 @@ from src.core.config import check_required_keys
 from src.api.routes.admin import router as admin_router
 from src.api.routes.analysis import router as analysis_router
 from src.api.routes.audio import router as audio_router
+from src.api.routes.auth import router as auth_router
 from src.api.routes.ingest import router as ingest_router
 from src.api.routes.songs import router as songs_router
 from src.api.routes.umap import router as umap_router, warm_umap
@@ -44,6 +45,7 @@ app.include_router(analysis_router, prefix="/api")
 app.include_router(upload_router, prefix="/api")
 app.include_router(youtube_router, prefix="/api")
 app.include_router(ingest_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
 
 
 @app.get("/health")
