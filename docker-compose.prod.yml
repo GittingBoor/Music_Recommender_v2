@@ -60,6 +60,8 @@ services:
       - ${DATA_DIR}/datasets:/app/datasets
       - ${DATA_DIR}/model_cache:/app/model_cache
       - ${DATA_DIR}/short_audio:/app/short_audio
+      # Holds the pause flag while the host's Minecraft server runs (see src/ingest/slot.py).
+      - ${DATA_DIR}/pipeline-pause:/run/musicrec-pause:ro
     dns:
       - 1.1.1.1
       - 8.8.8.8
