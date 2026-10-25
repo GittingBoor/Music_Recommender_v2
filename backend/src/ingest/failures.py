@@ -16,6 +16,9 @@ _KNOWN_REASONS = {
     "unsupported_format",
     "no_search_hit",
     "all_hits_in_library",
+    "spotify_mismatch",
+    "no_fitting_hit",
+    "unverified",
 }
 
 
@@ -37,6 +40,11 @@ def _split_reason(result: dict) -> tuple[str, str | None]:
         if extra:
             detail = f"{detail} — {extra}" if detail else str(extra)
     return reason, detail
+
+
+def reason_category(result: dict) -> str:
+    """The short reason of a failed result ("spotify_mismatch", "download_error", …; "error" for crashes)."""
+    return _split_reason(result)[0]
 
 
 def record_failure(source: str, label: str, result: dict, video_id: str | None = None,

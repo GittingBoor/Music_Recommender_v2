@@ -55,6 +55,9 @@ class LibraryMatcher:
         self._entries: list[LibraryEntry] = [entry for entry in entries if entry is not None]
         self._song_ids: set[str] = {generate_song_id(t, a) for t, a in songs if t and a}
 
+    def has_song_id(self, song_id: str) -> bool:
+        return song_id in self._song_ids
+
     def contains(self, video_title: str, uploader: str | None) -> bool:
         """True when a library song's title and one of its artists occur in the video's title or channel."""
         parsed = parse_video_title(video_title, uploader)

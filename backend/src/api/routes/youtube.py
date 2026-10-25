@@ -21,6 +21,7 @@ from src.ingest.failures import record_failure
 from src.ingest.slot import processing_slot
 from src.ingest.tracker import Stage, tracker
 from src.metadata.identity import IdentityHint, MetadataSource, SongOrigin
+from src.spotify.matching import SpotifyTrack
 from src.youtube.download_queue import DownloadQueue
 from src.youtube.example_pool import ExamplePool
 from src.youtube.library_match import LibraryMatcher
@@ -263,7 +264,12 @@ def _error_result(filename: str, reason: str, error: dict | None = None) -> dict
 
 
 def _download_pipeline(
-    req: YoutubeDownloadRequest, job_id: int | None = None, log_failures: bool = True
+    req: YoutubeDownloadRequest,
+    job_id: int | None = None,
+    log_failures: bool = True,
+    hint: IdentityHint | None = None,
+    expected: SpotifyTrack | None = None,
+    trust_unrecognised: bool = False,
 ) -> Iterator[str]:
     """Download → trim → analyse, yielding NDJSON progress events.
 
@@ -273,20 +279,30 @@ def _download_pipeline(
     ``job_id`` reuses an existing pipeline-tracker entry (bulk queue); without
     it the download registers and removes its own. ``log_failures=False``
     leaves recording a failure to the caller (bulk tries several hits).
+    ``hint`` replaces the title/artist guessed from the video title, and
+    ``expected`` rejects audio that AcoustID recognises as another song
+    (both set by the Spotify playlist import); ``trust_unrecognised`` lets
+    audio AcoustID does not know through under the hint's name.
     """
     fallback_name = req.title or req.video_id
     owns_job = job_id is None
     if job_id is None:
         job_id = tracker.add("youtube", fallback_name, Stage.DOWNLOADING)
     try:
-        yield from _download_steps(req, fallback_name, job_id, log_failures)
+        yield from _download_steps(req, fallback_name, job_id, log_failures, hint, expected, trust_unrecognised)
     finally:
         if owns_job:
             tracker.remove(job_id)
 
 
 def _download_steps(
-    req: YoutubeDownloadRequest, fallback_name: str, job_id: int, log_failures: bool
+    req: YoutubeDownloadRequest,
+    fallback_name: str,
+    job_id: int,
+    log_failures: bool,
+    hint: IdentityHint | None,
+    expected: SpotifyTrack | None,
+    trust_unrecognised: bool,
 ) -> Iterator[str]:
     # 0) Skip the download when the video title already names a library song.
     known = _library_hit(req)
@@ -319,9 +335,12 @@ def _download_steps(
         final_path = yield from _trim(req, downloaded, fallback_name, job_id)
         yield _event("analyzing", 0.7)
         origin = SongOrigin(original_name=fallback_name, youtube_video_id=req.video_id)
-        hint = _title_hint(req)
+        identity_hint = hint or _title_hint(req)
         for outcome in run_with_heartbeat(
-            lambda: process_audio_file(final_path, job_id, hint, origin, slot_held=True)
+            lambda: process_audio_file(
+                final_path, job_id, identity_hint, origin, slot_held=True,
+                expected=expected, trust_unrecognised=trust_unrecognised,
+            )
         ):
             if outcome is None:
                 yield _event("analyzing", 0.7)  # keep-alive

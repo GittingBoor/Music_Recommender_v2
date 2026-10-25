@@ -12,6 +12,7 @@ class MetadataSource(str, Enum):
     YOUTUBE_TITLE = "youtube_title"
     USER_INPUT = "user_input"
     FILE_TAGS = "file_tags"
+    SPOTIFY = "spotify"
 
 
 @dataclass(frozen=True)

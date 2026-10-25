@@ -76,7 +76,8 @@ def test_a_youtube_song_holds_the_slot_from_trimming_to_the_end_of_the_analysis(
             held["trim"] = processing_slot.locked()
             return False
 
-    def process(audio: Path, job_id: int, hint: object, origin: object, slot_held: bool = False) -> dict:
+    def process(audio: Path, job_id: int, hint: object, origin: object, slot_held: bool = False,
+                expected: object = None, trust_unrecognised: bool = False) -> dict:
         held["analysis"] = processing_slot.locked() and slot_held
         return {"status": "skipped", "reason": "test", "title": None, "artist": None, "song_id": None}
 

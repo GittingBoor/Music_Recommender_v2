@@ -15,6 +15,7 @@ from src.ingest.slot import processing_slot
 from src.ingest.tracker import Stage, tracker
 from src.metadata.identity import IdentityHint, MetadataSource, SongOrigin
 from src.metadata.musicbrainz import fetch_recording_identity
+from src.spotify.matching import SpotifyTrack, identity_matches
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -142,6 +143,8 @@ def process_audio_file(
     hint: IdentityHint | None = None,
     origin: SongOrigin | None = None,
     slot_held: bool = False,
+    expected: SpotifyTrack | None = None,
+    trust_unrecognised: bool = False,
 ) -> dict:
     """Run the full ingest pipeline on a single audio file.
 
@@ -163,12 +166,16 @@ def process_audio_file(
     from trimming to the end of the analysis).
     ``hint`` names the song when AcoustID does not know it (video title,
     user input). ``origin`` is the upload filename or YouTube video the audio
-    came from; it is stored with the song.
+    came from; it is stored with the song. ``expected`` is the Spotify track
+    the audio was downloaded for: a fingerprint naming another song is
+    skipped as ``spotify_mismatch`` instead of being saved, and audio AcoustID
+    does not know is only saved under the Spotify name with
+    ``trust_unrecognised`` (the artist's own upload, see ``trusted_upload``).
     """
     if job_id is not None:
         tracker.update(job_id, stage=Stage.ANALYZING if slot_held else Stage.WAITING)
     try:
-        identified = _identify(audio_file, hint)
+        identified = _identify(audio_file, hint, expected, trust_unrecognised)
         if "status" in identified:
             return identified
         if slot_held:
@@ -183,7 +190,12 @@ def process_audio_file(
                 "title": None, "artist": None, "song_id": None}
 
 
-def _identify(audio_file: Path, hint: IdentityHint | None) -> dict:
+def _identify(
+    audio_file: Path,
+    hint: IdentityHint | None,
+    expected: SpotifyTrack | None = None,
+    trust_unrecognised: bool = False,
+) -> dict:
     """Duration gate and metadata lookup, no processing slot needed.
 
     Returns a finished skip result (has ``status``), or ``{"metadata", "song_id"}``
@@ -206,10 +218,29 @@ def _identify(audio_file: Path, hint: IdentityHint | None) -> dict:
 
     # Early-skip: metadata + AcoustID + duplicate check BEFORE heavy analysis.
     skip_reason, metadata, song_id = precheck_skip(audio_file, hint)
+    # Checked before the duplicate verdict: a wrong song that is in the library is no duplicate.
+    if expected is not None and _contradicts(expected, metadata):
+        logger.info("[Ingest] Skipping %s — AcoustID heard %r by %r, not the Spotify track",
+                    audio_file.name, metadata.get("title"), metadata.get("artist"))
+        return _skipped("spotify_mismatch", metadata, None)
+    if expected is not None and not trust_unrecognised and metadata.get("metadata_source") != MetadataSource.ACOUSTID.value:
+        logger.info("[Ingest] Skipping %s — AcoustID does not know it and the upload is not the artist's own",
+                    audio_file.name)
+        return _skipped("unverified", metadata, None)
     if skip_reason:
         logger.info("[Ingest] Skipping %s — %s", audio_file.name, skip_reason)
         return _skipped(skip_reason, metadata, song_id)
     return {"metadata": metadata, "song_id": song_id}
+
+
+def _contradicts(expected: SpotifyTrack, metadata: dict) -> bool:
+    """True when the fingerprint names a song other than the expected Spotify track."""
+    if metadata.get("metadata_source") != MetadataSource.ACOUSTID.value:
+        return False
+    title = str(metadata.get("title") or "")
+    # The performers AcoustID heard, not the composer the extractor may have credited instead.
+    performers = metadata.get("acoustid_performers") or [str(metadata.get("artist") or "")]
+    return not any(identity_matches(expected, title, str(p)) for p in performers)
 
 
 def _analyse(audio_file: Path, metadata: dict, song_id: str | None, origin: SongOrigin | None) -> dict:

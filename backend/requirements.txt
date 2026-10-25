@@ -26,3 +26,5 @@ yt-dlp>=2024.4.9
 yt-dlp-ejs>=0.8.0
 inaSpeechSegmenter>=0.7.0
 pytest>=8.0.0
+# FastAPI's TestClient (tests only).
+httpx>=0.28.0

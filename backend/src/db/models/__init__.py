@@ -8,6 +8,8 @@ from src.db.models.dsp_features import DSPFeatures
 from src.db.models.other_features import OtherFeatures
 from src.db.models.ingest_failure import IngestFailure
 from src.db.models.login_event import LoginEvent
+from src.db.models.account import User, PasswordResetToken, SpotifyConnection
+from src.db.models.playlist_import import PlaylistImport, PlaylistImportTrack
 
 __all__ = [
     "Base",
@@ -25,4 +27,9 @@ __all__ = [
     "OtherFeatures",
     "IngestFailure",
     "LoginEvent",
+    "User",
+    "PasswordResetToken",
+    "SpotifyConnection",
+    "PlaylistImport",
+    "PlaylistImportTrack",
 ]
