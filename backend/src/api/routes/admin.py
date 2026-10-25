@@ -221,7 +221,8 @@ def _identify(
     # Checked before the duplicate verdict: a wrong song that is in the library is no duplicate.
     if expected is not None and _contradicts(expected, metadata):
         logger.info("[Ingest] Skipping %s — AcoustID heard %r by %r, not the Spotify track",
-                    audio_file.name, metadata.get("title"), metadata.get("artist"))
+                    audio_file.name, metadata.get("title"),
+                    metadata.get("acoustid_performers") or metadata.get("artist"))
         return _skipped("spotify_mismatch", metadata, None)
     if expected is not None and not trust_unrecognised and metadata.get("metadata_source") != MetadataSource.ACOUSTID.value:
         logger.info("[Ingest] Skipping %s — AcoustID does not know it and the upload is not the artist's own",
