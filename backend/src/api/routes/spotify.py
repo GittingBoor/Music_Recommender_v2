@@ -191,12 +191,14 @@ def _client(user: User, db: Session, client_factory: ClientFactory) -> SpotifyCl
 
 
 def _spotify_http_error(exc: SpotifyApiError) -> HTTPException:
+    logger.warning("[Spotify] API call failed: %s", exc)
     if exc.status in (400, 401):
         # The refresh token was revoked (app removed in the Spotify account settings).
         return HTTPException(status_code=409, detail="Die Spotify-Verbindung ist abgelaufen. Bitte neu verbinden.")
     if exc.status == 403:
         return HTTPException(status_code=403, detail="Dieser Spotify-Account ist für die App nicht freigeschaltet.")
-    return HTTPException(status_code=502, detail="Spotify antwortet gerade nicht. Bitte später erneut versuchen.")
+    # 503, not 502: Cloudflare swaps origin 502/504 for its own page and the detail is lost.
+    return HTTPException(status_code=503, detail="Spotify antwortet gerade nicht. Bitte später erneut versuchen.")
 
 
 @router.get("/spotify/playlists", response_model=list[PlaylistOut])

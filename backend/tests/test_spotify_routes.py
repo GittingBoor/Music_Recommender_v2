@@ -234,3 +234,17 @@ def test_tokens_are_stored_encrypted(client: TestClient, env: Env) -> None:
     db.close()
     assert raw[0] != "access" and raw[1] != "refresh"
     assert (connection.access_token, connection.refresh_token) == ("access", "refresh")
+
+
+def test_spotify_outage_is_503_with_message(client: TestClient, env: Env) -> None:
+    # Cloudflare replaces 502/504 from the origin with its own page, so the detail would be lost.
+    _login(client)
+    _connect(client)
+
+    def down(playlist_id: str) -> list[SpotifyTrack]:
+        raise SpotifyApiError(500, "boom")
+
+    env.client.playlist_tracks = down  # type: ignore[method-assign]
+    resp = client.post("/api/spotify/playlists/pl1/import")
+    assert resp.status_code == 503
+    assert "Spotify" in resp.json()["detail"]

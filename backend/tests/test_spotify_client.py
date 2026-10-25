@@ -159,3 +159,32 @@ def test_non_numeric_retry_after_is_an_api_error(monkeypatch: pytest.MonkeyPatch
     with pytest.raises(SpotifyApiError) as info:
         client_module._http_send(urllib.request.Request("https://api.spotify.com/v1/me"))
     assert info.value.status == 429
+
+
+def test_transient_server_error_is_retried_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.spotify import client as client_module
+
+    class Ok:
+        def __enter__(self) -> "Ok":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+        def read(self) -> bytes:
+            return b'{"id": "benni"}'
+
+    answers: list[object] = [
+        client_module.urllib.error.HTTPError("u", 503, "Service Unavailable", {}, None), Ok(),
+    ]
+
+    def fake_urlopen(req, timeout):  # noqa: ANN001
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(client_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(client_module.time, "sleep", lambda s: None)
+    assert client_module._http_send(urllib.request.Request("https://api.spotify.com/v1/me")) == {"id": "benni"}
+    assert answers == []

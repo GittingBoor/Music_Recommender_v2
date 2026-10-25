@@ -29,6 +29,9 @@ _TIMEOUT_SECONDS = 15
 # Renew this long before the access token runs out, so no call races the expiry.
 _REFRESH_MARGIN = timedelta(seconds=60)
 _MAX_RETRY_AFTER_SECONDS = 30
+# Spotify's own hiccups; a second try a moment later usually goes through.
+_TRANSIENT_STATUSES = frozenset({500, 502, 503, 504})
+_TRANSIENT_RETRY_SECONDS = 2
 
 
 class SpotifyApiError(Exception):
@@ -51,7 +54,7 @@ def _retry_after_seconds(header: str | None) -> int:
 
 
 def _http_send(req: urllib.request.Request) -> dict:
-    """Send once more after a 429 (Spotify's rate limit names the wait)."""
+    """Send once more after a 429 (Spotify's rate limit names the wait) or a 5xx hiccup."""
     for attempt in range(2):
         try:
             with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
@@ -63,10 +66,14 @@ def _http_send(req: urllib.request.Request) -> dict:
                 logger.warning("[Spotify] Rate limited, retrying in %ds", wait)
                 time.sleep(wait)
                 continue
+            if exc.code in _TRANSIENT_STATUSES and attempt == 0:
+                logger.warning("[Spotify] HTTP %d, retrying in %ds", exc.code, _TRANSIENT_RETRY_SECONDS)
+                time.sleep(_TRANSIENT_RETRY_SECONDS)
+                continue
             raise SpotifyApiError(exc.code, exc.read().decode(errors="replace")[:300]) from exc
         except OSError as exc:
             raise SpotifyApiError(0, str(exc)) from exc
-    raise SpotifyApiError(429, "rate limited twice")
+    raise SpotifyApiError(429, "rate limited or unavailable twice")
 
 
 @dataclass(frozen=True)
