@@ -317,7 +317,7 @@ export type PipelineStage =
 
 export interface PipelineJob {
   id: number;
-  /** "upload" | "youtube" | "bulk" */
+  /** "upload" | "youtube" | "bulk" | "spotify" */
   source: string;
   label: string;
   stage: PipelineStage;
@@ -329,4 +329,150 @@ export async function fetchPipeline(): Promise<PipelineJob[]> {
   const res = await fetch("/api/ingest/pipeline");
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()).jobs;
+}
+
+// ── account and spotify ─────────────────────────────────────────────────────
+
+/** A failed account/Spotify request; `message` is the server's German explanation. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+const INVALID_INPUT_MESSAGE = "Die Eingabe wurde nicht angenommen. Bitte prüfe deine Angaben.";
+
+/** `{detail: string}` becomes the message; pydantic's `{detail: [...]}` a generic hint. */
+async function apiError(res: Response): Promise<ApiError> {
+  try {
+    const body: unknown = await res.json();
+    const detail = typeof body === "object" && body !== null && "detail" in body ? body.detail : undefined;
+    if (typeof detail === "string") return new ApiError(res.status, detail);
+    if (Array.isArray(detail)) return new ApiError(res.status, INVALID_INPUT_MESSAGE);
+  } catch {
+    // not JSON — fall through to the status-only message
+  }
+  return new ApiError(res.status, `Der Server hat mit HTTP ${res.status} geantwortet. Bitte später erneut versuchen.`);
+}
+
+async function sendJson(method: string, url: string, body?: object): Promise<Response> {
+  const res = await fetch(url, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw await apiError(res);
+  return res;
+}
+
+export interface SpotifyConnection {
+  readonly spotify_user_id: string;
+  readonly display_name: string | null;
+}
+
+export interface Account {
+  readonly email: string;
+  readonly spotify: SpotifyConnection | null;
+}
+
+export interface Credentials {
+  readonly email: string;
+  readonly password: string;
+}
+
+/** The logged-in account, or null without a valid login cookie. */
+export async function fetchAccount(): Promise<Account | null> {
+  const res = await fetch("/api/account/me");
+  if (res.status === 401) return null;
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+export async function registerAccount(credentials: Credentials): Promise<Account> {
+  return (await sendJson("POST", "/api/account/register", credentials)).json();
+}
+
+export async function loginAccount(credentials: Credentials): Promise<Account> {
+  return (await sendJson("POST", "/api/account/login", credentials)).json();
+}
+
+export async function logoutAccount(): Promise<void> {
+  await sendJson("POST", "/api/account/logout");
+}
+
+/** Always succeeds, whether or not an account exists for the address. */
+export async function requestPasswordReset(email: string): Promise<void> {
+  await sendJson("POST", "/api/account/forgot-password", { email });
+}
+
+/** Sets the new password and logs the account in (cookie). */
+export async function resetPassword(token: string, password: string): Promise<void> {
+  await sendJson("POST", "/api/account/reset-password", { token, password });
+}
+
+/** Full-page target that starts the Spotify OAuth flow and returns to `next`. */
+export function spotifyConnectUrl(next: string): string {
+  return `/api/spotify/connect?next=${encodeURIComponent(next)}`;
+}
+
+export async function disconnectSpotify(): Promise<void> {
+  await sendJson("DELETE", "/api/spotify/connection");
+}
+
+export interface SpotifyPlaylist {
+  readonly id: string;
+  readonly name: string;
+  readonly image: string | null;
+  readonly track_count: number;
+  readonly owner: string | null;
+  readonly last_import_id: number | null;
+}
+
+/** 409: not connected or the connection expired; 403: account not allowlisted. */
+export async function fetchSpotifyPlaylists(): Promise<SpotifyPlaylist[]> {
+  return (await sendJson("GET", "/api/spotify/playlists")).json();
+}
+
+export interface SpotifyImport {
+  readonly id: number;
+  readonly playlist_id: string;
+  readonly name: string;
+  readonly created_at: string;
+  readonly total: number;
+  readonly saved: number;
+  readonly duplicate: number;
+  readonly failed: number;
+  readonly queued: number;
+}
+
+export type SpotifyTrackStatus = "queued" | "saved" | "duplicate" | "failed";
+
+export interface SpotifyImportTrack {
+  readonly position: number;
+  readonly title: string;
+  readonly artists: readonly string[];
+  readonly status: SpotifyTrackStatus;
+  readonly reason: string | null;
+  readonly song_id: string | null;
+}
+
+export interface SpotifyImportDetail extends SpotifyImport {
+  readonly tracks: readonly SpotifyImportTrack[];
+}
+
+export async function importSpotifyPlaylist(playlistId: string): Promise<SpotifyImport> {
+  return (await sendJson("POST", `/api/spotify/playlists/${encodeURIComponent(playlistId)}/import`)).json();
+}
+
+/** The account's imports, newest first. */
+export async function fetchSpotifyImports(): Promise<SpotifyImport[]> {
+  return (await sendJson("GET", "/api/spotify/imports")).json();
+}
+
+export async function fetchSpotifyImport(importId: number): Promise<SpotifyImportDetail> {
+  return (await sendJson("GET", `/api/spotify/imports/${importId}`)).json();
 }

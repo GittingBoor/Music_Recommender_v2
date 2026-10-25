@@ -244,6 +244,8 @@
 @media (max-width: 767px) {
   input[type="text"],
   input[type="search"],
+  input[type="email"],
+  input[type="password"],
   input:not([type]),
   select,
   textarea {

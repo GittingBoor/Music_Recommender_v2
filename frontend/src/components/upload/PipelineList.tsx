@@ -29,6 +29,7 @@ const SOURCE_LABEL: Record<string, string> = {
   upload:  "Upload",
   youtube: "YouTube",
   bulk:    "Liste",
+  spotify: "Spotify",
 };
 
 function fmtSeconds(s: number): string {

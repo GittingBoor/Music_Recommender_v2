@@ -5,6 +5,7 @@ import { PlayButton } from "../PlayButton";
 import { StatCard } from "../StatCard";
 import { YoutubeSearch } from "./YoutubeSearch";
 import { PipelineList } from "./PipelineList";
+import { SpotifyImport } from "./SpotifyImport";
 
 // ── types ─────────────────────────────────────────────────────────────────
 type ItemStatus = "pending" | "processing" | "done";
@@ -465,6 +466,9 @@ export function UploadPage() {
             )}
           </section>
         </div>
+
+        {/* ── whole Spotify playlists, for logged-in users ───────────── */}
+        <SpotifyImport />
 
         {/* ── everything the backend is still working on, always last ── */}
         <PipelineList />

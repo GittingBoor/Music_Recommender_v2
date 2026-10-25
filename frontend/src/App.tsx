@@ -8,6 +8,9 @@ import { AnalysisPage, ANALYSIS_SECTIONS } from "./components/analysis/AnalysisP
 import type { AnalysisSection } from "./components/analysis/AnalysisPage";
 import { PlayerBar } from "./components/PlayerBar";
 import { UploadPage } from "./components/upload/UploadPage";
+import { AccountPage } from "./components/account/AccountPage";
+import { AccountMenu } from "./components/account/AccountMenu";
+import { ResetPasswordPage } from "./components/account/ResetPasswordPage";
 import { RecommenderPage, RECOMMENDER_METHODS } from "./components/recommender/RecommenderPage";
 import type { RecommenderMethod } from "./components/recommender/RecommenderPage";
 import { setLoudnessSource, setNeighborSource, setQueue } from "./audio/player";
@@ -22,9 +25,12 @@ type Route =
   | { page: "recommender"; method: RecommenderMethod; songId: string | null }
   | { page: "analysis"; section: AnalysisSection }
   | { page: "upload" }
+  | { page: "account" }
+  | { page: "reset-password"; token: string }
   | { page: "notfound" };
 
-/** URL → page:  /songs · /songs/:id · /recommender/neighbors[/:id] · /analysis[/umap|/correlations|/timeseries] · /upload */
+/** URL → page:  /songs · /songs/:id · /recommender/neighbors[/:id] · /analysis[/umap|/correlations|/timeseries] · /upload
+ *  · /account · /reset-password/:token */
 function matchRoute(path: string): Route {
   const parts = path.split("/").filter(Boolean);
   if (parts.length === 0) return { page: "songs", songId: null }; // "/" is redirected to /songs
@@ -51,6 +57,8 @@ function matchRoute(path: string): Route {
     if (section) return { page: "analysis", section: section.id };
   }
   if (parts[0] === "upload" && parts.length === 1) return { page: "upload" };
+  if (parts[0] === "account" && parts.length === 1) return { page: "account" };
+  if (parts[0] === "reset-password" && parts.length === 2) return { page: "reset-password", token: parts[1] };
   return { page: "notfound" };
 }
 
@@ -77,6 +85,10 @@ function pageTitle(route: Route, songs: Song[]): string {
       return `${ANALYSIS_SECTIONS.find((s) => s.id === route.section)?.label ?? "Analysis"} · Analysis`;
     case "upload":
       return "Upload";
+    case "account":
+      return "Account";
+    case "reset-password":
+      return "Neues Passwort";
     case "notfound":
       return "Not found";
   }
@@ -202,11 +214,14 @@ export default function App() {
             </Link>
           ))}
         </nav>
-        {!loading && !error && (
-          <p className="ml-auto self-center pl-4 font-mono text-2xs text-ink-3 whitespace-nowrap">
-            <span className="text-ink">{songs.length}</span> songs
-          </p>
-        )}
+        <div className="flex-1 basis-0 self-center flex min-w-0 items-center justify-end gap-3 pl-4">
+          {!loading && !error && (
+            <p className="font-mono text-2xs text-ink-3 whitespace-nowrap">
+              <span className="text-ink">{songs.length}</span> songs
+            </p>
+          )}
+          <AccountMenu active={route.page === "account"} />
+        </div>
       </header>
 
       <main className="relative flex-1 overflow-hidden">
@@ -252,6 +267,8 @@ export default function App() {
                 <UploadPage />
               </KeptPage>
             )}
+            {route.page === "account" && <AccountPage />}
+            {route.page === "reset-password" && <ResetPasswordPage key={route.token} token={route.token} />}
             {route.page === "notfound" && (
               <div className="h-full flex flex-col items-center justify-center gap-3 font-mono text-xs text-ink-3">
                 <p>Page not found.</p>
