@@ -15,6 +15,10 @@ services:
     ports:
       - "8000:8000"
     env_file: ./backend/.env
+    environment:
+      # Local accounts only: a fixed dev secret, and cookies over plain http.
+      SESSION_SECRET: local-dev-only-not-a-secret
+      SESSION_COOKIE_SECURE: "false"
     depends_on:
       - db
     dns:

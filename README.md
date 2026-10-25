@@ -65,3 +65,27 @@ python -m src.analysis.pipeline /app/test_audio/"filename.mp3" --db
 | Backend  | http://localhost:8000/docs#/ |
 | Database | localhost:5432        |
 | pgAdmin  | http://localhost:5050 |
+
+## Accounts and Spotify import
+
+Personal accounts are optional (login top right); the shared site password still guards
+the production site. A connected Spotify account can import its own and collaborative
+playlists with one click: every track is searched on YouTube, downloaded and only saved
+when AcoustID does not identify the audio as a different song.
+
+Backend settings (`backend/.env` locally, `.env.prod` on the mini-PC):
+
+| Variable | Purpose |
+|---|---|
+| `SESSION_SECRET` | Signs login cookies (already required for the site password). Local dev sets one in `docker-compose.yml`. |
+| `PUBLIC_BASE_URL` | Base of password reset links, e.g. `https://music.gittingboor.de` |
+| `BREVO_API_KEY`, `MAIL_FROM`, `MAIL_FROM_NAME` | Brevo transactional mail; without them reset links are only logged |
+| `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | The Spotify app (also used for metadata) |
+| `SPOTIFY_REDIRECT_URI` | `https://music.gittingboor.de/api/spotify/callback` in prod; default is the local `http://127.0.0.1:5173/api/spotify/callback` |
+
+Deploying this feature: run `alembic upgrade head` before (re)starting the backend; the
+import's restart recovery needs the new tables (without them it only logs an error).
+
+Spotify dashboard: both redirect URIs above must be registered, and every user's Spotify
+e-mail must be added under *User Management* (development mode allows 5 users). Open the
+local frontend via `http://127.0.0.1:5173` (not `localhost`) so the OAuth redirect matches.
