@@ -175,6 +175,62 @@ def test_import_returns_counts(client: TestClient, env: Env) -> None:
     assert playlists[0]["last_import_id"] == body["id"]
 
 
+def test_import_finishes_with_last_track(client: TestClient, env: Env) -> None:
+    _login(client)
+    _connect(client)
+    body = client.post("/api/spotify/playlists/pl1/import").json()
+    assert body["finished_at"] is None and body["finished_estimated"] is False
+
+    env.queued[0].on_done({"status": "saved", "song_id": "abc"}, "vid")
+    detail = client.get(f"/api/spotify/imports/{body['id']}").json()
+    assert detail["finished_at"] is not None
+    assert detail["finished_at"] >= detail["created_at"]
+    assert detail["finished_estimated"] is False
+
+
+def test_import_end_is_estimated_when_a_track_has_no_time(client: TestClient, env: Env) -> None:
+    # Imports from before finished_at existed only know when some of their tracks ended.
+    _login(client)
+    _connect(client)
+    body = client.post("/api/spotify/playlists/pl1/import").json()
+    env.queued[0].on_done({"status": "skipped", "reason": "no_fitting_hit"}, None)
+    db = env.factory()
+    db.query(PlaylistImportTrack).filter(PlaylistImportTrack.status == "failed").update({"finished_at": None})
+    db.commit()
+    db.close()
+    detail = client.get(f"/api/spotify/imports/{body['id']}").json()
+    assert detail["finished_at"] is not None
+    assert detail["finished_estimated"] is True
+
+
+def test_retry_failed_queues_them_again(client: TestClient, env: Env) -> None:
+    _login(client)
+    _connect(client)
+    body = client.post("/api/spotify/playlists/pl1/import").json()
+    env.queued[0].on_done({"status": "skipped", "reason": "unverified"}, "vid")
+    env.queued.clear()
+
+    resp = client.post(f"/api/spotify/imports/{body['id']}/retry")
+    assert resp.status_code == 202
+    assert (resp.json()["failed"], resp.json()["queued"], resp.json()["finished_at"]) == (0, 1, None)
+    assert [i.expected.spotify_id for i in env.queued] == ["t2"]
+
+    env.queued[0].on_done({"status": "saved", "song_id": "s2"}, "vid2")
+    detail = client.get(f"/api/spotify/imports/{body['id']}").json()
+    assert (detail["saved"], detail["failed"], detail["queued"]) == (1, 0, 0)
+
+
+def test_retry_needs_failed_tracks_and_own_import(client: TestClient, env: Env) -> None:
+    _login(client)
+    _connect(client)
+    import_id = client.post("/api/spotify/playlists/pl1/import").json()["id"]
+    assert client.post(f"/api/spotify/imports/{import_id}/retry").status_code == 409
+    env.queued[0].on_done({"status": "skipped", "reason": "no_fitting_hit"}, None)
+    client.post("/api/account/logout")
+    _login(client, "other@example.de")
+    assert client.post(f"/api/spotify/imports/{import_id}/retry").status_code == 404
+
+
 def test_import_unknown_playlist_404(client: TestClient) -> None:
     _login(client)
     _connect(client)

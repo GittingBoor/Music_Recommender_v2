@@ -207,3 +207,55 @@ def test_spotify_items_go_before_bulk_and_survive_cancel(monkeypatch: pytest.Mon
     assert done == []
     _, _, _, item = bulk._queue.get_nowait()
     assert item.expected is not None
+
+
+# --- YouTube Music song search (2026-10-26) --------------------------------------
+
+def test_bulk_spotify_prefers_youtube_music_songs(failures: list) -> None:
+    track = _track("t1", "Geht's dir gut?", "Romero", seconds=119)
+    songs = [_hit("release", "Geht's dir gut?", "Romero - Topic", 120)]
+    downloads: list[str] = []
+
+    def search(query: str, limit: int) -> list[YoutubeSearchResult]:
+        raise AssertionError("plain YouTube search is only the fallback")
+
+    def download(hit: YoutubeSearchResult, item: BulkItem, job_id: int) -> dict:
+        downloads.append(hit.video_id)
+        return {"status": "saved", "song_id": "s1"}
+
+    done: list[tuple[dict, str | None]] = []
+    bulk._process_spotify(1, _spotify_item(track, done), search, download, lambda q, n: songs)
+    assert downloads == ["release"]
+
+
+def test_bulk_spotify_falls_back_when_youtube_music_fails(failures: list) -> None:
+    track = _track("t1", "Hello", "Adele", seconds=295)
+    hits = [_hit("video", "Adele - Hello (Official Video)", "AdeleVEVO", 300)]
+
+    def broken(query: str, limit: int) -> list[YoutubeSearchResult]:
+        raise ConnectionError("music.youtube.com unreachable")
+
+    done: list[tuple[dict, str | None]] = []
+    bulk._process_spotify(1, _spotify_item(track, done), lambda q, n: hits,
+                          lambda hit, item, job_id: {"status": "saved", "song_id": "s1"}, broken)
+    assert done == [({"status": "saved", "song_id": "s1"}, "video")]
+
+
+def test_youtube_music_songs_become_topic_hits() -> None:
+    from src.youtube.music_search import YoutubeMusicSearch
+
+    class FakeApi:
+        def search(self, query: str, filter: str, limit: int) -> list[dict]:
+            assert filter == "songs"
+            return [
+                {"videoId": "ZCPrbU2xG4I", "title": "Get Shaky", "artists": [{"name": "KXXMA"}, {"name": "TurboKevin"}],
+                 "duration_seconds": 238, "thumbnails": [{"url": "https://img/s"}, {"url": "https://img/l"}]},
+                {"videoId": None, "title": "Broken", "artists": []},
+            ]
+
+    hits = YoutubeMusicSearch(FakeApi()).songs("KXXMA - Get Shaky", 5)
+    assert [(h.video_id, h.title, h.uploader, h.duration) for h in hits] == [
+        ("ZCPrbU2xG4I", "Get Shaky", "KXXMA - Topic", 238),
+    ]
+    assert hits[0].url == "https://www.youtube.com/watch?v=ZCPrbU2xG4I"
+    assert hits[0].thumbnail == "https://img/l"

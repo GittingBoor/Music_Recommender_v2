@@ -1,4 +1,6 @@
-from src.spotify.matching import SpotifyTrack, candidate_fits, identity_matches, order_candidates, trusted_upload
+from src.spotify.matching import (
+    SpotifyTrack, artist_channel, candidate_fits, identity_matches, order_candidates, trusted_upload,
+)
 
 
 def _track(title: str, *artists: str, seconds: int | None = 200) -> SpotifyTrack:
@@ -180,3 +182,44 @@ def test_trusted_upload_handles_official_channel_suffix_and_animated_video() -> 
                           "Helene Fischer - Atemlos durch die Nacht", "Helene Fischer (Official)")
     assert trusted_upload(_track("Levitating (feat. DaBaby)", "Dua Lipa", "DaBaby"),
                           "Dua Lipa - Levitating (Official Animated Music Video)", "Dua Lipa")
+
+
+# --- playlist import misses (2026-10-26) ----------------------------------------------
+
+def test_candidate_ignores_extra_title_parts_without_version_words() -> None:
+    assert candidate_fits(_track("Deja Vu (Initial D)", "Tsuko G.", seconds=250), "Deja Vu", "Tsuko G. - Topic", 251)
+    assert candidate_fits(_track("Whatever - +1", "CRO", seconds=191), "Whatever", "CRO - Topic", 191)
+    assert candidate_fits(_track("Medieval - Spotify Singles", "FINNEAS", seconds=190), "Medieval", "FINNEAS - Topic", 190)
+
+
+def test_candidate_keeps_extra_title_parts_that_name_a_version() -> None:
+    assert not candidate_fits(_track("Heart Attack - Rock Version", "Demi Lovato", seconds=239),
+                              "Heart Attack", "Demi Lovato - Topic", 211)
+    assert not candidate_fits(_track("DEADBEAT - demo", "WesGhost", seconds=145), "DEADBEAT", "WesGhost - Topic", 145)
+    assert not candidate_fits(_track("EISKALT RMX", "Culcha Candela", seconds=128), "EISKALT", "Culcha Candela - Topic", 128)
+
+
+def test_identity_ignores_extra_title_parts() -> None:
+    assert identity_matches(_track("Deja Vu (Initial D)", "Tsuko G."), "Deja Vu", "Tsuko G.")
+    assert identity_matches(_track("Call Me, Beep Me! (The Kim Possible Song)", "Crystal Rock"), "Call Me, Beep Me!", "Crystal Rock")
+
+
+def test_dollar_sign_spells_s() -> None:
+    assert identity_matches(_track("Die Young", "Kesha"), "Die Young", "Ke$ha")
+    assert candidate_fits(_track("Die Young", "Kesha", seconds=211), "Die Young", "Ke$ha - Topic", 212)
+
+
+def test_trusted_upload_accepts_german_official_video() -> None:
+    assert trusted_upload(_track("Westkreuz", "Von Wegen Lisbeth"),
+                          "Von Wegen Lisbeth - Westkreuz (Offizielles Video)", "Von Wegen Lisbeth")
+    assert trusted_upload(_track("Westkreuz", "Von Wegen Lisbeth"),
+                          "Von Wegen Lisbeth - Westkreuz (Offizielles Musikvideo)", "Von Wegen Lisbeth")
+
+
+def test_artist_channel() -> None:
+    hello = _track("Hello", "Adele")
+    assert artist_channel(hello, "Adele - Topic")
+    assert artist_channel(hello, "AdeleVEVO")
+    assert artist_channel(_track("Mission", "Ely Oaks", "joki"), "joki")
+    assert not artist_channel(hello, "Some Fan")
+    assert not artist_channel(hello, None)

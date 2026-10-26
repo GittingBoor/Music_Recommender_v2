@@ -136,6 +136,8 @@ def _is_recognized_by_acoustid(audio_path: Path, api_key: str) -> bool:
 
 
 _MAX_DURATION_WITHOUT_RECOGNITION = 600.0  # 10 minutes
+# AcoustID knows audio this well although no recording is linked to it.
+_KNOWN_AUDIO_SCORE = 0.9
 
 def process_audio_file(
     audio_file: Path,
@@ -145,6 +147,7 @@ def process_audio_file(
     slot_held: bool = False,
     expected: SpotifyTrack | None = None,
     trust_unrecognised: bool = False,
+    from_artist_channel: bool = False,
 ) -> dict:
     """Run the full ingest pipeline on a single audio file.
 
@@ -170,12 +173,14 @@ def process_audio_file(
     the audio was downloaded for: a fingerprint naming another song is
     skipped as ``spotify_mismatch`` instead of being saved, and audio AcoustID
     does not know is only saved under the Spotify name with
-    ``trust_unrecognised`` (the artist's own upload, see ``trusted_upload``).
+    ``trust_unrecognised`` (the artist's own upload, see ``trusted_upload``),
+    or with ``from_artist_channel`` when AcoustID knows the fingerprint
+    without a linked recording (score at least ``_KNOWN_AUDIO_SCORE``).
     """
     if job_id is not None:
         tracker.update(job_id, stage=Stage.ANALYZING if slot_held else Stage.WAITING)
     try:
-        identified = _identify(audio_file, hint, expected, trust_unrecognised)
+        identified = _identify(audio_file, hint, expected, trust_unrecognised, from_artist_channel)
         if "status" in identified:
             return identified
         if slot_held:
@@ -195,6 +200,7 @@ def _identify(
     hint: IdentityHint | None,
     expected: SpotifyTrack | None = None,
     trust_unrecognised: bool = False,
+    from_artist_channel: bool = False,
 ) -> dict:
     """Duration gate and metadata lookup, no processing slot needed.
 
@@ -224,7 +230,7 @@ def _identify(
                     audio_file.name, metadata.get("title"),
                     metadata.get("acoustid_performers") or metadata.get("artist"))
         return _skipped("spotify_mismatch", metadata, None)
-    if expected is not None and not trust_unrecognised and metadata.get("metadata_source") != MetadataSource.ACOUSTID.value:
+    if expected is not None and not _verified(metadata, trust_unrecognised, from_artist_channel):
         logger.info("[Ingest] Skipping %s — AcoustID does not know it and the upload is not the artist's own",
                     audio_file.name)
         return _skipped("unverified", metadata, None)
@@ -232,6 +238,13 @@ def _identify(
         logger.info("[Ingest] Skipping %s — %s", audio_file.name, skip_reason)
         return _skipped(skip_reason, metadata, song_id)
     return {"metadata": metadata, "song_id": song_id}
+
+
+def _verified(metadata: dict, trust_unrecognised: bool, from_artist_channel: bool) -> bool:
+    """True when the audio may be stored under the Spotify name although AcoustID named no recording."""
+    if metadata.get("metadata_source") == MetadataSource.ACOUSTID.value or trust_unrecognised:
+        return True
+    return from_artist_channel and float(metadata.get("acoustid_unlinked_score") or 0.0) >= _KNOWN_AUDIO_SCORE
 
 
 def _contradicts(expected: SpotifyTrack, metadata: dict) -> bool:

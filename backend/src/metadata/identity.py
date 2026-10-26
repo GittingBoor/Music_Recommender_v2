@@ -31,12 +31,17 @@ class IdentityHint:
 
 @dataclass(frozen=True)
 class AcoustidMatch:
-    """What the AcoustID fingerprint lookup found; all None when it found nothing usable."""
+    """What the AcoustID fingerprint lookup found; all None when it found nothing usable.
+
+    ``unlinked_score`` is set when AcoustID knows the fingerprint but no
+    recording is linked to it: the audio is a known release, the name unknown.
+    """
 
     recording_id: str | None
     title: str | None
     artist: str | None
     featured_artists: tuple[str, ...] = ()
+    unlinked_score: float | None = None
 
 
 @dataclass(frozen=True)

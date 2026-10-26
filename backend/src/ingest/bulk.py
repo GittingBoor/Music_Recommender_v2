@@ -21,7 +21,8 @@ from dataclasses import dataclass
 from src.ingest.failures import record_failure
 from src.ingest.tracker import Stage, tracker
 from src.metadata.identity import IdentityHint, MetadataSource
-from src.spotify.matching import SpotifyTrack, candidate_fits, order_candidates, trusted_upload
+from src.spotify.matching import SpotifyTrack, artist_channel, candidate_fits, order_candidates, trusted_upload
+from src.youtube.music_search import YoutubeMusicSearch
 from src.youtube.service import YoutubeSearchResult
 
 logger = logging.getLogger(__name__)
@@ -122,7 +123,7 @@ def _run() -> None:
                 continue
         try:
             if item.expected is not None:
-                _process_spotify(job_id, item, _search_youtube, _download_for_track)
+                _process_spotify(job_id, item, _search_youtube, _download_for_track, _search_songs)
             else:
                 _process(job_id, item.query)
         except Exception as exc:  # one broken song must not stop the queue
@@ -193,6 +194,13 @@ def _search_youtube(query: str, limit: int) -> list[YoutubeSearchResult]:
     return _service.search(query, limit)
 
 
+_song_search = YoutubeMusicSearch()
+
+
+def _search_songs(query: str, limit: int) -> list[YoutubeSearchResult]:
+    return _song_search.songs(query, limit)
+
+
 def _download_for_track(hit: YoutubeSearchResult, item: BulkItem, job_id: int) -> dict:
     """Download, trim and analyse one hit; the Spotify track names the song and vetoes other songs."""
     from src.api.routes.youtube import YoutubeDownloadRequest, _download_pipeline
@@ -206,6 +214,7 @@ def _download_for_track(hit: YoutubeSearchResult, item: BulkItem, job_id: int) -
     trusted = trusted_upload(track, hit.title, hit.uploader)
     for line in _download_pipeline(
         req, job_id=job_id, log_failures=False, hint=hint, expected=track, trust_unrecognised=trusted,
+        from_artist_channel=artist_channel(track, hit.uploader),
     ):
         event = json.loads(line)
         if event.get("stage") == "done":
@@ -213,13 +222,33 @@ def _download_for_track(hit: YoutubeSearchResult, item: BulkItem, job_id: int) -
     return result
 
 
-def _fitting_hits(track: SpotifyTrack, search: SearchFn) -> list[YoutubeSearchResult]:
-    """Hits that are plausibly this exact track; the plain query only runs if "official audio" found none."""
-    fitting: list[YoutubeSearchResult] = []
+def _released_songs(track: SpotifyTrack, song_search: SearchFn | None) -> list[YoutubeSearchResult]:
+    """YouTube Music's songs for the track; an outage there only costs the head start."""
+    if song_search is None:
+        return []
+    try:
+        return song_search(track.query, _SEARCH_LIMIT)
+    except Exception as exc:
+        logger.warning("[Bulk] YouTube Music search for %r failed, using YouTube: %s", track.query, exc)
+        return []
+
+
+def _fitting_hits(
+    track: SpotifyTrack, search: SearchFn, song_search: SearchFn | None = None,
+) -> list[YoutubeSearchResult]:
+    """Hits that are plausibly this exact track.
+
+    YouTube Music's released songs come first; the YouTube queries only run
+    when none of them fits, the plain one only if "official audio" found none.
+    """
+    def fits(hits: list[YoutubeSearchResult]) -> list[YoutubeSearchResult]:
+        return [h for h in hits if candidate_fits(track, h.title, h.uploader, h.duration)]
+
+    fitting = fits(_released_songs(track, song_search))
     for query in (f"{track.query} official audio", track.query):
-        fitting = [h for h in search(query, _SEARCH_LIMIT) if candidate_fits(track, h.title, h.uploader, h.duration)]
         if fitting:
             break
+        fitting = fits(search(query, _SEARCH_LIMIT))
     return order_candidates(track, fitting, key=lambda h: (h.title, h.uploader, h.duration))
 
 
@@ -230,7 +259,9 @@ def _finish_spotify(item: BulkItem, result: dict, tried: list[str]) -> None:
     item.finish(result, tried[-1] if tried else None)
 
 
-def _process_spotify(job_id: int, item: BulkItem, search: SearchFn, download: DownloadFn) -> None:
+def _process_spotify(
+    job_id: int, item: BulkItem, search: SearchFn, download: DownloadFn, song_search: SearchFn | None = None,
+) -> None:
     from src.youtube.service import YoutubeErrorKind, classify_error
 
     track = item.expected
@@ -238,7 +269,7 @@ def _process_spotify(job_id: int, item: BulkItem, search: SearchFn, download: Do
         raise ValueError(f"BulkItem {item.label!r} has no expected Spotify track")
     tracker.update(job_id, stage=Stage.SEARCHING)
     try:
-        hits = _fitting_hits(track, search)
+        hits = _fitting_hits(track, search, song_search)
     except Exception as exc:
         error = classify_error(exc)
         _finish_spotify(item, {"status": "error", "reason": "search_error", "error": error.as_dict()}, [])

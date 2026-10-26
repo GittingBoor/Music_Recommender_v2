@@ -227,7 +227,7 @@ def get_acoustid_metadata(
     recordings: list[dict] = best_result.get("recordings") or []
     if not recordings:
         logger.warning("[AcoustID] Score %.3f match has no linked recordings", score)
-        return _NO_MATCH
+        return AcoustidMatch(None, None, None, unlinked_score=score)
 
     best_rec = pick_recording(recordings, preferred_title, source_text)
     recordings_sorted = sorted(recordings, key=_rec_sort_key(preferred_title, source_text), reverse=True)

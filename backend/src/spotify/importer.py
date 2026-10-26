@@ -8,6 +8,7 @@ stops are queued again by ``resume`` on the next start.
 import json
 import logging
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -80,6 +81,7 @@ class PlaylistImporter:
                     import_id=entry.id, position=position, spotify_track_id=track.spotify_id,
                     title=track.title, artists=json.dumps(list(track.artists), ensure_ascii=False),
                     duration_ms=track.duration_ms, isrc=track.isrc, status=DUPLICATE if known else QUEUED,
+                    finished_at=datetime.now(timezone.utc) if known else None,
                 )
                 db.add(row)
                 if not known:
@@ -113,9 +115,31 @@ class PlaylistImporter:
             row.reason = reason[:_MAX_REASON_LENGTH] if reason else None
             row.song_id = result.get("song_id")
             row.video_id = video_id
+            row.finished_at = datetime.now(timezone.utc)
             db.commit()
         finally:
             db.close()
+
+    def retry_failed(self, import_id: int) -> int:
+        """Queue the import's failed tracks once more; returns how many."""
+        db = self._session_factory()
+        try:
+            rows = (
+                db.query(PlaylistImportTrack)
+                .filter(PlaylistImportTrack.import_id == import_id, PlaylistImportTrack.status == FAILED)
+                .order_by(PlaylistImportTrack.position)
+                .all()
+            )
+            for row in rows:
+                row.status, row.reason, row.song_id, row.video_id, row.finished_at = QUEUED, None, None, None, None
+            db.commit()
+            items = [self._item(row.id, _track_of(row)) for row in rows]
+        finally:
+            db.close()
+        if items:
+            self._enqueue(items)
+            logger.info("[Spotify] Import %d: %d failed tracks queued again", import_id, len(items))
+        return len(items)
 
     def resume(self) -> int:
         """Queue every track still marked queued (the in-memory queue died with the last process)."""

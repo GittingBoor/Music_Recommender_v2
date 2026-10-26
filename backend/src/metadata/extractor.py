@@ -119,6 +119,8 @@ def extract_all_metadata(
     result["metadata_source"] = identity.source.value
     if fingerprinted:
         result["acoustid_performers"] = [performer_identity.raw_artist, *performer_identity.featured_artists]
+    if acoustid_match.unlinked_score is not None:
+        result["acoustid_unlinked_score"] = acoustid_match.unlinked_score
     if aid_feat:
         result["featured_artists"] = list(aid_feat)
 

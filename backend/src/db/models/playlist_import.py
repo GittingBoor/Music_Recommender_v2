@@ -26,6 +26,8 @@ class PlaylistImportTrack(Base):
     status: queued (waiting in the bulk queue), saved, duplicate (already in
     the library) or failed (reason says why). Rows still queued after a
     restart are queued again on startup. artists is a JSON list.
+    finished_at is when the track left the queue (null while queued, and for
+    tracks of imports made before the column existed).
     """
     __tablename__ = "playlist_import_tracks"
     __table_args__ = (Index("ix_playlist_import_tracks_import_position", "import_id", "position"),)
@@ -44,3 +46,4 @@ class PlaylistImportTrack(Base):
     reason: Mapped[str | None] = mapped_column(String(64))
     song_id: Mapped[str | None] = mapped_column(String(22))
     video_id: Mapped[str | None] = mapped_column(String(32))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

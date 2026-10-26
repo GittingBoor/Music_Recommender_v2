@@ -83,3 +83,24 @@ def test_unrecognised_audio_rejected_from_untrusted_upload(monkeypatch: pytest.M
     result = admin._identify(Path("x.mp3"), _HINT, _HELLO, trust_unrecognised=False)
     assert result["status"] == "skipped"
     assert result["reason"] == "unverified"
+
+
+# --- AcoustID fingerprint without linked recording (2026-10-26) --------------------
+
+def _unlinked_precheck(score: float):  # noqa: ANN202
+    def precheck(audio_path: Path, hint: IdentityHint | None = None):  # noqa: ANN202
+        metadata = {"title": "Hello", "artist": "Adele", "metadata_source": "spotify", "acoustid_unlinked_score": score}
+        return None, metadata, "song-id"
+    return precheck
+
+
+def test_known_fingerprint_from_artist_channel_is_verified(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pipeline, "precheck_skip", _unlinked_precheck(0.951))
+    assert "status" not in admin._identify(Path("x.mp3"), _HINT, _HELLO, from_artist_channel=True)
+
+
+def test_known_fingerprint_needs_artist_channel_and_high_score(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pipeline, "precheck_skip", _unlinked_precheck(0.951))
+    assert admin._identify(Path("x.mp3"), _HINT, _HELLO, from_artist_channel=False)["reason"] == "unverified"
+    monkeypatch.setattr(pipeline, "precheck_skip", _unlinked_precheck(0.62))
+    assert admin._identify(Path("x.mp3"), _HINT, _HELLO, from_artist_channel=True)["reason"] == "unverified"

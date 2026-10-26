@@ -44,8 +44,13 @@ _NUMERAL_RE = re.compile(r"^(?:\d+|i|ii|iii|iv|v|vi|vii|viii|ix|x)$")
 _UPLOAD_FILLER_WORDS = frozenset({
     "official", "music", "video", "audio", "lyrics", "lyric", "visualizer", "visualiser", "hd", "hq", "4k",
     "mv", "clip", "feat", "ft", "featuring", "with", "remastered", "remaster", "and", "x", "animated",
+    "offizielles", "offizieller", "offizielle", "musikvideo",
 })
 _YEAR_RE = re.compile(r"^(?:19|20)\d{2}$")
+# A trailing "(Initial D)" / "[…]" or " - Spotify Singles" part of a Spotify title.
+_TRAILING_PART_RE = re.compile(r"\s*(?:[\(\[][^\(\)\[\]]*[\)\]]|\s-\s.+)$")
+# Such a part names another recording and must not be dropped when it has one of these.
+_RECORDING_WORDS = (*_VERSION_WORDS, *_EXTRA_VERSION_WORDS, "rmx", "mix", "edit", "rework", "bootleg", "vip", "flip")
 
 T = TypeVar("T")
 
@@ -83,10 +88,22 @@ def _plain_title(title: str) -> str:
 
 
 def _normalise(text: str) -> str:
-    """Lower-case words without accents or punctuation; apostrophes vanish ("Don’t" → "dont")."""
-    decomposed = unicodedata.normalize("NFKD", plain_quotes(text).lower().replace("'", ""))
+    """Lower-case words without accents or punctuation; apostrophes vanish ("Don’t" → "dont"), "$" is "s"."""
+    decomposed = unicodedata.normalize("NFKD", plain_quotes(text).lower().replace("'", "").replace("$", "s"))
     plain = "".join(c for c in decomposed if not unicodedata.combining(c))
     return " ".join(_NON_WORD_RE.sub(" ", plain).replace("_", " ").split())
+
+
+def _core_title(title: str) -> str:
+    """The title without trailing parts that name no other recording ("Deja Vu (Initial D)" → "Deja Vu")."""
+    while True:
+        match = _TRAILING_PART_RE.search(title)
+        if match is None or match.start() == 0:
+            return title
+        part = _normalise(match.group())
+        if any(_contains_phrase(part, _normalise(w)) for w in _RECORDING_WORDS):
+            return title
+        title = title[:match.start()]
 
 
 def _contains_phrase(haystack: str, phrase: str) -> bool:
@@ -123,7 +140,7 @@ def _foreign_guest(artists: list[str], video_title: str) -> bool:
 
 def candidate_fits(track: SpotifyTrack, video_title: str, uploader: str | None, duration_s: int | None) -> bool:
     """True when the video is plausibly exactly this track (checked before downloading)."""
-    title_words = _normalise(track.plain_title).split()
+    title_words = _normalise(_core_title(track.plain_title)).split()
     if not title_words:
         return False
     video = _normalise(video_title)
@@ -184,10 +201,24 @@ def _same_title(wanted: str, found: str) -> bool:
 def identity_matches(track: SpotifyTrack, title: str, artist: str) -> bool:
     """True when a recognised title/artist (AcoustID) names this Spotify track."""
     wanted, found = _normalise(track.plain_title), _normalise(_plain_title(title))
-    if not wanted or not found or not _same_title(wanted, found):
+    if not wanted or not found:
         return False
+    if not _same_title(wanted, found):
+        wanted_core, found_core = _normalise(_core_title(track.plain_title)), _normalise(_core_title(_plain_title(title)))
+        if not wanted_core or not _same_title(wanted_core, found_core):
+            return False
     credited = _credited_artists(artist)
     return any(name in credited for a in track.artists for name in _credited_artists(a))
+
+
+def _artist_names(track: SpotifyTrack) -> set[str]:
+    return {name for a in track.artists for name in _credited_artists(a)}
+
+
+def artist_channel(track: SpotifyTrack, uploader: str | None) -> bool:
+    """True when the channel is one of the track's artists (or their Topic/VEVO/official channel)."""
+    channel = _CHANNEL_TAIL_RE.sub("", _normalise(_CHANNEL_NOISE_RE.sub("", (uploader or "").strip())))
+    return bool(channel) and channel in _artist_names(track)
 
 
 def trusted_upload(track: SpotifyTrack, video_title: str, uploader: str | None) -> bool:
@@ -196,10 +227,9 @@ def trusted_upload(track: SpotifyTrack, video_title: str, uploader: str | None) 
     Audio AcoustID does not know is only stored under the Spotify name when
     this holds; a fan upload, mashup, drum cam or festival recording does not.
     """
-    artist_names = {name for a in track.artists for name in _credited_artists(a)}
-    channel = _CHANNEL_TAIL_RE.sub("", _normalise(_CHANNEL_NOISE_RE.sub("", (uploader or "").strip())))
-    if channel not in artist_names:
+    if not artist_channel(track, uploader):
         return False
+    artist_names = _artist_names(track)
     allowed = set(_normalise(track.title).split()) | _UPLOAD_FILLER_WORDS
     allowed |= {word for name in artist_names for word in name.split()}
     leftover = [w for w in _normalise(video_title).split() if w not in allowed and not _YEAR_RE.match(w)]

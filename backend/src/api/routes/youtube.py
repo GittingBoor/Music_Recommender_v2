@@ -270,6 +270,7 @@ def _download_pipeline(
     hint: IdentityHint | None = None,
     expected: SpotifyTrack | None = None,
     trust_unrecognised: bool = False,
+    from_artist_channel: bool = False,
 ) -> Iterator[str]:
     """Download → trim → analyse, yielding NDJSON progress events.
 
@@ -282,14 +283,17 @@ def _download_pipeline(
     ``hint`` replaces the title/artist guessed from the video title, and
     ``expected`` rejects audio that AcoustID recognises as another song
     (both set by the Spotify playlist import); ``trust_unrecognised`` lets
-    audio AcoustID does not know through under the hint's name.
+    audio AcoustID does not know through under the hint's name, and
+    ``from_artist_channel`` audio whose fingerprint AcoustID knows unnamed.
     """
     fallback_name = req.title or req.video_id
     owns_job = job_id is None
     if job_id is None:
         job_id = tracker.add("youtube", fallback_name, Stage.DOWNLOADING)
     try:
-        yield from _download_steps(req, fallback_name, job_id, log_failures, hint, expected, trust_unrecognised)
+        yield from _download_steps(
+            req, fallback_name, job_id, log_failures, hint, expected, trust_unrecognised, from_artist_channel,
+        )
     finally:
         if owns_job:
             tracker.remove(job_id)
@@ -303,6 +307,7 @@ def _download_steps(
     hint: IdentityHint | None,
     expected: SpotifyTrack | None,
     trust_unrecognised: bool,
+    from_artist_channel: bool,
 ) -> Iterator[str]:
     # 0) Skip the download when the video title already names a library song.
     known = _library_hit(req)
@@ -340,6 +345,7 @@ def _download_steps(
             lambda: process_audio_file(
                 final_path, job_id, identity_hint, origin, slot_held=True,
                 expected=expected, trust_unrecognised=trust_unrecognised,
+                from_artist_channel=from_artist_channel,
             )
         ):
             if outcome is None:

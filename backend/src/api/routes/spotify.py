@@ -87,6 +87,10 @@ class ImportOut(BaseModel):
     duplicate: int
     failed: int
     queued: int
+    # When the last track left the queue; null while tracks are still queued.
+    finished_at: datetime | None
+    # Some tracks predate finished_at, so the real end may be later.
+    finished_estimated: bool
 
 
 class ImportTrackOut(BaseModel):
@@ -231,9 +235,7 @@ def import_playlist(
     importer: PlaylistImporter = Depends(get_importer),
 ) -> ImportOut:
     """Queue every song of the playlist that is not in the library yet."""
-    if not settings.acoustid_api_key:
-        # Without fingerprints nothing could tell a wrong YouTube upload from the right song.
-        raise HTTPException(status_code=503, detail="Playlist import needs ACOUSTID_API_KEY to verify songs.")
+    _require_acoustid()
     if _import_running(user.id, playlist_id, db):
         raise HTTPException(status_code=409, detail="Diese Playlist wird gerade schon importiert.")
     client = _client(user, db, client_factory)
@@ -245,6 +247,35 @@ def import_playlist(
     import_id = importer.start(user.id, playlist, tracks)
     db.expire_all()
     return _import_out(db.get(PlaylistImport, import_id), db)
+
+
+@router.post("/spotify/imports/{import_id}/retry", response_model=ImportOut, status_code=202)
+def retry_failed(
+    import_id: int,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    importer: PlaylistImporter = Depends(get_importer),
+) -> ImportOut:
+    """Search, download and check the import's failed tracks once more."""
+    _require_acoustid()
+    entry = _own_import(import_id, user, db)
+    if not importer.retry_failed(entry.id):
+        raise HTTPException(status_code=409, detail="Dieser Import hat keine fehlgeschlagenen Songs.")
+    db.expire_all()
+    return _import_out(entry, db)
+
+
+def _require_acoustid() -> None:
+    if not settings.acoustid_api_key:
+        # Without fingerprints nothing could tell a wrong YouTube upload from the right song.
+        raise HTTPException(status_code=503, detail="Playlist import needs ACOUSTID_API_KEY to verify songs.")
+
+
+def _own_import(import_id: int, user: User, db: Session) -> PlaylistImport:
+    entry = db.get(PlaylistImport, import_id)
+    if entry is None or entry.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Import nicht gefunden.")
+    return entry
 
 
 def _import_running(user_id: int, playlist_id: str, db: Session) -> bool:
@@ -275,15 +306,33 @@ def _counts(import_id: int, db: Session) -> dict[str, int]:
     return {status: count for status, count in rows}
 
 
+def _end(import_id: int, db: Session) -> tuple[datetime | None, bool]:
+    """``(latest finished_at, whether a finished track has none)`` of the import's tracks."""
+    latest, untimed = (
+        db.query(
+            func.max(PlaylistImportTrack.finished_at),
+            func.count(PlaylistImportTrack.id).filter(PlaylistImportTrack.finished_at.is_(None)),
+        )
+        .filter(PlaylistImportTrack.import_id == import_id, PlaylistImportTrack.status != importer_module.QUEUED)
+        .one()
+    )
+    return latest, untimed > 0
+
+
 def _import_out(entry: PlaylistImport, db: Session) -> ImportOut:
     counts = _counts(entry.id, db)
+    queued = counts.get(importer_module.QUEUED, 0)
+    latest, estimated = _end(entry.id, db)
+    finished_at = None if queued else (latest or entry.created_at)
     return ImportOut(
         id=entry.id, playlist_id=entry.spotify_playlist_id, name=entry.name, created_at=entry.created_at,
         total=sum(counts.values()),
         saved=counts.get(importer_module.SAVED, 0),
         duplicate=counts.get(importer_module.DUPLICATE, 0),
         failed=counts.get(importer_module.FAILED, 0),
-        queued=counts.get(importer_module.QUEUED, 0),
+        queued=queued,
+        finished_at=finished_at,
+        finished_estimated=finished_at is not None and estimated,
     )
 
 
@@ -299,9 +348,7 @@ def imports(user: User = Depends(require_user), db: Session = Depends(get_db)) -
 
 @router.get("/spotify/imports/{import_id}", response_model=ImportDetailOut)
 def import_detail(import_id: int, user: User = Depends(require_user), db: Session = Depends(get_db)) -> ImportDetailOut:
-    entry = db.get(PlaylistImport, import_id)
-    if entry is None or entry.user_id != user.id:
-        raise HTTPException(status_code=404, detail="Import nicht gefunden.")
+    entry = _own_import(import_id, user, db)
     rows = (
         db.query(PlaylistImportTrack).filter(PlaylistImportTrack.import_id == import_id)
         .order_by(PlaylistImportTrack.position).all()
