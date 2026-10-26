@@ -133,14 +133,14 @@ function SpotifyPlaylists({ onImported }: { readonly onImported: (started: Spoti
 
 /** Connected state: playlists on the left, the imports they started on the right. */
 function ConnectedImport() {
-  const { imports, error, add } = useSpotifyImports();
+  const { imports, error, add, replace } = useSpotifyImports();
   return (
     <div className="grid grid-cols-1 gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0">
         <SpotifyPlaylists onImported={add} />
       </div>
       <div className="min-w-0 lg:border-l lg:border-line lg:pl-12">
-        <SpotifyImportList imports={imports} error={error} />
+        <SpotifyImportList imports={imports} error={error} onChanged={replace} />
       </div>
     </div>
   );

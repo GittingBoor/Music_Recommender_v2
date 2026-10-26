@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from "react";
-import { fetchSpotifyImport } from "../../services/api";
+import { fetchSpotifyImport, retrySpotifyImport } from "../../services/api";
 import type { SpotifyImport, SpotifyImportTrack } from "../../services/api";
 import { ErrorLine, errorMessage } from "../Notice";
 
@@ -32,9 +32,64 @@ const DATE_FORMAT = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit",
 });
 
-function formatDate(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : DATE_FORMAT.format(date);
+const TIME_FORMAT = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
+
+const MS_PER_MINUTE = 60_000;
+const MINUTES_PER_HOUR = 60;
+const MINUTES_PER_DAY = 24 * MINUTES_PER_HOUR;
+// Keeps "läuft seit …" fresh between polls.
+const ELAPSED_TICK_MS = 30_000;
+
+/** Compact duration: "< 1 min", "42 min", "3 h 05 min", "1 T 2 h". */
+function formatDuration(ms: number): string {
+  const minutes = Math.floor(Math.max(ms, 0) / MS_PER_MINUTE);
+  if (minutes < 1) return "< 1 min";
+  if (minutes < MINUTES_PER_HOUR) return `${minutes} min`;
+  if (minutes < MINUTES_PER_DAY) {
+    const rest = String(minutes % MINUTES_PER_HOUR).padStart(2, "0");
+    return `${Math.floor(minutes / MINUTES_PER_HOUR)} h ${rest} min`;
+  }
+  const hours = Math.floor((minutes % MINUTES_PER_DAY) / MINUTES_PER_HOUR);
+  return `${Math.floor(minutes / MINUTES_PER_DAY)} T ${hours} h`;
+}
+
+/** "25.10.26, 17:11 – 18:02" on the same day, the full end date otherwise. */
+function formatRange(start: Date, end: Date): string {
+  const sameDay = start.toDateString() === end.toDateString();
+  return `${DATE_FORMAT.format(start)} – ${sameDay ? TIME_FORMAT.format(end) : DATE_FORMAT.format(end)}`;
+}
+
+/** Current time, re-read every ELAPSED_TICK_MS while `active`. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), ELAPSED_TICK_MS);
+    return () => window.clearInterval(id);
+  }, [active]);
+  return now;
+}
+
+/** When the import ran and how long it took; elapsed time while it still runs. */
+function ImportTiming({ imp }: { readonly imp: SpotifyImport }) {
+  const running = imp.finished_at === null;
+  const now = useNow(running);
+  const start = new Date(imp.created_at);
+  const end = new Date(imp.finished_at ?? now);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+
+  const approx = imp.finished_estimated ? "ca. " : "";
+  const elapsed = formatDuration(end.getTime() - start.getTime());
+  const when = running ? `seit ${DATE_FORMAT.format(start)}` : formatRange(start, end);
+  const duration = running ? `läuft ${elapsed}` : `${approx}${elapsed}`;
+
+  return (
+    <p className="flex flex-wrap justify-between gap-x-3 font-mono text-2xs text-ink-3 tabular-nums">
+      <span className="whitespace-nowrap">{when}</span>
+      <span className={`whitespace-nowrap ${running ? "text-ink-2" : ""}`}>{duration}</span>
+    </p>
+  );
 }
 
 /** Where the import's tracks are: one bar, segments in COUNTS order; queued stays empty. */
@@ -120,16 +175,55 @@ function FailedTracks({ importId, failedCount }: { readonly importId: number; re
   );
 }
 
-function ImportRow({ imp }: { readonly imp: SpotifyImport }) {
+/** Re-queues the failed tracks; the returned import replaces the row right away. */
+function RetryFailed({ importId, onRetried }: {
+  readonly importId: number;
+  readonly onRetried: (changed: SpotifyImport) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function retry(): Promise<void> {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      onRetried(await retrySpotifyImport(importId));
+    } catch (err: unknown) {
+      setError(errorMessage(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 border-b border-line py-2">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+        <button
+          type="button"
+          onClick={() => { void retry(); }}
+          disabled={busy}
+          aria-busy={busy}
+          className="font-mono text-2xs text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-ink hover:decoration-ink-3 disabled:cursor-wait disabled:text-ink-3 disabled:no-underline"
+        >
+          {busy ? "Wird neu eingereiht…" : "Fehlgeschlagene erneut versuchen"}
+        </button>
+        <span className="text-xs text-ink-3">Sucht die Songs erneut, auch über YouTube Music.</span>
+      </div>
+      {error && <ErrorLine message={error} />}
+    </div>
+  );
+}
+
+function ImportRow({ imp, onChanged }: {
+  readonly imp: SpotifyImport;
+  readonly onChanged: (changed: SpotifyImport) => void;
+}) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const expandable = imp.failed > 0;
 
   const heading = (
-    <span className="flex min-w-0 flex-1 items-baseline justify-between gap-3">
-      <span className="truncate text-sm text-ink">{imp.name}</span>
-      <span className="shrink-0 font-mono text-2xs text-ink-3 tabular-nums">{formatDate(imp.created_at)}</span>
-    </span>
+    <span className="min-w-0 flex-1 truncate text-sm text-ink">{imp.name}</span>
   );
 
   return (
@@ -158,12 +252,14 @@ function ImportRow({ imp }: { readonly imp: SpotifyImport }) {
           </div>
         )}
         <div className="space-y-2 pl-4">
+          <ImportTiming imp={imp} />
           <ProgressBar imp={imp} />
           <CountLegend imp={imp} />
         </div>
       </div>
       {expandable && open && (
         <div id={panelId} className="mt-2.5 ml-4 border-t border-line pt-1">
+          <RetryFailed importId={imp.id} onRetried={(changed) => { setOpen(false); onChanged(changed); }} />
           <FailedTracks importId={imp.id} failedCount={imp.failed} />
         </div>
       )}
@@ -172,9 +268,10 @@ function ImportRow({ imp }: { readonly imp: SpotifyImport }) {
 }
 
 /** Recent imports with their counts; failures expand per import. */
-export function SpotifyImportList({ imports, error }: {
+export function SpotifyImportList({ imports, error, onChanged }: {
   readonly imports: readonly SpotifyImport[] | null;
   readonly error: string | null;
+  readonly onChanged: (changed: SpotifyImport) => void;
 }) {
   return (
     <div className="space-y-2">
@@ -186,7 +283,7 @@ export function SpotifyImportList({ imports, error }: {
       )}
       {imports && imports.length > 0 && (
         <ul className="-mt-2">
-          {imports.map((imp) => <ImportRow key={imp.id} imp={imp} />)}
+          {imports.map((imp) => <ImportRow key={imp.id} imp={imp} onChanged={onChanged} />)}
         </ul>
       )}
     </div>

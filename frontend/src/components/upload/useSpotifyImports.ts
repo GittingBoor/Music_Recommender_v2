@@ -10,6 +10,8 @@ export interface SpotifyImportsState {
   readonly error: string | null;
   /** Puts a just-started import at the top until the next poll returns it. */
   readonly add: (started: SpotifyImport) => void;
+  /** Swaps in a changed import at its current place, e.g. after a retry. */
+  readonly replace: (changed: SpotifyImport) => void;
 }
 
 /** The account's imports; polled while any of them still has queued tracks. */
@@ -51,5 +53,9 @@ export function useSpotifyImports(): SpotifyImportsState {
     setImports((prev) => [started, ...(prev ?? []).filter((i) => i.id !== started.id)]);
   }, []);
 
-  return { imports, error, add };
+  const replace = useCallback((changed: SpotifyImport): void => {
+    setImports((prev) => prev?.map((i) => (i.id === changed.id ? changed : i)) ?? [changed]);
+  }, []);
+
+  return { imports, error, add, replace };
 }

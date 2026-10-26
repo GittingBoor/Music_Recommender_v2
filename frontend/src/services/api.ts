@@ -442,6 +442,10 @@ export interface SpotifyImport {
   readonly playlist_id: string;
   readonly name: string;
   readonly created_at: string;
+  /** When the last track left the queue; null while the import still runs. */
+  readonly finished_at: string | null;
+  /** True when old tracks lack an end time: finished_at is then a lower bound. */
+  readonly finished_estimated: boolean;
   readonly total: number;
   readonly saved: number;
   readonly duplicate: number;
@@ -466,6 +470,11 @@ export interface SpotifyImportDetail extends SpotifyImport {
 
 export async function importSpotifyPlaylist(playlistId: string): Promise<SpotifyImport> {
   return (await sendJson("POST", `/api/spotify/playlists/${encodeURIComponent(playlistId)}/import`)).json();
+}
+
+/** Re-queues the import's failed tracks. 409: nothing failed; 503: AcoustID key missing. */
+export async function retrySpotifyImport(importId: number): Promise<SpotifyImport> {
+  return (await sendJson("POST", `/api/spotify/imports/${importId}/retry`)).json();
 }
 
 /** The account's imports, newest first. */
