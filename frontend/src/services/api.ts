@@ -69,7 +69,11 @@ export async function fetchTimeseries(
   if (mood) params.set("mood", mood);
   for (const id of songIds) params.append("song_id", id);
   const res = await fetch(`/api/analysis/timeseries?${params}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const detail = typeof body?.detail === "string" ? body.detail : null;
+    throw new Error(detail ? `HTTP ${res.status} — ${detail}` : `HTTP ${res.status}`);
+  }
   return res.json();
 }
 

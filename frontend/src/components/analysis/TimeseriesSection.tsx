@@ -323,6 +323,9 @@ export function TimeseriesSection({ songs }: Props) {
                     <span className="text-ink">{s.title ?? "?"}</span>
                     <span className="text-ink-3"> – {s.artist ?? "?"}</span>
                   </span>
+                  {tsData && !loading && !tsData.selected_songs.some((o) => o.song_id === s.id) && (
+                    <span className="font-mono text-2xs text-warn shrink-0">no data</span>
+                  )}
                   <button
                     onClick={() => removeSong(s.id)}
                     aria-label={`Remove ${s.title ?? "song"}`}
@@ -370,6 +373,8 @@ export function TimeseriesSection({ songs }: Props) {
       <div className="flex items-center gap-4 font-mono text-2xs text-ink-3 h-4">
         {loading ? (
           <span>Loading…</span>
+        ) : error ? (
+          <span className="text-bad">{error}</span>
         ) : tsData ? (
           <>
             <span>
@@ -378,12 +383,19 @@ export function TimeseriesSection({ songs }: Props) {
                 <span> ({mood} ≥ {threshold.toFixed(2)})</span>
               )}
             </span>
+            {tsData.skipped_count > 0 && (
+              <span
+                className="text-warn"
+                title="These songs have no timeseries or no valid duration — re-run their analysis."
+              >
+                {tsData.skipped_count} skipped (missing data)
+              </span>
+            )}
             {tsData.selected_songs.map((o) => (
               <span key={o.song_id} className="truncate" style={{ color: colorOf(o.song_id) }}>
                 + {o.title ?? "?"} ({formatTime(Math.round(o.duration_seconds))})
               </span>
             ))}
-            {error && <span className="text-bad">{error}</span>}
           </>
         ) : null}
       </div>
@@ -409,8 +421,8 @@ export function TimeseriesSection({ songs }: Props) {
           </div>
         </div>
         {chartData.length === 0 && !loading ? (
-          <div className="flex items-center justify-center h-64 font-mono text-xs text-ink-3">
-            No timeseries data available for this selection.
+          <div className={`flex items-center justify-center h-64 font-mono text-xs ${error ? "text-bad" : "text-ink-3"}`}>
+            {error ? `Could not load timeseries: ${error}` : "No timeseries data available for this selection."}
           </div>
         ) : (
           <>

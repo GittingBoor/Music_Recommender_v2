@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 import numpy as np
@@ -17,6 +18,8 @@ from src.analysis.timeseries_aggregation import (
 from src.api.deps import get_db
 from src.db.models import Song
 from src.db.models.base import TIMESERIES_GROUP
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -185,6 +188,15 @@ def get_timeseries(
         duration = None if song.file_metadata is None else song.file_metadata.duration_seconds
         return SongSeries.from_optional(song.id, values, duration)
 
+    def try_series(song: Song) -> SongSeries | None:
+        # One song with broken data (no timeseries / zero duration) must not take the
+        # whole chart down — skip it and report the count instead.
+        try:
+            return get_series(song)
+        except TimeseriesDataError as exc:
+            logger.warning("Timeseries: skipping song %s — %s", song.id, exc)
+            return None
+
     def get_mood_val(song: Song, mood_name: str) -> float | None:
         return None if song.ml_moods is None else getattr(song.ml_moods, mood_name, None)
 
@@ -205,10 +217,12 @@ def get_timeseries(
 
     selected_songs = [selected_by_id[sid] for sid in song_ids if sid in selected_by_id]
 
-    resampler = resampler_for(feature)
+    group_series = [series for s in filtered if (series := try_series(s)) is not None]
+    selected_series = [(s, series) for s in selected_songs if (series := try_series(s)) is not None]
+
     try:
-        aggregate = TimeseriesAggregator(resampler).aggregate([get_series(s) for s in filtered], mode)
-        selected_series = [(s, get_series(s)) for s in selected_songs]
+        resampler = resampler_for(feature)
+        aggregate = TimeseriesAggregator(resampler).aggregate(group_series, mode)
     except TimeseriesDataError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     aggregate = AggregateNormalizer().normalize(aggregate)
@@ -231,7 +245,8 @@ def get_timeseries(
     return {
         "feature":        feature,
         "mode":           mode.value,
-        "song_count":     len(filtered),
+        "song_count":     len(group_series),
+        "skipped_count":  len(filtered) - len(group_series),
         "min_songs":      MIN_SONGS,
         "selected_songs": selected_songs_data,
         "positions":      aggregate.positions.tolist(),

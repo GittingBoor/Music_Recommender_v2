@@ -17,6 +17,8 @@ export interface TimeseriesResponse {
   feature: string;
   mode: TimeAxisMode;
   song_count: number;
+  /** Group songs left out because their timeseries or duration is missing. */
+  skipped_count: number;
   min_songs: number;
   /** Overlay songs, in the order they were requested. */
   selected_songs: TimeseriesSong[];
