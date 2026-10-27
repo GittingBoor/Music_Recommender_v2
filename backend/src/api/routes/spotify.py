@@ -2,6 +2,9 @@
 
 The browser goes /api/spotify/connect → Spotify's consent page → /api/spotify/callback,
 which stores the tokens and sends it back to the page it came from.
+
+/api/spotify/library is the personal view: which library songs are in each of
+the user's playlists and saved tracks (a sync compares them with Spotify again).
 """
 import hmac
 import logging
@@ -22,6 +25,7 @@ from src.db.models import PlaylistImport, PlaylistImportTrack, SpotifyConnection
 from src.db.session import get_session
 from src.ingest import bulk
 from src.spotify import importer as importer_module
+from src.spotify import library
 from src.spotify.client import PlaylistSummary, SpotifyApiError, SpotifyClient, TokenSet, authorize_url, exchange_code
 from src.spotify.importer import PlaylistImporter
 
@@ -104,6 +108,25 @@ class ImportTrackOut(BaseModel):
 
 class ImportDetailOut(ImportOut):
     tracks: list[ImportTrackOut]
+
+
+class LibraryPlaylistOut(BaseModel):
+    id: int
+    spotify_playlist_id: str
+    # "playlist" or "liked" (the saved tracks)
+    kind: str
+    name: str
+    image: str | None
+    # Distinct tracks on Spotify; song_ids are the ones in the library, in playlist order.
+    track_count: int
+    synced_at: datetime
+    song_ids: list[str]
+
+
+class LibrarySyncOut(BaseModel):
+    playlists: list[LibraryPlaylistOut]
+    # The connection predates the saved-tracks permission; reconnecting grants it.
+    liked_needs_reconnect: bool
 
 
 def _require_configured() -> None:
@@ -361,3 +384,49 @@ def import_detail(import_id: int, user: User = Depends(require_user), db: Sessio
         for r in rows
     ]
     return ImportDetailOut(**_import_out(entry, db).model_dump(), tracks=tracks)
+
+
+def _library_out(db: Session, user_id: int) -> list[LibraryPlaylistOut]:
+    return [
+        LibraryPlaylistOut(
+            id=e.id, spotify_playlist_id=e.spotify_playlist_id, kind=e.kind, name=e.name, image=e.image,
+            track_count=e.track_count, synced_at=e.synced_at, song_ids=song_ids,
+        )
+        for e, song_ids in library.user_playlists(db, user_id)
+    ]
+
+
+@router.get("/spotify/library", response_model=list[LibraryPlaylistOut])
+def library_playlists(user: User | None = Depends(current_user), db: Session = Depends(get_db)) -> list[LibraryPlaylistOut]:
+    """The user's playlists as last synced or imported; empty when logged out."""
+    return [] if user is None else _library_out(db, user.id)
+
+
+@router.post("/spotify/library/sync", response_model=LibrarySyncOut)
+def sync_library(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    client_factory: ClientFactory = Depends(get_client_factory),
+) -> LibrarySyncOut:
+    """Read every playlist and the saved tracks from Spotify again and match them with the library."""
+    client = _client(user, db, client_factory)
+    try:
+        fetched = [(p, client.playlist_tracks(p.id)) for p in client.playlists()]
+    except SpotifyApiError as exc:
+        raise _spotify_http_error(exc) from exc
+    liked = None
+    try:
+        liked = client.liked_tracks()
+    except SpotifyApiError as exc:
+        # The playlists just worked, so a 403 here is the missing user-library-read scope.
+        if exc.status != 403:
+            raise _spotify_http_error(exc) from exc
+        logger.info("[Spotify] User %d: saved tracks need a reconnect (scope)", user.id)
+    for playlist, tracks in fetched:
+        library.store_playlist(db, user.id, playlist.id, playlist.name, playlist.image, tracks)
+    if liked is not None:
+        library.store_liked(db, user.id, liked)
+    library.remove_missing(db, user.id, {p.id for p, _ in fetched})
+    db.commit()
+    logger.info("[Spotify] User %d synced %d playlists", user.id, len(fetched))
+    return LibrarySyncOut(playlists=_library_out(db, user.id), liked_needs_reconnect=liked is None)

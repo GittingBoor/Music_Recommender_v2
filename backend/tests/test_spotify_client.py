@@ -66,7 +66,7 @@ def test_authorize_url_contains_scopes_and_state(monkeypatch: pytest.MonkeyPatch
     assert query["response_type"] == ["code"]
     assert query["state"] == ["state-123"]
     assert query["redirect_uri"] == ["https://music.example.de/api/spotify/callback"]
-    assert set(query["scope"][0].split()) == {"playlist-read-private", "playlist-read-collaborative"}
+    assert set(query["scope"][0].split()) == {"playlist-read-private", "playlist-read-collaborative", "user-library-read"}
 
 
 def test_exchange_code_returns_tokens(monkeypatch: pytest.MonkeyPatch) -> None:

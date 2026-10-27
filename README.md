@@ -73,6 +73,12 @@ the production site. A connected Spotify account can import its own and collabor
 playlists with one click: every track is searched on YouTube, downloaded and only saved
 when AcoustID does not identify the audio as a different song.
 
+Songs stay one shared library; each user's playlists (and liked songs) are a personal
+view on it (`user_playlists` / `user_playlist_songs`). The Songs page can be narrowed to
+one of them; "Sync Spotify" reads all playlists again and matches their tracks with the
+library. Liked songs need the `user-library-read` scope — connections made before it
+was added have to reconnect once.
+
 Backend settings (`backend/.env` locally, `.env.prod` on the mini-PC):
 
 | Variable | Purpose |

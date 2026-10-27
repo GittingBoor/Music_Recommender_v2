@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 _AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
 _TOKEN_URL = "https://accounts.spotify.com/api/token"
 _API = "https://api.spotify.com/v1"
-SCOPES = "playlist-read-private playlist-read-collaborative"
+# user-library-read (saved tracks) came later: older connections lack it until reconnected.
+SCOPES = "playlist-read-private playlist-read-collaborative user-library-read"
 _PAGE_SIZE = 50
 _TIMEOUT_SECONDS = 15
 # Renew this long before the access token runs out, so no call races the expiry.
@@ -194,6 +195,12 @@ class SpotifyClient:
         quoted = urllib.parse.quote(playlist_id, safe="")
         entries = self._pages(f"{_API}/playlists/{quoted}/items?limit={_PAGE_SIZE}")
         tracks = (_to_track(e.get("item") or e.get("track")) for e in entries if e)
+        return [t for t in tracks if t is not None]
+
+    def liked_tracks(self) -> list[SpotifyTrack]:
+        """The user's saved tracks, newest first. 403 without the user-library-read scope."""
+        entries = self._pages(f"{_API}/me/tracks?limit={_PAGE_SIZE}")
+        tracks = (_to_track(e.get("track")) for e in entries if e)
         return [t for t in tracks if t is not None]
 
 

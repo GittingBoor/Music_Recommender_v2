@@ -13,7 +13,10 @@ from src.api.deps import get_db
 from src.api.routes import account as account_route
 from src.api.routes import spotify as spotify_route
 from src.core.config import settings
-from src.db.models import Base, PasswordResetToken, PlaylistImport, PlaylistImportTrack, SpotifyConnection, User
+from src.db.models import (
+    Base, PasswordResetToken, PlaylistImport, PlaylistImportTrack, Song, SpotifyConnection, User, UserPlaylist,
+    UserPlaylistSong, generate_song_id,
+)
 from src.ingest.bulk import BulkItem
 from src.spotify.client import PlaylistSummary, SpotifyApiError, TokenSet
 from src.spotify.importer import PlaylistImporter
@@ -31,6 +34,8 @@ _TRACKS = [
 class FakeClient:
     def __init__(self, me_error: int | None = None) -> None:
         self.me_error = me_error
+        self.playlist_list = _PLAYLISTS
+        self.liked: list[SpotifyTrack] | int = []
 
     def me(self) -> tuple[str, str | None]:
         if self.me_error:
@@ -38,11 +43,16 @@ class FakeClient:
         return "benni-spotify", "Benni"
 
     def playlists(self) -> list[PlaylistSummary]:
-        return _PLAYLISTS
+        return self.playlist_list
 
     def playlist_tracks(self, playlist_id: str) -> list[SpotifyTrack]:
         assert playlist_id == "pl1"
         return _TRACKS
+
+    def liked_tracks(self) -> list[SpotifyTrack]:
+        if isinstance(self.liked, int):
+            raise SpotifyApiError(self.liked, "nope")
+        return self.liked
 
 
 class Env:
@@ -66,7 +76,8 @@ def env(monkeypatch: pytest.MonkeyPatch) -> Iterator[Env]:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         User.__table__, PasswordResetToken.__table__, SpotifyConnection.__table__,
-        PlaylistImport.__table__, PlaylistImportTrack.__table__,
+        PlaylistImport.__table__, PlaylistImportTrack.__table__, Song.__table__,
+        UserPlaylist.__table__, UserPlaylistSong.__table__,
     ])
     yield Env(sessionmaker(bind=engine, autocommit=False, autoflush=False))
     engine.dispose()
@@ -304,3 +315,58 @@ def test_spotify_outage_is_503_with_message(client: TestClient, env: Env) -> Non
     resp = client.post("/api/spotify/playlists/pl1/import")
     assert resp.status_code == 503
     assert "Spotify" in resp.json()["detail"]
+
+
+# --- personal playlist view -------------------------------------------------------
+
+def _add_song(env: Env, title: str, artist: str) -> str:
+    db = env.factory()
+    song_id = generate_song_id(title, artist)
+    db.add(Song(id=song_id, title=title, artist=artist))
+    db.commit()
+    db.close()
+    return song_id
+
+
+def test_library_empty_when_logged_out(client: TestClient) -> None:
+    assert client.get("/api/spotify/library").json() == []
+
+
+def test_sync_matches_playlists_and_liked_songs(client: TestClient, env: Env) -> None:
+    hello = _add_song(env, "Hello", "Adele")
+    brother = _add_song(env, "Hey Brother", "Avicii")
+    env.client.liked = [_TRACKS[1]]
+    _login(client)
+    _connect(client)
+
+    body = client.post("/api/spotify/library/sync").json()
+    assert body["liked_needs_reconnect"] is False
+    assert [(p["kind"], p["name"], p["track_count"], p["song_ids"]) for p in body["playlists"]] == [
+        ("liked", "Lieblingssongs", 1, [brother]),
+        ("playlist", "Mix", 2, [hello, brother]),
+    ]
+    assert client.get("/api/spotify/library").json() == body["playlists"]
+
+
+def test_sync_drops_deleted_playlists_and_reports_missing_scope(client: TestClient, env: Env) -> None:
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/library/sync")
+    env.client.playlist_list = []
+    env.client.liked = 403
+
+    body = client.post("/api/spotify/library/sync").json()
+    assert body["liked_needs_reconnect"] is True
+    assert [p["kind"] for p in body["playlists"]] == ["liked"]
+
+
+def test_import_fills_the_library_view(client: TestClient, env: Env) -> None:
+    hello = _add_song(env, "Hello", "Adele")
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/playlists/pl1/import")
+    assert client.get("/api/spotify/library").json()[0]["song_ids"] == [hello]
+
+    brother = _add_song(env, "Hey Brother", "Avicii")
+    env.queued[0].on_done({"status": "saved", "song_id": brother}, "vid")
+    assert client.get("/api/spotify/library").json()[0]["song_ids"] == [hello, brother]

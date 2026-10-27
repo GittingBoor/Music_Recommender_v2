@@ -10,6 +10,7 @@ from src.db.models.ingest_failure import IngestFailure
 from src.db.models.login_event import LoginEvent
 from src.db.models.account import User, PasswordResetToken, SpotifyConnection
 from src.db.models.playlist_import import PlaylistImport, PlaylistImportTrack
+from src.db.models.user_playlist import UserPlaylist, UserPlaylistSong
 
 __all__ = [
     "Base",
@@ -32,4 +33,6 @@ __all__ = [
     "SpotifyConnection",
     "PlaylistImport",
     "PlaylistImportTrack",
+    "UserPlaylist",
+    "UserPlaylistSong",
 ]

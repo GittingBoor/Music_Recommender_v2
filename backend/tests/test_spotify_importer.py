@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from src.db.models import Base, PlaylistImport, PlaylistImportTrack, User
+from src.db.models import Base, PlaylistImport, PlaylistImportTrack, Song, User, UserPlaylist, UserPlaylistSong, generate_song_id
 from src.ingest import bulk
 from src.ingest.bulk import BulkItem
 from src.spotify.client import PlaylistSummary
@@ -30,7 +30,10 @@ def _hit(video_id: str, title: str, uploader: str, seconds: int) -> YoutubeSearc
 @pytest.fixture
 def db_factory() -> Iterator[sessionmaker]:
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    Base.metadata.create_all(engine, tables=[User.__table__, PlaylistImport.__table__, PlaylistImportTrack.__table__])
+    Base.metadata.create_all(engine, tables=[
+        User.__table__, Song.__table__, PlaylistImport.__table__, PlaylistImportTrack.__table__,
+        UserPlaylist.__table__, UserPlaylistSong.__table__,
+    ])
     factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     db = factory()
     db.add(User(id=1, email="benni@example.de", password_hash="x"))
@@ -259,3 +262,49 @@ def test_youtube_music_songs_become_topic_hits() -> None:
     ]
     assert hits[0].url == "https://www.youtube.com/watch?v=ZCPrbU2xG4I"
     assert hits[0].thumbnail == "https://img/l"
+
+
+# --- personal playlist view (user_playlist_songs) ---------------------------------
+
+def _add_songs(db_factory: sessionmaker, *songs: tuple[str, str]) -> None:
+    db = db_factory()
+    db.add_all(Song(id=generate_song_id(t, a), title=t, artist=a) for t, a in songs)
+    db.commit()
+    db.close()
+
+
+def _playlist_songs(db_factory: sessionmaker) -> list[str]:
+    db = db_factory()
+    try:
+        return [s for (s,) in db.query(UserPlaylistSong.song_id).order_by(UserPlaylistSong.position).all()]
+    finally:
+        db.close()
+
+
+def test_start_links_known_songs_and_stores_their_id(db_factory: sessionmaker) -> None:
+    _add_songs(db_factory, ("Hello", "Adele"))
+    queue = Queue()
+    tracks = [_track("t1", "Hello - 2015 Remaster", "Adele"), _track("t2", "Hey Brother", "Avicii")]
+    _importer(db_factory, queue, library=[("Hello", "Adele")]).start(1, _PLAYLIST, tracks)
+
+    hello = generate_song_id("Hello", "Adele")
+    assert _rows(db_factory)[0].song_id == hello
+    assert _playlist_songs(db_factory) == [hello]
+    db = db_factory()
+    entry = db.query(UserPlaylist).one()
+    assert (entry.user_id, entry.spotify_playlist_id, entry.name, entry.track_count) == (1, "pl1", "Mix", 2)
+    db.close()
+
+
+def test_record_links_songs_as_they_arrive(db_factory: sessionmaker) -> None:
+    queue = Queue()
+    tracks = [_track("a", "A", "X"), _track("b", "B", "Y"), _track("c", "C", "Z")]
+    _importer(db_factory, queue).start(1, _PLAYLIST, tracks)
+    _add_songs(db_factory, ("A", "X"), ("B", "Y"))
+    queue.items[1].on_done({"status": "saved", "song_id": generate_song_id("B", "Y")}, "v2")
+    # A duplicate found by video title arrives without a song id.
+    queue.items[0].on_done({"status": "skipped", "reason": "duplicate", "song_id": None}, "v1")
+    queue.items[2].on_done({"status": "skipped", "reason": "no_fitting_hit"}, None)
+
+    assert _rows(db_factory)[0].song_id == generate_song_id("A", "X")
+    assert _playlist_songs(db_factory) == [generate_song_id("A", "X"), generate_song_id("B", "Y")]

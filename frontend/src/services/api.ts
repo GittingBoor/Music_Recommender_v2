@@ -489,3 +489,32 @@ export async function fetchSpotifyImports(): Promise<SpotifyImport[]> {
 export async function fetchSpotifyImport(importId: number): Promise<SpotifyImportDetail> {
   return (await sendJson("GET", `/api/spotify/imports/${importId}`)).json();
 }
+
+/** One of the account's playlists as a view on the library (or "liked": the saved tracks). */
+export interface MyPlaylist {
+  readonly id: number;
+  readonly spotify_playlist_id: string;
+  readonly kind: "playlist" | "liked";
+  readonly name: string;
+  readonly image: string | null;
+  /** Distinct tracks on Spotify; song_ids are the ones in the library, in playlist order. */
+  readonly track_count: number;
+  readonly synced_at: string;
+  readonly song_ids: readonly string[];
+}
+
+export interface MyPlaylistsSync {
+  readonly playlists: readonly MyPlaylist[];
+  /** The connection lacks the saved-tracks permission; reconnecting Spotify grants it. */
+  readonly liked_needs_reconnect: boolean;
+}
+
+/** Playlists as last synced or imported; empty when logged out. */
+export async function fetchMyPlaylists(): Promise<MyPlaylist[]> {
+  return (await sendJson("GET", "/api/spotify/library")).json();
+}
+
+/** Reads every playlist and the saved tracks from Spotify again. 409: not connected / expired. */
+export async function syncMyPlaylists(): Promise<MyPlaylistsSync> {
+  return (await sendJson("POST", "/api/spotify/library/sync")).json();
+}

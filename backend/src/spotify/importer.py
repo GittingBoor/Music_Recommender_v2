@@ -4,6 +4,9 @@ Every track gets a row in ``playlist_import_tracks``: songs already in the
 library are marked duplicate right away, the rest are queued and updated by
 the bulk worker when it is done with them. Rows still queued when the backend
 stops are queued again by ``resume`` on the next start.
+
+The import also keeps the user's playlist view (src.spotify.library) current:
+known songs are linked at the start, each further song as soon as it is in.
 """
 import json
 import logging
@@ -12,10 +15,10 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from src.db.models import PlaylistImport, PlaylistImportTrack, Song, generate_song_id
+from src.db.models import PlaylistImport, PlaylistImportTrack, Song
 from src.ingest.bulk import BulkItem
 from src.ingest.failures import reason_category
-from src.metadata.cleaning import plain_quotes, strip_version_markers
+from src.spotify import library
 from src.spotify.client import PlaylistSummary
 from src.spotify.matching import SpotifyTrack
 from src.youtube.library_match import LibraryMatcher
@@ -34,10 +37,19 @@ def library_matcher(db: Session) -> LibraryMatcher:
     return LibraryMatcher([(title, artist) for title, artist in db.query(Song.title, Song.artist).all()])
 
 
-def _in_library(track: SpotifyTrack, matcher: LibraryMatcher) -> bool:
+def _library_song_id(track: SpotifyTrack, matcher: LibraryMatcher) -> str | None:
     # Exact song ids only: a fuzzy title match would take "Over My Dead Body" for "Over".
-    title = plain_quotes(strip_version_markers(track.plain_title))
-    return any(matcher.has_song_id(generate_song_id(title, plain_quotes(a))) for a in track.artists)
+    return next((sid for sid in library.candidate_song_ids(track.plain_title, track.artists)
+                 if matcher.has_song_id(sid)), None)
+
+
+def _known_song_id(db: Session, row: PlaylistImportTrack) -> str | None:
+    """The library song an import track names exactly, for duplicates found without a song id."""
+    track = _track_of(row)
+    for song_id in library.candidate_song_ids(track.plain_title, track.artists):
+        if db.get(Song, song_id) is not None:
+            return song_id
+    return None
 
 
 def artists_of(row: PlaylistImportTrack) -> list[str]:
@@ -72,20 +84,24 @@ class PlaylistImporter:
             entry = PlaylistImport(user_id=user_id, spotify_playlist_id=playlist.id, name=playlist.name)
             db.add(entry)
             db.flush()
-            seen: set[str] = set()
+            seen: dict[str, str | None] = {}
             queued: list[tuple[PlaylistImportTrack, SpotifyTrack]] = []
             for position, track in enumerate(tracks):
-                known = track.spotify_id in seen or _in_library(track, matcher)
-                seen.add(track.spotify_id)
+                repeated = track.spotify_id in seen
+                song_id = seen[track.spotify_id] if repeated else _library_song_id(track, matcher)
+                known = repeated or song_id is not None
+                seen[track.spotify_id] = song_id
                 row = PlaylistImportTrack(
                     import_id=entry.id, position=position, spotify_track_id=track.spotify_id,
                     title=track.title, artists=json.dumps(list(track.artists), ensure_ascii=False),
                     duration_ms=track.duration_ms, isrc=track.isrc, status=DUPLICATE if known else QUEUED,
-                    finished_at=datetime.now(timezone.utc) if known else None,
+                    song_id=song_id, finished_at=datetime.now(timezone.utc) if known else None,
                 )
                 db.add(row)
                 if not known:
                     queued.append((row, track))
+            db.flush()
+            library.store_playlist(db, user_id, playlist.id, playlist.name, playlist.image, tracks)
             db.commit()
             import_id = entry.id
             items = [self._item(row.id, track) for row, track in queued]
@@ -114,8 +130,15 @@ class PlaylistImporter:
             row.status = status
             row.reason = reason[:_MAX_REASON_LENGTH] if reason else None
             row.song_id = result.get("song_id")
+            if status == DUPLICATE and not row.song_id:
+                # A duplicate found by video title carries no song id.
+                row.song_id = _known_song_id(db, row)
             row.video_id = video_id
             row.finished_at = datetime.now(timezone.utc)
+            if row.song_id and status in (SAVED, DUPLICATE):
+                entry = db.get(PlaylistImport, row.import_id)
+                if entry is not None:
+                    library.link_song(db, entry.user_id, entry.spotify_playlist_id, row.song_id, row.position)
             db.commit()
         finally:
             db.close()
