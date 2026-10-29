@@ -1,6 +1,8 @@
 import { useEffect, useId, useState } from "react";
+import type { ReactNode } from "react";
 import { fetchSpotifyImport, retrySpotifyImport } from "../../services/api";
 import type { SpotifyImport, SpotifyImportTrack } from "../../services/api";
+import { Link, songPath } from "../../router";
 import { ErrorLine, errorMessage } from "../Notice";
 
 const REASON_LABEL: Readonly<Record<string, string>> = {
@@ -135,42 +137,112 @@ function ReasonLabel({ reason }: { readonly reason: string | null }) {
   );
 }
 
-function FailedTrack({ track }: { readonly track: SpotifyImportTrack }) {
+/** Right-pointing triangle that turns down when `open`. */
+function Chevron({ open }: { readonly open: boolean }) {
+  return (
+    <svg
+      className={`h-2 w-2 shrink-0 self-center text-ink-3 group-hover:text-ink motion-safe:transition-transform ${open ? "rotate-90" : ""}`}
+      viewBox="0 0 6 10" fill="none" stroke="currentColor" strokeWidth={1.4} aria-hidden="true"
+    >
+      <path d="M1 1l4 4-4 4" />
+    </svg>
+  );
+}
+
+function TrackRow({ track }: { readonly track: SpotifyImportTrack }) {
+  const title = track.song_id
+    ? (
+      <Link
+        to={songPath(track.song_id)}
+        className="block truncate text-sm text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink-3"
+        title="In der Bibliothek öffnen"
+      >
+        {track.title}
+      </Link>
+    )
+    : <span className="block truncate text-sm text-ink">{track.title}</span>;
   return (
     <li className="flex items-baseline gap-3 border-b border-line py-1.5 last:border-b-0">
       <span className="w-6 shrink-0 text-right font-mono text-2xs text-ink-4 tabular-nums">{track.position + 1}</span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm text-ink">{track.title}</span>
+        {title}
         <span className="block truncate text-xs text-ink-3">{track.artists.join(", ")}</span>
-        <span className="mt-0.5 block font-mono text-2xs"><ReasonLabel reason={track.reason} /></span>
+        {track.status === "failed" && (
+          <span className="mt-0.5 block font-mono text-2xs"><ReasonLabel reason={track.reason} /></span>
+        )}
       </span>
     </li>
   );
 }
 
-/** The tracks of one import that did not make it, loaded when opened. */
-function FailedTracks({ importId, failedCount }: { readonly importId: number; readonly failedCount: number }) {
+/** One status of an import's tracks behind its own toggle. */
+function TrackGroup({ count, tracks, defaultOpen, children }: {
+  readonly count: Count;
+  readonly tracks: readonly SpotifyImportTrack[];
+  readonly defaultOpen: boolean;
+  readonly children?: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const panelId = useId();
+  return (
+    <li className="border-b border-line last:border-b-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="group flex w-full items-center gap-2 py-1.5 text-left font-mono text-2xs tabular-nums text-ink-2 hover:text-ink"
+      >
+        <Chevron open={open} />
+        <span className={`h-1.5 w-1.5 shrink-0 ${count.tone}`} />
+        <span><span className="text-ink">{tracks.length}</span> {count.label}</span>
+      </button>
+      {open && (
+        <div id={panelId} className="pb-1.5 pl-4">
+          {children}
+          <ul className="settle">
+            {tracks.map((t) => <TrackRow key={t.position} track={t} />)}
+          </ul>
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** Every track of one import grouped by status, loaded when opened. */
+function ImportTracks({ imp, onRetried }: {
+  readonly imp: SpotifyImport;
+  readonly onRetried: (changed: SpotifyImport) => void;
+}) {
   const [tracks, setTracks] = useState<readonly SpotifyImportTrack[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Reloads when the count changes while the panel is open (running import).
+  // Reloads when a count changes while the panel is open (running import).
   useEffect(() => {
     let cancelled = false;
-    fetchSpotifyImport(importId)
+    fetchSpotifyImport(imp.id)
       .then((detail) => {
         if (cancelled) return;
-        setTracks(detail.tracks.filter((t) => t.status === "failed"));
+        setTracks(detail.tracks);
         setError(null);
       })
       .catch((err: unknown) => { if (!cancelled) setError(errorMessage(err)); });
     return () => { cancelled = true; };
-  }, [importId, failedCount]);
+  }, [imp.id, imp.saved, imp.duplicate, imp.failed, imp.queued]);
 
   if (error) return <ErrorLine message={error} />;
-  if (tracks === null) return <p className="py-1.5 font-mono text-2xs text-ink-3">Lade nicht übernommene Songs…</p>;
+  if (tracks === null) return <p className="py-1.5 font-mono text-2xs text-ink-3">Lade Songs…</p>;
   return (
-    <ul className="settle">
-      {tracks.map((t) => <FailedTrack key={t.position} track={t} />)}
+    <ul>
+      {COUNTS.map((c) => {
+        const group = tracks.filter((t) => t.status === c.key);
+        if (group.length === 0) return null;
+        return (
+          <TrackGroup key={c.key} count={c} tracks={group} defaultOpen={c.key === "failed"}>
+            {c.key === "failed" && <RetryFailed importId={imp.id} onRetried={onRetried} />}
+          </TrackGroup>
+        );
+      })}
     </ul>
   );
 }
@@ -220,7 +292,7 @@ function ImportRow({ imp, onChanged }: {
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
-  const expandable = imp.failed > 0;
+  const expandable = imp.total > 0;
 
   const heading = (
     <span className="min-w-0 flex-1 truncate text-sm text-ink">{imp.name}</span>
@@ -237,12 +309,7 @@ function ImportRow({ imp, onChanged }: {
             aria-controls={panelId}
             className="group flex w-full items-baseline gap-2 text-left"
           >
-            <svg
-              className={`h-2 w-2 shrink-0 self-center text-ink-3 group-hover:text-ink motion-safe:transition-transform ${open ? "rotate-90" : ""}`}
-              viewBox="0 0 6 10" fill="none" stroke="currentColor" strokeWidth={1.4} aria-hidden="true"
-            >
-              <path d="M1 1l4 4-4 4" />
-            </svg>
+            <Chevron open={open} />
             {heading}
           </button>
         ) : (
@@ -259,15 +326,14 @@ function ImportRow({ imp, onChanged }: {
       </div>
       {expandable && open && (
         <div id={panelId} className="mt-2.5 ml-4 border-t border-line pt-1">
-          <RetryFailed importId={imp.id} onRetried={(changed) => { setOpen(false); onChanged(changed); }} />
-          <FailedTracks importId={imp.id} failedCount={imp.failed} />
+          <ImportTracks imp={imp} onRetried={(changed) => { setOpen(false); onChanged(changed); }} />
         </div>
       )}
     </li>
   );
 }
 
-/** Recent imports with their counts; failures expand per import. */
+/** Recent imports with their counts; each expands to its tracks, grouped by status. */
 export function SpotifyImportList({ imports, error, onChanged }: {
   readonly imports: readonly SpotifyImport[] | null;
   readonly error: string | null;
