@@ -514,7 +514,26 @@ export async function fetchMyPlaylists(): Promise<MyPlaylist[]> {
   return (await sendJson("GET", "/api/spotify/library")).json();
 }
 
-/** Reads every playlist and the saved tracks from Spotify again. 409: not connected / expired. */
+export interface MyPlaylistTrack {
+  readonly position: number;
+  readonly title: string;
+  readonly artists: readonly string[];
+  /** The library song; null when the track is not in the library. */
+  readonly song_id: string | null;
+}
+
+/** Every track of the playlist as last read from Spotify, matched with the library now (no Spotify call). */
+export async function fetchMyPlaylistTracks(playlistId: number): Promise<readonly MyPlaylistTrack[]> {
+  const body: { tracks: MyPlaylistTrack[] } = await (await sendJson("GET", `/api/spotify/library/${playlistId}/tracks`)).json();
+  return body.tracks;
+}
+
+/** Compares one playlist (or the saved tracks) with Spotify; one request while unchanged. 404: gone on Spotify. */
+export async function syncMyPlaylist(playlistId: number): Promise<MyPlaylist> {
+  return (await sendJson("POST", `/api/spotify/library/${playlistId}/sync`)).json();
+}
+
+/** Compares playlists and saved tracks with Spotify, reading only changed ones. 409: not connected / expired. */
 export async function syncMyPlaylists(): Promise<MyPlaylistsSync> {
   return (await sendJson("POST", "/api/spotify/library/sync")).json();
 }

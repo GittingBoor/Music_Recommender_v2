@@ -8,6 +8,7 @@ import { AnalysisPage, ANALYSIS_SECTIONS } from "./components/analysis/AnalysisP
 import type { AnalysisSection } from "./components/analysis/AnalysisPage";
 import { PlayerBar } from "./components/PlayerBar";
 import { UploadPage } from "./components/upload/UploadPage";
+import { SpotifyPage } from "./components/spotify/SpotifyPage";
 import { AccountPage } from "./components/account/AccountPage";
 import { AccountMenu } from "./components/account/AccountMenu";
 import { ResetPasswordPage } from "./components/account/ResetPasswordPage";
@@ -25,11 +26,12 @@ type Route =
   | { page: "recommender"; method: RecommenderMethod; songId: string | null }
   | { page: "analysis"; section: AnalysisSection }
   | { page: "upload" }
+  | { page: "spotify"; playlistId: number | null }
   | { page: "account" }
   | { page: "reset-password"; token: string }
   | { page: "notfound" };
 
-/** URL → page:  /songs · /songs/:id · /recommender/neighbors[/:id] · /analysis[/umap|/correlations|/timeseries] · /upload
+/** URL → page:  /songs · /songs/:id · /recommender/neighbors[/:id] · /analysis[/umap|/correlations|/timeseries] · /upload · /spotify[/:playlistId]
  *  · /account · /reset-password/:token */
 function matchRoute(path: string): Route {
   const parts = path.split("/").filter(Boolean);
@@ -57,6 +59,10 @@ function matchRoute(path: string): Route {
     if (section) return { page: "analysis", section: section.id };
   }
   if (parts[0] === "upload" && parts.length === 1) return { page: "upload" };
+  if (parts[0] === "spotify" && parts.length === 1) return { page: "spotify", playlistId: null };
+  if (parts[0] === "spotify" && parts.length === 2 && /^\d+$/.test(parts[1])) {
+    return { page: "spotify", playlistId: Number(parts[1]) };
+  }
   if (parts[0] === "account" && parts.length === 1) return { page: "account" };
   if (parts[0] === "reset-password" && parts.length === 2) return { page: "reset-password", token: parts[1] };
   return { page: "notfound" };
@@ -67,6 +73,7 @@ const NAV: { page: Route["page"]; label: string; to: string }[] = [
   { page: "recommender", label: "Recommender", to: "/recommender" },
   { page: "analysis",    label: "Analysis",    to: "/analysis" },
   { page: "upload",      label: "Upload",      to: "/upload" },
+  { page: "spotify",     label: "Spotify",     to: "/spotify" },
 ];
 
 function pageTitle(route: Route, songs: Song[]): string {
@@ -85,6 +92,8 @@ function pageTitle(route: Route, songs: Song[]): string {
       return `${ANALYSIS_SECTIONS.find((s) => s.id === route.section)?.label ?? "Analysis"} · Analysis`;
     case "upload":
       return "Upload";
+    case "spotify":
+      return "Spotify";
     case "account":
       return "Account";
     case "reset-password":
@@ -130,7 +139,7 @@ export default function App() {
 
   const path = usePath();
   const route = matchRoute(path);
-  // Songs, Recommender and Upload keep their state (filters, scroll, running downloads) across page switches.
+  // Songs, Recommender, Upload and Spotify keep their state (filters, sort, scroll, running downloads) across page switches.
   const songsVisited = useVisited(route.page === "songs");
   const recommenderVisited = useVisited(route.page === "recommender");
   // The last seed stays loaded while the page is hidden; its tab leads back to it.
@@ -142,6 +151,10 @@ export default function App() {
   }
   const recommenderSeed = recommenderSeedRef.current;
   const uploadVisited = useVisited(route.page === "upload");
+  const spotifyVisited = useVisited(route.page === "spotify");
+  // The open playlist stays shown under a song opened from it (and on other pages).
+  const spotifyPlaylistRef = useRef<number | null>(null);
+  if (route.page === "spotify") spotifyPlaylistRef.current = route.playlistId;
 
   useEffect(() => {
     if (path === "/") navigate("/songs", { replace: true });
@@ -265,6 +278,12 @@ export default function App() {
             {uploadVisited && (
               <KeptPage active={route.page === "upload"}>
                 <UploadPage />
+              </KeptPage>
+            )}
+            {spotifyVisited && (
+              // After SongsPage for the same reason as the recommender: the active page sets the queue last.
+              <KeptPage active={route.page === "spotify"}>
+                <SpotifyPage songs={songs} playlistId={spotifyPlaylistRef.current} active={route.page === "spotify"} />
               </KeptPage>
             )}
             {route.page === "account" && <AccountPage />}

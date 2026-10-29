@@ -11,7 +11,6 @@ import { BarSliderFilter } from "../filter/BarSliderFilter";
 import type { BarRow } from "../filter/BarSliderFilter";
 import { ResultsTable } from "./ResultsTable";
 import { FIELD_DESCRIPTIONS } from "./fieldDescriptions";
-import { PlaylistScope, useMyPlaylists } from "./PlaylistScope";
 
 type ThresholdsMap = Record<string, number>;
 
@@ -98,17 +97,6 @@ function meanProfile(songs: Song[], axes: RadarAxis[], stats: AxisStatsMap): Thr
   return out;
 }
 
-const PLAYLIST_KEY = "songs.playlist";
-
-function readStoredPlaylist(): number | null {
-  try {
-    const raw = localStorage.getItem(PLAYLIST_KEY);
-    return raw ? Number(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Boolean state that survives leaving the page (panel collapse). */
 function usePersistentFlag(key: string, initial: boolean): [boolean, () => void] {
   const [value, setValue] = useState(() => {
@@ -135,25 +123,7 @@ interface Props {
 }
 
 /** Main page: the whole library as a sortable table, narrowed by the filters. */
-export function SongsPage({ songs: library, active }: Props) {
-  // ── playlist scope: all songs or one of my Spotify playlists ─────────────
-  const { account, playlists, setPlaylists } = useMyPlaylists(library.length);
-  const [playlistId, setPlaylistIdState] = useState<number | null>(readStoredPlaylist);
-  const setPlaylistId = useCallback((id: number | null) => {
-    setPlaylistIdState(id);
-    try {
-      if (id == null) localStorage.removeItem(PLAYLIST_KEY);
-      else localStorage.setItem(PLAYLIST_KEY, String(id));
-    } catch { /* storage unavailable */ }
-  }, []);
-  const playlist = playlists.find((p) => p.id === playlistId) ?? null;
-  // Everything below works on the playlist's songs, in playlist order.
-  const songs = useMemo(() => {
-    if (!playlist) return library;
-    const byId = new Map(library.map((s) => [s.id, s]));
-    return playlist.song_ids.flatMap((id) => byId.get(id) ?? []);
-  }, [library, playlist]);
-
+export function SongsPage({ songs, active }: Props) {
   // ── text search ──────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
 
@@ -185,10 +155,9 @@ export function SongsPage({ songs: library, active }: Props) {
   const radarPanelRef = useRef<HTMLElement>(null);
 
   // ── axis stats (library-wide min/max, computed once per songs change) ───
-  // Library-wide on purpose: a slider position means the same in every playlist.
-  const dspStats   = useMemo(() => computeAxisStats(library, DSP_AXES),   [library]);
-  const otherStats = useMemo(() => computeAxisStats(library, OTHER_AXES), [library]);
-  const moodStats  = useMemo(() => computeAxisStats(library, MOOD_AXES),  [library]);
+  const dspStats   = useMemo(() => computeAxisStats(songs, DSP_AXES),   [songs]);
+  const otherStats = useMemo(() => computeAxisStats(songs, OTHER_AXES), [songs]);
+  const moodStats  = useMemo(() => computeAxisStats(songs, MOOD_AXES),  [songs]);
 
   // ── slider rows for the radar axes ───────────────────────────────────────
   const moodRows  = useMemo(() => axisRows(songs, MOOD_AXES,  moodStats),  [songs, moodStats]);
@@ -298,8 +267,8 @@ export function SongsPage({ songs: library, active }: Props) {
   // ── song in the player (drawn on the radars whether or not it passes the filters) ──
   const { currentId } = useSyncExternalStore(subscribe, getSnapshot);
   const currentSong = useMemo(
-    () => (currentId ? library.find((s) => s.id === currentId) ?? null : null),
-    [library, currentId],
+    () => (currentId ? songs.find((s) => s.id === currentId) ?? null : null),
+    [songs, currentId],
   );
   const moodCurrent  = useMemo(() => currentSong && meanProfile([currentSong], MOOD_AXES,  moodStats),  [currentSong, moodStats]);
   const dspCurrent   = useMemo(() => currentSong && meanProfile([currentSong], DSP_AXES,   dspStats),   [currentSong, dspStats]);
@@ -317,8 +286,8 @@ export function SongsPage({ songs: library, active }: Props) {
 
   // Leaving the page restores the default queue (full library, DB order);
   // coming back puts the table order back in place.
-  const allSongsRef = useRef(library);
-  allSongsRef.current = library;
+  const allSongsRef = useRef(songs);
+  allSongsRef.current = songs;
   useEffect(() => {
     setQueue(active ? visibleOrderRef.current : allSongsRef.current.map((s) => s.id));
   }, [active]);
@@ -356,7 +325,6 @@ export function SongsPage({ songs: library, active }: Props) {
     setOtherEnabled(true);
     setGenreEnabled(true);
     setInstrEnabled(true);
-    setPlaylistId(null);
     setResetKey((k) => k + 1);
     for (const el of [filterPanelRef.current, resultsRef.current, radarPanelRef.current]) {
       el?.scrollTo({ top: 0 });
@@ -482,16 +450,8 @@ export function SongsPage({ songs: library, active }: Props) {
             </button>
           </div>
 
-          <PlaylistScope
-            playlists={playlists}
-            onPlaylistsChange={setPlaylists}
-            selected={playlist?.id ?? null}
-            onSelect={setPlaylistId}
-            spotifyConnected={!!account?.spotify}
-          />
-
           <ResultsTable
-            key={`${resetKey}-${playlist?.id ?? "all"}`}
+            key={resetKey}
             songs={filtered}
             onVisibleOrderChange={handleVisibleOrderChange}
           />
