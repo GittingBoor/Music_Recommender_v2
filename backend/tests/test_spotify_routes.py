@@ -24,7 +24,7 @@ from src.spotify.matching import SpotifyTrack
 from src.youtube.library_match import LibraryMatcher
 
 _PASSWORD = "geheim-genug-123"
-_PLAYLISTS = [PlaylistSummary(id="pl1", name="Mix", image=None, track_count=2, owner="benni")]
+_PLAYLISTS = [PlaylistSummary(id="pl1", name="Mix", image=None, track_count=2, owner="benni", snapshot_id="s1")]
 _TRACKS = [
     SpotifyTrack(spotify_id="t1", title="Hello", artists=("Adele",), duration_ms=295_000, isrc=None),
     SpotifyTrack(spotify_id="t2", title="Hey Brother", artists=("Avicii",), duration_ms=255_000, isrc=None),
@@ -36,6 +36,7 @@ class FakeClient:
         self.me_error = me_error
         self.playlist_list = _PLAYLISTS
         self.liked: list[SpotifyTrack] | int = []
+        self.reads: list[str] = []
 
     def me(self) -> tuple[str, str | None]:
         if self.me_error:
@@ -45,13 +46,27 @@ class FakeClient:
     def playlists(self) -> list[PlaylistSummary]:
         return self.playlist_list
 
+    def playlist(self, playlist_id: str) -> PlaylistSummary:
+        found = [p for p in self.playlist_list if p.id == playlist_id]
+        if not found:
+            raise SpotifyApiError(404, "gone")
+        self.reads.append(f"meta:{playlist_id}")
+        return found[0]
+
     def playlist_tracks(self, playlist_id: str) -> list[SpotifyTrack]:
         assert playlist_id == "pl1"
+        self.reads.append(playlist_id)
         return _TRACKS
+
+    def liked_version(self) -> str:
+        if isinstance(self.liked, int):
+            raise SpotifyApiError(self.liked, "nope")
+        return f"{len(self.liked)}:{self.liked[0].spotify_id if self.liked else ''}"
 
     def liked_tracks(self) -> list[SpotifyTrack]:
         if isinstance(self.liked, int):
             raise SpotifyApiError(self.liked, "nope")
+        self.reads.append("liked")
         return self.liked
 
 
@@ -317,6 +332,20 @@ def test_spotify_outage_is_503_with_message(client: TestClient, env: Env) -> Non
     assert "Spotify" in resp.json()["detail"]
 
 
+def test_used_up_quota_is_429_with_wait(client: TestClient, env: Env) -> None:
+    _login(client)
+    _connect(client)
+
+    def limited(playlist_id: str) -> list[SpotifyTrack]:
+        raise SpotifyApiError(429, "QUOTA_EXCEEDED", retry_after=6142)
+
+    env.client.playlist_tracks = limited  # type: ignore[method-assign]
+    resp = client.post("/api/spotify/library/sync")
+    assert resp.status_code == 429
+    assert resp.headers["Retry-After"] == "6142"
+    assert "103 Minuten" in resp.json()["detail"]
+
+
 # --- personal playlist view -------------------------------------------------------
 
 def _add_song(env: Env, title: str, artist: str) -> str:
@@ -370,3 +399,113 @@ def test_import_fills_the_library_view(client: TestClient, env: Env) -> None:
     brother = _add_song(env, "Hey Brother", "Avicii")
     env.queued[0].on_done({"status": "saved", "song_id": brother}, "vid")
     assert client.get("/api/spotify/library").json()[0]["song_ids"] == [hello, brother]
+
+
+def test_sync_reads_only_changed_playlists(client: TestClient, env: Env) -> None:
+    env.client.liked = [_TRACKS[1]]
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/library/sync")
+    assert env.client.reads == ["pl1", "liked"]
+
+    # Nothing changed on Spotify, but a song of the playlist joined the library meanwhile.
+    hello = _add_song(env, "Hello", "Adele")
+    body = client.post("/api/spotify/library/sync").json()
+    assert env.client.reads == ["pl1", "liked"]
+    assert [p["song_ids"] for p in body["playlists"]] == [[], [hello]]
+
+    env.client.playlist_list = [PlaylistSummary(
+        id="pl1", name="Mix", image=None, track_count=2, owner="benni", snapshot_id="s2",
+    )]
+    env.client.liked = [_TRACKS[0], _TRACKS[1]]
+    client.post("/api/spotify/library/sync")
+    assert env.client.reads == ["pl1", "liked", "pl1", "liked"]
+
+
+def test_sync_keeps_what_it_read_before_a_rate_limit(client: TestClient, env: Env) -> None:
+    _login(client)
+    _connect(client)
+    env.client.liked = 429
+    assert client.post("/api/spotify/library/sync").status_code == 429
+
+    env.client.liked = []
+    assert [p["name"] for p in client.get("/api/spotify/library").json()] == ["Mix"]
+    client.post("/api/spotify/library/sync")
+    assert env.client.reads == ["pl1", "liked"]
+
+
+def test_import_stores_the_snapshot(client: TestClient, env: Env) -> None:
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/playlists/pl1/import")
+    client.post("/api/spotify/library/sync")
+    assert env.client.reads == ["pl1", "liked"]  # pl1 read once by the import, not again by the sync
+
+
+def test_playlist_tracks_are_matched_with_the_library_now(client: TestClient, env: Env) -> None:
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/library/sync")
+    playlist_id = next(p["id"] for p in client.get("/api/spotify/library").json() if p["kind"] == "playlist")
+    tracks = client.get(f"/api/spotify/library/{playlist_id}/tracks").json()["tracks"]
+    assert [(t["title"], t["song_id"]) for t in tracks] == [("Hello", None), ("Hey Brother", None)]
+
+    hello = _add_song(env, "Hello", "Adele")
+    tracks = client.get(f"/api/spotify/library/{playlist_id}/tracks").json()["tracks"]
+    assert [(t["position"], t["artists"], t["song_id"]) for t in tracks] == [(0, ["Adele"], hello), (1, ["Avicii"], None)]
+    assert env.client.reads == ["pl1", "liked"]  # read from the stored list, not from Spotify
+
+
+def test_playlist_tracks_only_own(client: TestClient, env: Env) -> None:
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/library/sync")
+    playlist_id = next(p["id"] for p in client.get("/api/spotify/library").json() if p["kind"] == "playlist")
+    client.post("/api/account/logout")
+    _login(client, "other@example.de")
+    assert client.get(f"/api/spotify/library/{playlist_id}/tracks").status_code == 404
+
+
+def _playlist_id(client: TestClient, kind: str = "playlist") -> int:
+    return next(p["id"] for p in client.get("/api/spotify/library").json() if p["kind"] == kind)
+
+
+def test_sync_one_playlist_reads_tracks_only_when_changed(client: TestClient, env: Env) -> None:
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/library/sync")
+    playlist_id = _playlist_id(client)
+    env.client.reads.clear()
+
+    hello = _add_song(env, "Hello", "Adele")
+    body = client.post(f"/api/spotify/library/{playlist_id}/sync").json()
+    assert (body["id"], body["song_ids"]) == (playlist_id, [hello])
+    assert env.client.reads == ["meta:pl1"]
+
+    env.client.playlist_list = [PlaylistSummary(
+        id="pl1", name="Mix neu", image=None, track_count=2, owner="benni", snapshot_id="s2",
+    )]
+    body = client.post(f"/api/spotify/library/{playlist_id}/sync").json()
+    assert body["name"] == "Mix neu"
+    assert env.client.reads == ["meta:pl1", "meta:pl1", "pl1"]
+
+
+def test_sync_one_liked_and_errors(client: TestClient, env: Env) -> None:
+    env.client.liked = [_TRACKS[0]]
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/library/sync")
+    liked_id = _playlist_id(client, "liked")
+    env.client.reads.clear()
+
+    env.client.liked = [_TRACKS[1], _TRACKS[0]]
+    assert client.post(f"/api/spotify/library/{liked_id}/sync").json()["track_count"] == 2
+    assert env.client.reads == ["liked"]
+
+    env.client.liked = 403
+    assert client.post(f"/api/spotify/library/{liked_id}/sync").status_code == 409
+
+    playlist_id = _playlist_id(client)
+    env.client.playlist_list = []
+    resp = client.post(f"/api/spotify/library/{playlist_id}/sync")
+    assert resp.status_code == 404 and "Spotify" in resp.json()["detail"]

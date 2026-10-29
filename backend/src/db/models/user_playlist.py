@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.models.base import Base
@@ -18,6 +18,11 @@ class UserPlaylist(Base):
     Written by an import (src.spotify.importer) and by a sync (src.spotify.library).
     track_count counts the playlist's distinct music tracks on Spotify, whether
     or not they are in the library; the ones that are sit in user_playlist_songs.
+
+    snapshot_id is Spotify's version of the playlist (for the saved tracks our own
+    "<total>:<newest track id>"), tracks the list it stood for as
+    ``[{"id", "title", "artists"}]``: a sync skips the Spotify read while the
+    version is unchanged and matches the stored list with the library again.
     """
     __tablename__ = "user_playlists"
     __table_args__ = (UniqueConstraint("user_id", "spotify_playlist_id", name="uq_user_playlists_user_playlist"),)
@@ -30,6 +35,9 @@ class UserPlaylist(Base):
     image: Mapped[str | None] = mapped_column(String(1024))
     track_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    snapshot_id: Mapped[str | None] = mapped_column(String(128))
+    # Loaded only when used: the library view lists every playlist of a user on each request.
+    tracks: Mapped[list | None] = mapped_column(JSON, deferred=True)
 
 
 class UserPlaylistSong(Base):

@@ -95,9 +95,21 @@ def test_playlists_filters_foreign() -> None:
     assert fake.requests[0].get_header("Authorization") == "Bearer old-access"
 
 
+def test_versions_for_skipping_unchanged() -> None:
+    playlists = "https://api.spotify.com/v1/me/playlists?limit=50"
+    liked = "https://api.spotify.com/v1/me/tracks?limit=1"
+    fake = FakeSpotify({
+        playlists: {"items": [{**_playlist("own", _ME), "snapshot_id": "snap-7"}], "next": None},
+        liked: {"total": 312, "items": [{"track": _track_entry("t9", "Hello", "Adele")["item"]}]},
+    })
+    client = SpotifyClient(_connection(), save=lambda c: None, send=fake)
+    assert client.playlists()[0].snapshot_id == "snap-7"
+    assert client.liked_version() == "312:t9"
+
+
 def test_playlist_tracks_paginates_and_skips_local() -> None:
-    first = "https://api.spotify.com/v1/playlists/p1/items?limit=50"
-    second = "https://api.spotify.com/v1/playlists/p1/items?limit=50&offset=50"
+    first = "https://api.spotify.com/v1/playlists/p1/items?limit=100"
+    second = "https://api.spotify.com/v1/playlists/p1/items?limit=100&offset=100"
     fake = FakeSpotify({
         first: {"items": [
             _track_entry("t1", "Stay", "The Kid LAROI", "Justin Bieber"),
@@ -161,6 +173,22 @@ def test_non_numeric_retry_after_is_an_api_error(monkeypatch: pytest.MonkeyPatch
     assert info.value.status == 429
 
 
+def test_long_retry_after_fails_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A used-up quota names hours; waiting 30 s and asking again only burns the request.
+    from src.spotify import client as client_module
+
+    def fake_urlopen(req, timeout):  # noqa: ANN001
+        raise client_module.urllib.error.HTTPError(req.full_url, 429, "Too Many", {"Retry-After": "6142"}, None)
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(client_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(client_module.time, "sleep", sleeps.append)
+    with pytest.raises(SpotifyApiError) as info:
+        client_module._http_send(urllib.request.Request("https://api.spotify.com/v1/me"))
+    assert (info.value.status, info.value.retry_after) == (429, 6142)
+    assert sleeps == []
+
+
 def test_transient_server_error_is_retried_once(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.spotify import client as client_module
 
@@ -188,3 +216,18 @@ def test_transient_server_error_is_retried_once(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(client_module.time, "sleep", lambda s: None)
     assert client_module._http_send(urllib.request.Request("https://api.spotify.com/v1/me")) == {"id": "benni"}
     assert answers == []
+
+
+def test_calls_are_spaced_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.spotify import client as client_module
+
+    clock = [100.0]
+    sleeps: list[float] = []
+    monkeypatch.setattr(client_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(client_module.time, "sleep", sleeps.append)
+    me = "https://api.spotify.com/v1/me"
+    client = SpotifyClient(_connection(), save=lambda c: None, send=FakeSpotify({me: {"id": _ME}}), min_interval=0.25)
+    client.me()
+    clock[0] += 0.1
+    client.me()
+    assert sleeps == [pytest.approx(0.15)]

@@ -22,6 +22,7 @@ from src.api.deps import get_db
 from src.api.user import current_user, require_user
 from src.core.config import settings
 from src.db.models import PlaylistImport, PlaylistImportTrack, SpotifyConnection, User
+from src.db.models.user_playlist import LIKED
 from src.db.session import get_session
 from src.ingest import bulk
 from src.spotify import importer as importer_module
@@ -121,6 +122,19 @@ class LibraryPlaylistOut(BaseModel):
     track_count: int
     synced_at: datetime
     song_ids: list[str]
+
+
+class LibraryTrackOut(BaseModel):
+    position: int
+    title: str
+    artists: list[str]
+    # None: not in the library.
+    song_id: str | None
+
+
+class LibraryPlaylistTracksOut(BaseModel):
+    id: int
+    tracks: list[LibraryTrackOut]
 
 
 class LibrarySyncOut(BaseModel):
@@ -224,6 +238,13 @@ def _spotify_http_error(exc: SpotifyApiError) -> HTTPException:
         return HTTPException(status_code=409, detail="Die Spotify-Verbindung ist abgelaufen. Bitte neu verbinden.")
     if exc.status == 403:
         return HTTPException(status_code=403, detail="Dieser Spotify-Account ist für die App nicht freigeschaltet.")
+    if exc.status == 429:
+        minutes = max(1, -(-(exc.retry_after or 60) // 60))
+        return HTTPException(
+            status_code=429,
+            detail=f"Spotify-Anfragelimit erreicht. Wieder möglich in etwa {minutes} Minuten.",
+            headers={"Retry-After": str(exc.retry_after or 60)},
+        )
     # 503, not 502: Cloudflare swaps origin 502/504 for its own page and the detail is lost.
     return HTTPException(status_code=503, detail="Spotify antwortet gerade nicht. Bitte später erneut versuchen.")
 
@@ -402,31 +423,58 @@ def library_playlists(user: User | None = Depends(current_user), db: Session = D
     return [] if user is None else _library_out(db, user.id)
 
 
+@router.get("/spotify/library/{playlist_id}/tracks", response_model=LibraryPlaylistTracksOut)
+def library_playlist_tracks(
+    playlist_id: int, user: User = Depends(require_user), db: Session = Depends(get_db),
+) -> LibraryPlaylistTracksOut:
+    """Every track of the playlist as last read from Spotify, matched with the library now (no Spotify call)."""
+    entry = library.user_playlist(db, user.id, playlist_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Playlist nicht gefunden.")
+    tracks = [
+        LibraryTrackOut(position=t.position, title=t.title, artists=list(t.artists), song_id=t.song_id)
+        for t in library.playlist_tracks(db, entry)
+    ]
+    return LibraryPlaylistTracksOut(id=entry.id, tracks=tracks)
+
+
+@router.post("/spotify/library/{playlist_id}/sync", response_model=LibraryPlaylistOut)
+def sync_library_playlist(
+    playlist_id: int,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    client_factory: ClientFactory = Depends(get_client_factory),
+) -> LibraryPlaylistOut:
+    """Compare one playlist (or the saved tracks) with Spotify; one request while it is unchanged."""
+    entry = library.user_playlist(db, user.id, playlist_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Playlist nicht gefunden.")
+    client = _client(user, db, client_factory)
+    try:
+        changed = library.sync_one(db, entry, client)
+    except SpotifyApiError as exc:
+        if exc.status == 404:
+            raise HTTPException(status_code=404, detail="Die Playlist gibt es auf Spotify nicht mehr.") from exc
+        if exc.status == 403 and entry.kind == LIKED:
+            raise HTTPException(
+                status_code=409, detail="Lieblingssongs brauchen eine neue Spotify-Verbindung.",
+            ) from exc
+        raise _spotify_http_error(exc) from exc
+    logger.info("[Spotify] User %d synced playlist %d (%s)", user.id, entry.id, "read" if changed else "unchanged")
+    return next(p for p in _library_out(db, user.id) if p.id == entry.id)
+
+
 @router.post("/spotify/library/sync", response_model=LibrarySyncOut)
 def sync_library(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
     client_factory: ClientFactory = Depends(get_client_factory),
 ) -> LibrarySyncOut:
-    """Read every playlist and the saved tracks from Spotify again and match them with the library."""
+    """Compare the playlists and saved tracks with Spotify (reading only changed ones) and match them with the library."""
     client = _client(user, db, client_factory)
     try:
-        fetched = [(p, client.playlist_tracks(p.id)) for p in client.playlists()]
+        result = library.sync(db, user.id, client)
     except SpotifyApiError as exc:
         raise _spotify_http_error(exc) from exc
-    liked = None
-    try:
-        liked = client.liked_tracks()
-    except SpotifyApiError as exc:
-        # The playlists just worked, so a 403 here is the missing user-library-read scope.
-        if exc.status != 403:
-            raise _spotify_http_error(exc) from exc
-        logger.info("[Spotify] User %d: saved tracks need a reconnect (scope)", user.id)
-    for playlist, tracks in fetched:
-        library.store_playlist(db, user.id, playlist.id, playlist.name, playlist.image, tracks)
-    if liked is not None:
-        library.store_liked(db, user.id, liked)
-    library.remove_missing(db, user.id, {p.id for p, _ in fetched})
-    db.commit()
-    logger.info("[Spotify] User %d synced %d playlists", user.id, len(fetched))
-    return LibrarySyncOut(playlists=_library_out(db, user.id), liked_needs_reconnect=liked is None)
+    logger.info("[Spotify] User %d synced: %d read, %d unchanged", user.id, result.read, result.unchanged)
+    return LibrarySyncOut(playlists=_library_out(db, user.id), liked_needs_reconnect=result.liked_needs_reconnect)

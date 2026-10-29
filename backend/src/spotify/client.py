@@ -26,6 +26,11 @@ _API = "https://api.spotify.com/v1"
 # user-library-read (saved tracks) came later: older connections lack it until reconnected.
 SCOPES = "playlist-read-private playlist-read-collaborative user-library-read"
 _PAGE_SIZE = 50
+# Playlist items allow twice the usual page: half the requests for a long playlist.
+_ITEMS_PAGE_SIZE = 100
+# Gap between two API calls of one client: a first sync reads dozens of pages,
+# and Spotify counts requests in a rolling 30 s window.
+_MIN_INTERVAL_SECONDS = 0.25
 _TIMEOUT_SECONDS = 15
 # Renew this long before the access token runs out, so no call races the expiry.
 _REFRESH_MARGIN = timedelta(seconds=60)
@@ -36,11 +41,15 @@ _TRANSIENT_RETRY_SECONDS = 2
 
 
 class SpotifyApiError(Exception):
-    """Spotify answered with an HTTP error (``status``) or could not be reached (status 0)."""
+    """Spotify answered with an HTTP error (``status``) or could not be reached (status 0).
 
-    def __init__(self, status: int, message: str) -> None:
+    ``retry_after`` is the wait Spotify named with a 429 (seconds), else None.
+    """
+
+    def __init__(self, status: int, message: str, retry_after: int | None = None) -> None:
         super().__init__(f"Spotify HTTP {status}: {message}")
         self.status = status
+        self.retry_after = retry_after
 
 
 Sender = Callable[[urllib.request.Request], dict]
@@ -55,15 +64,21 @@ def _retry_after_seconds(header: str | None) -> int:
 
 
 def _http_send(req: urllib.request.Request) -> dict:
-    """Send once more after a 429 (Spotify's rate limit names the wait) or a 5xx hiccup."""
+    """Send once more after a 429 (Spotify's rate limit names the wait) or a 5xx hiccup.
+
+    A 429 whose wait is longer than we would hold the request open (a used-up
+    quota names hours) fails at once and carries the wait in ``retry_after``.
+    """
     for attempt in range(2):
         try:
             with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
                 body = resp.read()
                 return json.loads(body) if body else {}
         except urllib.error.HTTPError as exc:
-            if exc.code == 429 and attempt == 0:
-                wait = min(_retry_after_seconds(exc.headers.get("Retry-After")), _MAX_RETRY_AFTER_SECONDS)
+            if exc.code == 429:
+                wait = _retry_after_seconds(exc.headers.get("Retry-After"))
+                if attempt > 0 or wait > _MAX_RETRY_AFTER_SECONDS:
+                    raise SpotifyApiError(429, exc.read().decode(errors="replace")[:300], retry_after=wait) from exc
                 logger.warning("[Spotify] Rate limited, retrying in %ds", wait)
                 time.sleep(wait)
                 continue
@@ -91,6 +106,8 @@ class PlaylistSummary:
     image: str | None
     track_count: int
     owner: str | None
+    # Changes with every edit of the playlist; None if Spotify sent none.
+    snapshot_id: str | None = None
 
 
 def authorize_url(state: str) -> str:
@@ -140,11 +157,24 @@ class SpotifyClient:
     """API calls for one connected user; renews the access token and hands it to ``save``."""
 
     def __init__(
-        self, connection: SpotifyConnection, save: Callable[[SpotifyConnection], None], send: Sender = _http_send,
+        self,
+        connection: SpotifyConnection,
+        save: Callable[[SpotifyConnection], None],
+        send: Sender = _http_send,
+        min_interval: float = _MIN_INTERVAL_SECONDS,
     ) -> None:
         self._connection = connection
         self._save = save
         self._send = send
+        self._min_interval = min_interval
+        self._last_call: float | None = None
+
+    def _pace(self) -> None:
+        if self._last_call is not None:
+            wait = self._last_call + self._min_interval - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+        self._last_call = time.monotonic()
 
     def _refresh(self) -> None:
         tokens = refresh(self._connection.refresh_token, self._send)
@@ -157,6 +187,7 @@ class SpotifyClient:
     def _get(self, url: str) -> dict:
         if _as_utc(self._connection.expires_at) - _REFRESH_MARGIN <= datetime.now(timezone.utc):
             self._refresh()
+        self._pace()
         try:
             return self._send(self._authorised(url))
         except SpotifyApiError as exc:
@@ -190,10 +221,16 @@ class SpotifyClient:
             if p and ((p.get("owner") or {}).get("id") == own or p.get("collaborative"))
         ]
 
+    def playlist(self, playlist_id: str) -> PlaylistSummary:
+        """Name, cover and current snapshot of one playlist (404 when it is gone)."""
+        quoted = urllib.parse.quote(playlist_id, safe="")
+        fields = urllib.parse.quote("id,name,images,snapshot_id,owner(id,display_name),items(total),tracks(total)", safe="")
+        return _to_summary(self._get(f"{_API}/playlists/{quoted}?fields={fields}"))
+
     def playlist_tracks(self, playlist_id: str) -> list[SpotifyTrack]:
         """Every music track of the playlist in order; local files and podcast episodes are left out."""
         quoted = urllib.parse.quote(playlist_id, safe="")
-        entries = self._pages(f"{_API}/playlists/{quoted}/items?limit={_PAGE_SIZE}")
+        entries = self._pages(f"{_API}/playlists/{quoted}/items?limit={_ITEMS_PAGE_SIZE}")
         tracks = (_to_track(e.get("item") or e.get("track")) for e in entries if e)
         return [t for t in tracks if t is not None]
 
@@ -202,6 +239,17 @@ class SpotifyClient:
         entries = self._pages(f"{_API}/me/tracks?limit={_PAGE_SIZE}")
         tracks = (_to_track(e.get("track")) for e in entries if e)
         return [t for t in tracks if t is not None]
+
+    def liked_version(self) -> str:
+        """``"<total>:<newest track id>"`` of the saved tracks, from one small request.
+
+        Saving a track changes the newest id, removing one the total. 403 without
+        the user-library-read scope.
+        """
+        page = self._get(f"{_API}/me/tracks?limit=1")
+        items = page.get("items") or []
+        newest = ((items[0] or {}).get("track") or {}).get("id") if items else None
+        return f"{int(page.get('total') or 0)}:{newest or ''}"
 
 
 def _to_summary(playlist: dict) -> PlaylistSummary:
@@ -215,6 +263,7 @@ def _to_summary(playlist: dict) -> PlaylistSummary:
         image=images[0].get("url") if images else None,
         track_count=int(counts.get("total") or 0),
         owner=owner.get("display_name") or owner.get("id"),
+        snapshot_id=playlist.get("snapshot_id"),
     )
 
 
