@@ -38,7 +38,7 @@ function fmtSeconds(s: number): string {
 }
 
 /** Live list of every song the backend is still downloading or analysing. */
-export function PipelineList() {
+export function PipelineList({ onCount }: { readonly onCount: (count: number) => void }) {
   const [jobs, setJobs] = useState<PipelineJob[] | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -46,12 +46,12 @@ export function PipelineList() {
     let cancelled = false;
     const load = () =>
       fetchPipeline()
-        .then((j) => { if (!cancelled) { setJobs(j); setFailed(false); } })
+        .then((j) => { if (!cancelled) { setJobs(j); setFailed(false); onCount(j.length); } })
         .catch(() => { if (!cancelled) setFailed(true); });
     load();
     const id = setInterval(load, POLL_MS);
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [onCount]);
 
   const active = jobs?.filter((j) => j.stage !== "queued").length ?? 0;
   const queued = (jobs?.length ?? 0) - active;
@@ -90,14 +90,17 @@ export function PipelineList() {
               </span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-ink truncate">{job.label}</p>
-                <p className="font-mono text-2xs text-ink-3">
-                  {SOURCE_LABEL[job.source] ?? job.source}
-                  {job.stage !== "queued" && ` · seit ${fmtSeconds(job.seconds_in_stage)}`}
+                {/* Below the title: next to it, the stage would leave a side column no room for the name. */}
+                <p className="flex justify-between gap-x-3 font-mono text-2xs text-ink-3">
+                  <span className="min-w-0 truncate">
+                    {SOURCE_LABEL[job.source] ?? job.source}
+                    {job.stage !== "queued" && ` · seit ${fmtSeconds(job.seconds_in_stage)}`}
+                  </span>
+                  <span className={`shrink-0 whitespace-nowrap ${STAGE_CLASS[job.stage]}`}>
+                    {STAGE_LABEL[job.stage]}
+                  </span>
                 </p>
               </div>
-              <span className={`shrink-0 font-mono text-2xs whitespace-nowrap ${STAGE_CLASS[job.stage]}`}>
-                {STAGE_LABEL[job.stage]}
-              </span>
             </div>
           ))}
           {jobs.length > MAX_ROWS && (

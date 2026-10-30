@@ -344,9 +344,6 @@ export function SpotifyImportList({ imports, error, onChanged }: {
       <p className="t-label border-b border-line pb-1.5">Letzte Importe</p>
       {error && <ErrorLine message={error} />}
       {imports === null && !error && <p className="font-mono text-xs text-ink-3">Lade Importe…</p>}
-      {imports?.length === 0 && (
-        <p className="font-mono text-xs text-ink-3">Noch nichts importiert.</p>
-      )}
       {imports && imports.length > 0 && (
         <ul className="-mt-2">
           {imports.map((imp) => <ImportRow key={imp.id} imp={imp} onChanged={onChanged} />)}

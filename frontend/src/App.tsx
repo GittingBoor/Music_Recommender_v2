@@ -69,11 +69,11 @@ function matchRoute(path: string): Route {
 }
 
 const NAV: { page: Route["page"]; label: string; to: string }[] = [
+  { page: "spotify",     label: "Spotify",     to: "/spotify" },
   { page: "songs",       label: "Songs",       to: "/songs" },
   { page: "recommender", label: "Recommender", to: "/recommender" },
   { page: "analysis",    label: "Analysis",    to: "/analysis" },
   { page: "upload",      label: "Upload",      to: "/upload" },
-  { page: "spotify",     label: "Spotify",     to: "/spotify" },
 ];
 
 function pageTitle(route: Route, songs: Song[]): string {

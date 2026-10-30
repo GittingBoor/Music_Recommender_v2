@@ -283,7 +283,7 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Song suchen oder Playlist-Link einfügen…"
-          className="field flex-1 h-9"
+          className="field min-w-0 flex-1 h-9"
         />
         <button
           type="submit"
@@ -394,7 +394,7 @@ export function YoutubeSearch({ onDownloaded, onError }: Props) {
                 ) : (
                   <button
                     onClick={() => { void startDownload(item); }}
-                    className="btn"
+                    className="btn max-lg:h-10 max-lg:px-3"
                   >
                     Download
                   </button>

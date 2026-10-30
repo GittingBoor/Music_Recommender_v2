@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchSpotifyImports } from "../../services/api";
 import type { SpotifyImport } from "../../services/api";
 import { errorMessage } from "../Notice";
@@ -14,21 +14,32 @@ export interface SpotifyImportsState {
   readonly replace: (changed: SpotifyImport) => void;
 }
 
-/** The account's imports; polled while any of them still has queued tracks. */
-export function useSpotifyImports(): SpotifyImportsState {
+/** The Spotify account's imports, polled while any of them still has queued tracks.
+ *  Starts over when `accountId` changes; null (no Spotify account) loads nothing. */
+export function useSpotifyImports(accountId: string | null): SpotifyImportsState {
   const [imports, setImports] = useState<readonly SpotifyImport[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Results that arrive after the account changed belong to the previous one.
+  const accountRef = useRef(accountId);
+  accountRef.current = accountId;
+  const isCurrent = useCallback((): boolean => accountRef.current === accountId, [accountId]);
+
   const load = useCallback(async (): Promise<void> => {
+    if (accountId === null) return;
     try {
-      setImports(await fetchSpotifyImports());
+      const loaded = await fetchSpotifyImports();
+      if (!isCurrent()) return;
+      setImports(loaded);
       setError(null);
     } catch (err: unknown) {
-      setError(errorMessage(err));
+      if (isCurrent()) setError(errorMessage(err));
     }
-  }, []);
+  }, [accountId, isCurrent]);
 
   useEffect(() => {
+    setImports(null);
+    setError(null);
     void load();
   }, [load]);
 
@@ -50,12 +61,12 @@ export function useSpotifyImports(): SpotifyImportsState {
   }, [running, load]);
 
   const add = useCallback((started: SpotifyImport): void => {
-    setImports((prev) => [started, ...(prev ?? []).filter((i) => i.id !== started.id)]);
-  }, []);
+    if (isCurrent()) setImports((prev) => [started, ...(prev ?? []).filter((i) => i.id !== started.id)]);
+  }, [isCurrent]);
 
   const replace = useCallback((changed: SpotifyImport): void => {
-    setImports((prev) => prev?.map((i) => (i.id === changed.id ? changed : i)) ?? [changed]);
-  }, []);
+    if (isCurrent()) setImports((prev) => prev?.map((i) => (i.id === changed.id ? changed : i)) ?? [changed]);
+  }, [isCurrent]);
 
   return { imports, error, add, replace };
 }

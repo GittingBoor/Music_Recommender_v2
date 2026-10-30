@@ -134,7 +134,7 @@
 
   /* Primary navigation: the active tab carries a signal rule. */
   .tab {
-    @apply relative flex h-full items-center px-3 text-sm font-medium text-ink-3 hover:text-ink;
+    @apply relative flex h-full items-center px-1.5 md:px-3 text-sm font-medium text-ink-3 hover:text-ink;
   }
   .tab[aria-current="page"] {
     @apply text-ink;

@@ -7,8 +7,6 @@ import type { SpotifyImport as SpotifyImportEntry, SpotifyPlaylist } from "../..
 import { Link } from "../../router";
 import { SpotifyConnectButton } from "../account/SpotifyConnectButton";
 import { ErrorLine, NoticeLine, errorMessage } from "../Notice";
-import { SpotifyImportList } from "./SpotifyImportList";
-import { useSpotifyImports } from "./useSpotifyImports";
 
 const RETURN_PATH = "/upload";
 const COVER_PX = 40;
@@ -50,7 +48,7 @@ function PlaylistRow({ playlist, busy, onImport }: {
         onClick={onImport}
         disabled={busy}
         aria-label={`${playlist.name} importieren`}
-        className="btn"
+        className="btn max-lg:h-10 max-lg:px-3"
       >
         {busy ? "Startet…" : "Importieren"}
       </button>
@@ -64,6 +62,7 @@ function SpotifyPlaylists({ onImported }: { readonly onImported: (started: Spoti
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [importing, setImporting] = useState<ReadonlySet<string>>(new Set());
   const [importError, setImportError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -105,8 +104,22 @@ function SpotifyPlaylists({ onImported }: { readonly onImported: (started: Spoti
   }
   if (loadError) return <ErrorLine message={loadError.message} />;
 
+  const query = search.trim().toLowerCase();
+  const shown = playlists?.filter((p) => p.name.toLowerCase().includes(query));
+
   return (
     <div className="space-y-2">
+      {/* Below lg this area is a long list of its own; the column above it is not. */}
+      <div className="sticky top-0 z-10 bg-ground py-2 lg:hidden">
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Playlist suchen…"
+          aria-label="Spotify-Playlists nach Name suchen"
+          className="field h-10 w-full min-w-0"
+        />
+      </div>
       <p className="t-label border-b border-line pb-1.5">
         Deine Playlists{playlists && <span className="text-ink-4"> · {playlists.length}</span>}
       </p>
@@ -115,9 +128,12 @@ function SpotifyPlaylists({ onImported }: { readonly onImported: (started: Spoti
       {playlists?.length === 0 && (
         <p className="font-mono text-xs text-ink-3">Bei Spotify gibt es keine eigenen oder gespeicherten Playlists.</p>
       )}
-      {playlists && playlists.length > 0 && (
+      {playlists && playlists.length > 0 && shown?.length === 0 && (
+        <p className="font-mono text-xs text-ink-3">Keine Playlist passt zu „{search.trim()}“.</p>
+      )}
+      {shown && shown.length > 0 && (
         <ul className="-mt-2">
-          {playlists.map((p) => (
+          {shown.map((p) => (
             <PlaylistRow
               key={p.id}
               playlist={p}
@@ -131,23 +147,11 @@ function SpotifyPlaylists({ onImported }: { readonly onImported: (started: Spoti
   );
 }
 
-/** Connected state: playlists on the left, the imports they started on the right. */
-function ConnectedImport() {
-  const { imports, error, add, replace } = useSpotifyImports();
-  return (
-    <div className="grid grid-cols-1 gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_380px]">
-      <div className="min-w-0">
-        <SpotifyPlaylists onImported={add} />
-      </div>
-      <div className="min-w-0 lg:border-l lg:border-line lg:pl-12">
-        <SpotifyImportList imports={imports} error={error} onChanged={replace} />
-      </div>
-    </div>
-  );
-}
-
-/** Upload page section: import whole Spotify playlists into the library. */
-export function SpotifyImport() {
+/** Upload page section: import whole Spotify playlists into the library.
+ *  The imports they start are shown by the page, see `onImported`. */
+export function SpotifyImport({ onImported }: {
+  readonly onImported: (started: SpotifyImportEntry) => void;
+}) {
   const account = useAccount();
   const [notice] = useState<Notice | null>(readSpotifyNotice);
 
@@ -171,7 +175,7 @@ export function SpotifyImport() {
           <SpotifyConnectButton next={RETURN_PATH} />
         </div>
       )}
-      {account?.spotify && <ConnectedImport key={account.spotify.spotify_user_id} />}
+      {account?.spotify && <SpotifyPlaylists key={account.spotify.spotify_user_id} onImported={onImported} />}
     </section>
   );
 }

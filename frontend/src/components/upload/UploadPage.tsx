@@ -1,14 +1,21 @@
 import { useRef, useState } from "react";
+import { useAccount } from "../../account/useAccount";
+import { readSpotifyNotice } from "../../account/spotifyNotice";
 import { uploadSong } from "../../services/api";
 import type { SongIdentityInput, UploadResult, YoutubeErrorDetail } from "../../services/api";
 import { PlayButton } from "../PlayButton";
+import { SegmentedControl } from "../SegmentedControl";
+import type { Segment } from "../SegmentedControl";
 import { StatCard } from "../StatCard";
 import { YoutubeSearch } from "./YoutubeSearch";
 import { PipelineList } from "./PipelineList";
 import { SpotifyImport } from "./SpotifyImport";
+import { SpotifyImportList } from "./SpotifyImportList";
+import { useSpotifyImports } from "./useSpotifyImports";
 
 // ── types ─────────────────────────────────────────────────────────────────
 type ItemStatus = "pending" | "processing" | "done";
+type UploadArea = "search" | "spotify" | "imports" | "pipeline";
 
 interface QueueItem {
   name: string;
@@ -20,6 +27,11 @@ interface QueueItem {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────
+const COLUMN = "lg:min-w-0 lg:px-5 lg:pt-6 lg:pb-12";
+// Below lg each area is a layer with its own scroll position. Only invisible when
+// not selected, like KeptPage: downloads, results and scroll positions stay.
+const AREA = "max-lg:absolute max-lg:inset-0 max-lg:overflow-y-auto max-lg:px-5 max-lg:pt-4 max-lg:pb-12";
+
 const SUPPORTED_EXTS = new Set([".wav", ".mp3", ".flac", ".ogg", ".aiff", ".m4a"]);
 
 function ext(filename: string): string {
@@ -128,7 +140,7 @@ function IdentityForm({ onSubmit }: { onSubmit: (identity: SongIdentityInput) =>
       <p className="text-xs text-ink-2 leading-relaxed">
         Der Song wurde nicht erkannt und die Datei enthält keinen Titel. Bitte trag ihn ein.
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
         <input
           value={artist}
           onChange={(e) => setArtist(e.target.value)}
@@ -158,6 +170,15 @@ export function UploadPage() {
   const [dragOver, setDragOver] = useState(false);
   const [error, setError]     = useState<YoutubeErrorDetail | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Lives here, not in the Spotify section: the playlists start imports in
+  // one column, the list shows them in another.
+  const spotifyUserId = useAccount()?.spotify?.spotify_user_id ?? null;
+  const spotify = useSpotifyImports(spotifyUserId);
+
+  // A return from the Spotify login carries its notice in the Spotify area.
+  const [area, setArea] = useState<UploadArea>(() => (readSpotifyNotice() ? "spotify" : "search"));
+  const [pipelineCount, setPipelineCount] = useState(0);
 
   // ── add files ────────────────────────────────────────────────────────
   function addFiles(files: FileList | File[]) {
@@ -273,88 +294,144 @@ export function UploadPage() {
     status: q.result ? "done" : q.status,
   }));
 
+  const spotifyRunning = spotify.imports?.some((i) => i.queued > 0) ?? false;
+  const spotifyKnown = spotifyUserId === null || spotify.imports !== null;
+  const idle = queue.length === 0 && !spotifyRunning && spotifyKnown;
+
+  // Files still to process plus Spotify tracks still queued.
+  const openImports = queue.filter((q) => !q.result).length
+    + (spotify.imports?.reduce((sum, i) => sum + i.queued, 0) ?? 0);
+  const areas: readonly Segment<UploadArea>[] = [
+    { id: "search", label: "Suche" },
+    { id: "spotify", label: "Spotify" },
+    { id: "imports", label: "Importe", count: openImports || undefined },
+    { id: "pipeline", label: "Pipeline", count: pipelineCount || undefined },
+  ];
+  const areaClass = (id: UploadArea): string => `${AREA} ${id === area ? "" : "max-lg:invisible"}`;
+
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-6 pt-6 pb-16 space-y-8">
+    <div className="flex h-full flex-col overflow-hidden">
 
-        {/* ── error banner, always at the top ──────────────────────── */}
-        {error && <ErrorBanner detail={error} onDismiss={() => setError(null)} />}
+      {/* ── error banner, always at the top ──────────────────────── */}
+      {error && (
+        <div className="max-h-[50%] shrink-0 overflow-y-auto px-5 pt-4">
+          <ErrorBanner detail={error} onDismiss={() => setError(null)} />
+        </div>
+      )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-x-12 gap-y-12">
+      <div className="shrink-0 border-b border-line px-3 py-2 lg:hidden">
+        <SegmentedControl
+          label="Bereich"
+          segments={areas}
+          value={area}
+          onChange={setArea}
+          className="flex w-full"
+        />
+      </div>
 
-          {/* ── youtube search ─────────────────────────────────────── */}
-          <section className="min-w-0">
-            <h2 className="t-section mb-4">YouTube</h2>
-            <YoutubeSearch onDownloaded={addYoutubeResult} onError={setError} />
-          </section>
+      {/* One area at a time on phones and tablets; two scrolling columns from lg;
+          three from xl, where the side wrapper dissolves into the grid. */}
+      <div className="
+        relative min-h-0 flex-1
+        lg:grid lg:grid-rows-[minmax(0,1fr)]
+        lg:grid-cols-[minmax(0,1fr)_340px]
+        xl:grid-cols-[360px_minmax(0,1fr)_360px]
+        2xl:grid-cols-[380px_minmax(0,1fr)_440px]
+      ">
 
-          {/* ── file upload + everything processed in this session ── */}
-          <section className="min-w-0 space-y-6 lg:border-l lg:border-line lg:pl-12">
-            <h2 className="t-section">Datei hochladen</h2>
+        {/* ── searches and everything that starts an import ──────── */}
+        <div className={`${COLUMN} lg:overflow-y-auto`}>
+          {/* Very wide screens: rows this wide would put a title far from its button. */}
+          <div className="min-[1760px]:grid min-[1760px]:grid-cols-2 min-[1760px]:grid-rows-[auto_1fr] min-[1760px]:gap-x-10 min-[1760px]:gap-y-10">
+            <div className={`${areaClass("search")} space-y-10 lg:mb-10 min-[1760px]:contents`}>
+              <section className="min-w-0 min-[1760px]:row-span-2">
+                <h2 className="t-section mb-4">YouTube</h2>
+                <YoutubeSearch onDownloaded={addYoutubeResult} onError={setError} />
+              </section>
 
-            {/* ── drop zone ────────────────────────────────────────── */}
-            <div
-              onDragOver={onDragOver}
-              onDragLeave={onDragLeave}
-              onDrop={onDrop}
-              onClick={() => !running && inputRef.current?.click()}
-              className={`
-                border border-dashed px-6 py-10 flex flex-col items-center
-                gap-2 cursor-pointer select-none transition-colors
-                ${dragOver
-                  ? "border-signal bg-signal/5"
-                  : "border-line-strong hover:border-ink-4 hover:bg-raised/40"}
-                ${running ? "pointer-events-none opacity-60" : ""}
-              `}
-            >
-              <svg
-                className={`w-6 h-6 mb-1 ${dragOver ? "text-signal" : "text-ink-3"} transition-colors`}
-                viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}
-              >
-                <path strokeLinecap="square"
-                  d="M3 16.5v4.5h18v-4.5M7.5 7.5L12 3m0 0l4.5 4.5M12 3v13.5" />
-              </svg>
-              <p className="text-sm text-ink-2 text-center">
-                MP3-Dateien hier ablegen oder klicken zum Auswählen
-              </p>
-              <p className="font-mono text-2xs text-ink-3">
-                mp3 · wav · flac · ogg · aiff · m4a
-              </p>
-              <input
-                ref={inputRef}
-                type="file"
-                multiple
-                accept="audio/*"
-                className="hidden"
-                onChange={(e) => e.target.files && addFiles(e.target.files)}
-              />
+              <section className="min-w-0 space-y-6 min-[1760px]:col-start-2 min-[1760px]:row-start-1 min-[1760px]:!mt-0">
+                <h2 className="t-section">Datei hochladen</h2>
+
+                {/* ── drop zone ────────────────────────────────────────── */}
+                <div
+                  onDragOver={onDragOver}
+                  onDragLeave={onDragLeave}
+                  onDrop={onDrop}
+                  onClick={() => !running && inputRef.current?.click()}
+                  className={`
+                    border border-dashed px-6 py-10 flex flex-col items-center
+                    gap-2 cursor-pointer select-none transition-colors
+                    ${dragOver
+                      ? "border-signal bg-signal/5"
+                      : "border-line-strong hover:border-ink-4 hover:bg-raised/40"}
+                    ${running ? "pointer-events-none opacity-60" : ""}
+                  `}
+                >
+                  <svg
+                    className={`w-6 h-6 mb-1 ${dragOver ? "text-signal" : "text-ink-3"} transition-colors`}
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}
+                  >
+                    <path strokeLinecap="square"
+                      d="M3 16.5v4.5h18v-4.5M7.5 7.5L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                  <p className="text-sm text-ink-2 text-center">
+                    MP3-Dateien hier ablegen oder klicken zum Auswählen
+                  </p>
+                  <p className="font-mono text-2xs text-ink-3">
+                    mp3 · wav · flac · ogg · aiff · m4a
+                  </p>
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    multiple
+                    accept="audio/*"
+                    className="hidden"
+                    onChange={(e) => e.target.files && addFiles(e.target.files)}
+                  />
+                </div>
+
+                {/* ── action bar ───────────────────────────────────────── */}
+                {queue.length > 0 && (
+                  <div className="flex items-center gap-3">
+                    {!running && !allDone && (
+                      <button
+                        onClick={() => processQueue(displayQueue)}
+                        className="btn btn-primary h-8 px-3"
+                      >
+                        {queue.filter((q) => !q.result).length} Dateien verarbeiten
+                      </button>
+                    )}
+                    {running && (
+                      <span className="font-mono text-xs text-ink-2 animate-pulse">
+                        Verarbeite…
+                      </span>
+                    )}
+                    <button
+                      onClick={() => { setQueue([]); setRunning(false); }}
+                      disabled={running}
+                      className="btn h-8 px-3"
+                    >
+                      Zurücksetzen
+                    </button>
+                  </div>
+                )}
+              </section>
             </div>
 
-            {/* ── action bar ───────────────────────────────────────── */}
-            {queue.length > 0 && (
-              <div className="flex items-center gap-3">
-                {!running && !allDone && (
-                  <button
-                    onClick={() => processQueue(displayQueue)}
-                    className="btn btn-primary h-8 px-3"
-                  >
-                    {queue.filter((q) => !q.result).length} Dateien verarbeiten
-                  </button>
-                )}
-                {running && (
-                  <span className="font-mono text-xs text-ink-2 animate-pulse">
-                    Verarbeite…
-                  </span>
-                )}
-                <button
-                  onClick={() => { setQueue([]); setRunning(false); }}
-                  disabled={running}
-                  className="btn h-8 px-3"
-                >
-                  Zurücksetzen
-                </button>
-              </div>
-            )}
+            {/* ── whole Spotify playlists, for logged-in users ───────── */}
+            <div className={`${areaClass("spotify")} min-w-0 min-[1760px]:col-start-2 min-[1760px]:row-start-2`}>
+              <SpotifyImport onImported={spotify.add} />
+            </div>
+          </div>
+        </div>
+
+        <div className="lg:overflow-y-auto lg:border-l lg:border-line xl:contents">
+
+          {/* ── what is being imported right now ─────────────────── */}
+          <section className={`${COLUMN} ${areaClass("imports")} space-y-6 xl:overflow-y-auto xl:border-l xl:border-line`}>
+            <h2 className="t-section">Importe</h2>
+
+            {idle && <p className="font-mono text-xs text-ink-4">Gerade wird nichts importiert.</p>}
 
             {/* ── progress bar ─────────────────────────────────────── */}
             {queue.length > 0 && (
@@ -375,8 +452,8 @@ export function UploadPage() {
             {/* ── statistics (shown once all done) ─────────────────── */}
             {allDone && (
               <div className="space-y-5">
-                {/* 2×2 where the column is narrow (phone, 380px side column on lg+),
-                    one row of four only when the section spans the full width. */}
+                {/* 2×2 where the column is narrow (phone, side column on lg+),
+                    one row of four only when the column spans the full width. */}
                 <div className="
                   grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 border-y border-line-strong
                   [&>*:nth-child(n+3)]:border-t sm:[&>*:nth-child(n+3)]:border-t-0
@@ -464,15 +541,22 @@ export function UploadPage() {
                 </div>
               </div>
             )}
+
+            {spotifyUserId !== null && (spotify.error !== null || spotify.imports?.length !== 0) && (
+              <SpotifyImportList
+                key={spotifyUserId}
+                imports={spotify.imports}
+                error={spotify.error}
+                onChanged={spotify.replace}
+              />
+            )}
           </section>
+
+          {/* ── everything the backend is still working on ───────── */}
+          <div className={`${COLUMN} ${areaClass("pipeline")} border-line lg:border-t xl:order-first xl:overflow-y-auto xl:border-r xl:border-t-0`}>
+            <PipelineList onCount={setPipelineCount} />
+          </div>
         </div>
-
-        {/* ── whole Spotify playlists, for logged-in users ───────────── */}
-        <SpotifyImport />
-
-        {/* ── everything the backend is still working on, always last ── */}
-        <PipelineList />
-
       </div>
     </div>
   );

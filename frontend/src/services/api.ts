@@ -494,7 +494,10 @@ export async function fetchSpotifyImport(importId: number): Promise<SpotifyImpor
 export interface MyPlaylist {
   readonly id: number;
   readonly spotify_playlist_id: string;
-  readonly kind: "playlist" | "liked";
+  readonly kind: "playlist" | "liked" | "album";
+  readonly collaborative: boolean;
+  /** An album's artists, comma separated; null for playlists. */
+  readonly artists: string | null;
   readonly name: string;
   readonly image: string | null;
   /** Distinct tracks on Spotify; song_ids are the ones in the library, in playlist order. */
