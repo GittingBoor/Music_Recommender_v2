@@ -108,6 +108,16 @@ class PlaylistSummary:
     owner: str | None
     # Changes with every edit of the playlist; None if Spotify sent none.
     snapshot_id: str | None = None
+    collaborative: bool = False
+
+
+@dataclass(frozen=True)
+class SavedAlbum:
+    id: str
+    name: str
+    image: str | None
+    artists: tuple[str, ...]
+    tracks: tuple[SpotifyTrack, ...]
 
 
 def authorize_url(state: str) -> str:
@@ -224,7 +234,7 @@ class SpotifyClient:
     def playlist(self, playlist_id: str) -> PlaylistSummary:
         """Name, cover and current snapshot of one playlist (404 when it is gone)."""
         quoted = urllib.parse.quote(playlist_id, safe="")
-        fields = urllib.parse.quote("id,name,images,snapshot_id,owner(id,display_name),items(total),tracks(total)", safe="")
+        fields = urllib.parse.quote("id,name,images,snapshot_id,owner(id,display_name),collaborative,items(total),tracks(total)", safe="")
         return _to_summary(self._get(f"{_API}/playlists/{quoted}?fields={fields}"))
 
     def playlist_tracks(self, playlist_id: str) -> list[SpotifyTrack]:
@@ -239,6 +249,26 @@ class SpotifyClient:
         entries = self._pages(f"{_API}/me/tracks?limit={_PAGE_SIZE}")
         tracks = (_to_track(e.get("track")) for e in entries if e)
         return [t for t in tracks if t is not None]
+
+    def saved_albums(self) -> list[SavedAlbum]:
+        """The user's saved albums with their tracks. 403 without the user-library-read scope."""
+        entries = self._pages(f"{_API}/me/albums?limit={_PAGE_SIZE}")
+        return [self._to_album(e["album"]) for e in entries if e and e.get("album")]
+
+    def _to_album(self, album: dict) -> SavedAlbum:
+        page = album.get("tracks") or {}
+        items = list(page.get("items") or [])
+        if page.get("next"):
+            items.extend(self._pages(page["next"]))
+        tracks = (_to_track(item) for item in items)
+        images = album.get("images") or []
+        return SavedAlbum(
+            id=str(album["id"]),
+            name=str(album.get("name") or ""),
+            image=images[0].get("url") if images else None,
+            artists=tuple(a["name"] for a in album.get("artists") or [] if a.get("name")),
+            tracks=tuple(t for t in tracks if t is not None),
+        )
 
     def liked_version(self) -> str:
         """``"<total>:<newest track id>"`` of the saved tracks, from one small request.
@@ -264,6 +294,7 @@ def _to_summary(playlist: dict) -> PlaylistSummary:
         track_count=int(counts.get("total") or 0),
         owner=owner.get("display_name") or owner.get("id"),
         snapshot_id=playlist.get("snapshot_id"),
+        collaborative=bool(playlist.get("collaborative")),
     )
 
 

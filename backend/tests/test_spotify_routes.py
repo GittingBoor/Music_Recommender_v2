@@ -18,7 +18,7 @@ from src.db.models import (
     UserPlaylistSong, generate_song_id,
 )
 from src.ingest.bulk import BulkItem
-from src.spotify.client import PlaylistSummary, SpotifyApiError, TokenSet
+from src.spotify.client import PlaylistSummary, SavedAlbum, SpotifyApiError, TokenSet
 from src.spotify.importer import PlaylistImporter
 from src.spotify.matching import SpotifyTrack
 from src.youtube.library_match import LibraryMatcher
@@ -31,11 +31,15 @@ _TRACKS = [
 ]
 
 
+_ALBUM = SavedAlbum(id="al1", name="25", image="https://img/al1", artists=("Adele",), tracks=(_TRACKS[0],))
+
+
 class FakeClient:
     def __init__(self, me_error: int | None = None) -> None:
         self.me_error = me_error
         self.playlist_list = _PLAYLISTS
         self.liked: list[SpotifyTrack] | int = []
+        self.albums: list[SavedAlbum] | int = []
         self.reads: list[str] = []
 
     def me(self) -> tuple[str, str | None]:
@@ -57,6 +61,11 @@ class FakeClient:
         assert playlist_id == "pl1"
         self.reads.append(playlist_id)
         return _TRACKS
+
+    def saved_albums(self) -> list[SavedAlbum]:
+        if isinstance(self.albums, int):
+            raise SpotifyApiError(self.albums, "nope")
+        return self.albums
 
     def liked_version(self) -> str:
         if isinstance(self.liked, int):
@@ -509,3 +518,77 @@ def test_sync_one_liked_and_errors(client: TestClient, env: Env) -> None:
     env.client.playlist_list = []
     resp = client.post(f"/api/spotify/library/{playlist_id}/sync")
     assert resp.status_code == 404 and "Spotify" in resp.json()["detail"]
+
+
+def test_sync_stores_saved_albums_with_their_artists(client: TestClient, env: Env) -> None:
+    hello = _add_song(env, "Hello", "Adele")
+    env.client.albums = [_ALBUM]
+    _login(client)
+    _connect(client)
+
+    body = client.post("/api/spotify/library/sync").json()
+    album = next(p for p in body["playlists"] if p["kind"] == "album")
+    assert (album["name"], album["artists"], album["track_count"], album["song_ids"]) == ("25", "Adele", 1, [hello])
+
+
+def test_sync_drops_albums_no_longer_saved(client: TestClient, env: Env) -> None:
+    env.client.albums = [_ALBUM]
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/library/sync")
+
+    env.client.albums = []
+    body = client.post("/api/spotify/library/sync").json()
+    assert [p["kind"] for p in body["playlists"]].count("album") == 0
+
+
+def test_sync_keeps_stored_albums_when_spotify_refuses_them(client: TestClient, env: Env) -> None:
+    env.client.albums = [_ALBUM]
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/library/sync")
+
+    env.client.albums = 403
+    response = client.post("/api/spotify/library/sync")
+    assert response.status_code == 200
+    assert response.json()["liked_needs_reconnect"] is False
+    assert [p["name"] for p in response.json()["playlists"] if p["kind"] == "album"] == ["25"]
+
+
+def test_sync_marks_collaborative_playlists_without_reading_them_again(client: TestClient, env: Env) -> None:
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/library/sync")
+    env.client.reads.clear()
+
+    env.client.playlist_list = [PlaylistSummary(
+        id="pl1", name="Mix", image=None, track_count=2, owner="benni", snapshot_id="s1", collaborative=True,
+    )]
+    body = client.post("/api/spotify/library/sync").json()
+    assert next(p for p in body["playlists"] if p["kind"] == "playlist")["collaborative"] is True
+    assert "pl1" not in env.client.reads
+
+
+def test_import_keeps_a_playlist_collaborative(client: TestClient, env: Env) -> None:
+    env.client.playlist_list = [PlaylistSummary(
+        id="pl1", name="Mix", image=None, track_count=2, owner="benni", snapshot_id="s1", collaborative=True,
+    )]
+    _login(client)
+    _connect(client)
+
+    assert client.post("/api/spotify/playlists/pl1/import").status_code == 202
+    assert next(p for p in client.get("/api/spotify/library").json())["collaborative"] is True
+
+
+def test_sync_one_album_and_album_gone(client: TestClient, env: Env) -> None:
+    env.client.albums = [_ALBUM]
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/library/sync")
+    album_id = _playlist_id(client, "album")
+
+    hello = _add_song(env, "Hello", "Adele")
+    assert client.post(f"/api/spotify/library/{album_id}/sync").json()["song_ids"] == [hello]
+
+    env.client.albums = []
+    assert client.post(f"/api/spotify/library/{album_id}/sync").status_code == 404

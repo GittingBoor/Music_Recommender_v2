@@ -114,10 +114,13 @@ class ImportDetailOut(ImportOut):
 class LibraryPlaylistOut(BaseModel):
     id: int
     spotify_playlist_id: str
-    # "playlist" or "liked" (the saved tracks)
+    # "playlist", "liked" (the saved tracks) or "album" (a saved album)
     kind: str
     name: str
     image: str | None
+    collaborative: bool
+    # An album's artists; None for playlists.
+    artists: str | None
     # Distinct tracks on Spotify; song_ids are the ones in the library, in playlist order.
     track_count: int
     synced_at: datetime
@@ -411,6 +414,7 @@ def _library_out(db: Session, user_id: int) -> list[LibraryPlaylistOut]:
     return [
         LibraryPlaylistOut(
             id=e.id, spotify_playlist_id=e.spotify_playlist_id, kind=e.kind, name=e.name, image=e.image,
+            collaborative=e.collaborative, artists=e.artists,
             track_count=e.track_count, synced_at=e.synced_at, song_ids=song_ids,
         )
         for e, song_ids in library.user_playlists(db, user_id)

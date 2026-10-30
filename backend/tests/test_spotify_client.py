@@ -231,3 +231,50 @@ def test_calls_are_spaced_out(monkeypatch: pytest.MonkeyPatch) -> None:
     clock[0] += 0.1
     client.me()
     assert sleeps == [pytest.approx(0.15)]
+
+
+_ALBUMS_URL = "https://api.spotify.com/v1/me/albums?limit=50"
+
+
+def _album_track(tid: str, name: str, *artists: str) -> dict:
+    return {"id": tid, "name": name, "type": "track", "duration_ms": 200_000, "artists": [{"name": a} for a in artists]}
+
+
+def _saved_album(aid: str, tracks: list[dict], next_url: str | None = None) -> dict:
+    return {"album": {
+        "id": aid, "name": f"Album {aid}", "images": [{"url": f"https://img/{aid}"}],
+        "artists": [{"name": "Adele"}, {"name": "Guest"}],
+        "tracks": {"items": tracks, "next": next_url},
+    }}
+
+
+def test_saved_albums_come_with_artists_and_tracks() -> None:
+    fake = FakeSpotify({_ALBUMS_URL: {"items": [_saved_album("a1", [_album_track("t1", "Hello", "Adele")])], "next": None}})
+
+    albums = SpotifyClient(_connection(), lambda c: None, fake, min_interval=0).saved_albums()
+
+    assert [(a.id, a.name, a.image, a.artists) for a in albums] == [("a1", "Album a1", "https://img/a1", ("Adele", "Guest"))]
+    assert [(t.spotify_id, t.title, t.artists, t.isrc) for t in albums[0].tracks] == [("t1", "Hello", ("Adele",), None)]
+
+
+def test_saved_albums_read_the_rest_of_a_long_album() -> None:
+    more = "https://api.spotify.com/v1/albums/a1/tracks?offset=50"
+    fake = FakeSpotify({
+        _ALBUMS_URL: {"items": [_saved_album("a1", [_album_track("t1", "One", "Adele")], more)], "next": None},
+        more: {"items": [_album_track("t2", "Two", "Adele")], "next": None},
+    })
+
+    albums = SpotifyClient(_connection(), lambda c: None, fake, min_interval=0).saved_albums()
+
+    assert [t.spotify_id for t in albums[0].tracks] == ["t1", "t2"]
+
+
+def test_summary_says_whether_a_playlist_is_collaborative() -> None:
+    url = "https://api.spotify.com/v1/me/playlists?limit=50"
+    fake = FakeSpotify({url: {"items": [
+        _playlist("own", _ME), _playlist("shared", "friend", collaborative=True),
+    ], "next": None}})
+
+    found = SpotifyClient(_connection(), lambda c: None, fake, min_interval=0).playlists()
+
+    assert [(p.id, p.collaborative) for p in found] == [("own", False), ("shared", True)]

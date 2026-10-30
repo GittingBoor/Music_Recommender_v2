@@ -16,9 +16,9 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from src.db.models import PlaylistImportTrack, Song, UserPlaylist, UserPlaylistSong, generate_song_id
-from src.db.models.user_playlist import LIKED, LIKED_ID, PLAYLIST
+from src.db.models.user_playlist import ALBUM, LIKED, LIKED_ID, PLAYLIST
 from src.metadata.cleaning import plain_quotes, strip_version_markers
-from src.spotify.client import SpotifyApiError, SpotifyClient
+from src.spotify.client import SavedAlbum, SpotifyApiError, SpotifyClient
 from src.spotify.matching import SpotifyTrack
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,8 @@ def store_playlist(
     tracks: list[SpotifyTrack],
     kind: str = PLAYLIST,
     snapshot_id: str | None = None,
+    collaborative: bool = False,
+    artists: str | None = None,
 ) -> UserPlaylist:
     """Create or replace the user's copy of the playlist with the tracks Spotify lists now (no commit)."""
     entry = _playlist(db, user_id, spotify_playlist_id)
@@ -84,6 +86,8 @@ def store_playlist(
     entry.track_count = len({t.spotify_id for t in tracks})
     entry.synced_at = datetime.now(timezone.utc)
     entry.snapshot_id = snapshot_id
+    entry.collaborative = collaborative
+    entry.artists = artists
     entry.tracks = [{"id": t.spotify_id, "title": t.title, "artists": list(t.artists)} for t in tracks]
     db.flush()
     db.query(UserPlaylistSong).filter(UserPlaylistSong.playlist_id == entry.id).delete()
@@ -99,6 +103,12 @@ def store_playlist(
 
 def store_liked(db: Session, user_id: int, tracks: list[SpotifyTrack], version: str | None = None) -> UserPlaylist:
     return store_playlist(db, user_id, LIKED_ID, LIKED_NAME, None, tracks, kind=LIKED, snapshot_id=version)
+
+
+def store_album(db: Session, user_id: int, album: SavedAlbum) -> UserPlaylist:
+    return store_playlist(
+        db, user_id, album.id, album.name, album.image, list(album.tracks), kind=ALBUM, artists=", ".join(album.artists),
+    )
 
 
 def _stored_tracks(db: Session, user_id: int, spotify_playlist_id: str, version: str | None) -> list[SpotifyTrack] | None:
@@ -141,7 +151,10 @@ def sync(db: Session, user_id: int, client: SpotifyClient) -> SyncResult:
             read += 1
         else:
             unchanged += 1
-        store_playlist(db, user_id, playlist.id, playlist.name, playlist.image, tracks, snapshot_id=playlist.snapshot_id)
+        store_playlist(
+            db, user_id, playlist.id, playlist.name, playlist.image, tracks,
+            snapshot_id=playlist.snapshot_id, collaborative=playlist.collaborative,
+        )
         db.commit()
     liked_needs_reconnect = False
     try:
@@ -159,22 +172,49 @@ def sync(db: Session, user_id: int, client: SpotifyClient) -> SyncResult:
             raise
         logger.info("[Spotify] User %d: saved tracks need a reconnect (scope)", user_id)
         liked_needs_reconnect = True
-    remove_missing(db, user_id, {p.id for p in playlists})
+    kept = {p.id for p in playlists}
+    kinds = {PLAYLIST}
+    albums = _saved_albums(user_id, client)
+    if albums is not None:
+        read += 1
+        for album in albums:
+            store_album(db, user_id, album)
+        db.commit()
+        kept |= {a.id for a in albums}
+        kinds.add(ALBUM)
+    remove_missing(db, user_id, kept, kinds)
     db.commit()
     return SyncResult(read=read, unchanged=unchanged, liked_needs_reconnect=liked_needs_reconnect)
+
+
+def _saved_albums(user_id: int, client: SpotifyClient) -> list[SavedAlbum] | None:
+    """The saved albums; None when Spotify refuses them, so the stored ones stay."""
+    try:
+        return client.saved_albums()
+    except SpotifyApiError as exc:
+        if exc.status != 403:
+            raise
+        logger.warning("[Spotify] User %d: saved albums refused (403)", user_id)
+        return None
 
 
 def sync_one(db: Session, entry: UserPlaylist, client: SpotifyClient) -> bool:
     """Compare one playlist (or the saved tracks) with Spotify; True when its tracks were read again.
 
-    Costs one request while unchanged. Commits. Raises SpotifyApiError (404: the
-    playlist is gone on Spotify).
+    Costs one request while unchanged; an album reads the saved albums. Commits.
+    Raises SpotifyApiError (404: the playlist is gone on Spotify).
     """
     if entry.kind == LIKED:
         version = client.liked_version()
         tracks = _stored_tracks(db, entry.user_id, LIKED_ID, version)
         changed = tracks is None
         store_liked(db, entry.user_id, client.liked_tracks() if changed else tracks, version)
+    elif entry.kind == ALBUM:
+        album = next((a for a in client.saved_albums() if a.id == entry.spotify_playlist_id), None)
+        if album is None:
+            raise SpotifyApiError(404, f"album {entry.spotify_playlist_id} is no longer saved")
+        store_album(db, entry.user_id, album)
+        changed = True
     else:
         playlist = client.playlist(entry.spotify_playlist_id)
         tracks = _stored_tracks(db, entry.user_id, playlist.id, playlist.snapshot_id)
@@ -182,7 +222,8 @@ def sync_one(db: Session, entry: UserPlaylist, client: SpotifyClient) -> bool:
         if changed:
             tracks = client.playlist_tracks(playlist.id)
         store_playlist(
-            db, entry.user_id, playlist.id, playlist.name, playlist.image, tracks, snapshot_id=playlist.snapshot_id,
+            db, entry.user_id, playlist.id, playlist.name, playlist.image, tracks,
+            snapshot_id=playlist.snapshot_id, collaborative=playlist.collaborative,
         )
     db.commit()
     return changed
@@ -200,11 +241,11 @@ def link_song(db: Session, user_id: int, spotify_playlist_id: str, song_id: str,
         link.position = position
 
 
-def remove_missing(db: Session, user_id: int, kept_playlist_ids: set[str]) -> int:
-    """Drop the user's playlists Spotify no longer lists (saved tracks stay); returns how many."""
+def remove_missing(db: Session, user_id: int, kept_playlist_ids: set[str], kinds: set[str]) -> int:
+    """Drop the user's entries of these kinds that Spotify no longer lists; returns how many."""
     gone = (
         db.query(UserPlaylist)
-        .filter(UserPlaylist.user_id == user_id, UserPlaylist.kind == PLAYLIST)
+        .filter(UserPlaylist.user_id == user_id, UserPlaylist.kind.in_(kinds))
         .all()
     )
     removed = 0

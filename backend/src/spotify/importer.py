@@ -102,7 +102,8 @@ class PlaylistImporter:
                     queued.append((row, track))
             db.flush()
             library.store_playlist(
-                db, user_id, playlist.id, playlist.name, playlist.image, tracks, snapshot_id=playlist.snapshot_id,
+                db, user_id, playlist.id, playlist.name, playlist.image, tracks,
+                snapshot_id=playlist.snapshot_id, collaborative=playlist.collaborative,
             )
             db.commit()
             import_id = entry.id
