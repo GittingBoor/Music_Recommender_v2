@@ -64,6 +64,10 @@ class SpotifyTrack:
     artists: tuple[str, ...]
     duration_ms: int | None
     isrc: str | None
+    # The album the track is on; None when Spotify did not say (album track lists).
+    album_id: str | None = None
+    album_name: str | None = None
+    album_artists: tuple[str, ...] = ()
 
     @property
     def primary_artist(self) -> str:

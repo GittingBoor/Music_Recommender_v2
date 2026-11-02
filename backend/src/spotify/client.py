@@ -301,13 +301,21 @@ def _to_summary(playlist: dict) -> PlaylistSummary:
 def _to_track(item: dict | None) -> SpotifyTrack | None:
     if not item or item.get("type") != "track" or item.get("is_local") or not item.get("id"):
         return None
-    artists = tuple(a["name"] for a in item.get("artists") or [] if a.get("name"))
+    artists = _artist_names(item)
     if not item.get("name") or not artists:
         return None
+    album = item.get("album") or {}
     return SpotifyTrack(
         spotify_id=str(item["id"]),
         title=str(item["name"]),
         artists=artists,
         duration_ms=item.get("duration_ms"),
         isrc=(item.get("external_ids") or {}).get("isrc"),
+        album_id=album.get("id"),
+        album_name=album.get("name"),
+        album_artists=_artist_names(album),
     )
+
+
+def _artist_names(item: dict) -> tuple[str, ...]:
+    return tuple(a["name"] for a in item.get("artists") or [] if a.get("name"))

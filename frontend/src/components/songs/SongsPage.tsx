@@ -11,6 +11,11 @@ import { BarSliderFilter } from "../filter/BarSliderFilter";
 import type { BarRow } from "../filter/BarSliderFilter";
 import { ResultsTable } from "./ResultsTable";
 import { FIELD_DESCRIPTIONS } from "./fieldDescriptions";
+import { chartFilterQuery, describeChartFilter, matchesChartFilter, parseChartFilters } from "./chartFilter";
+import type { ChartFilter } from "./chartFilter";
+import { navigate, usePath, useSearch } from "../../router";
+
+const SONGS_PATH = "/songs";
 
 type ThresholdsMap = Record<string, number>;
 
@@ -127,6 +132,12 @@ export function SongsPage({ songs, active }: Props) {
   // ── text search ──────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
 
+  // ── filters from a click on an Analysis chart (/songs?year=2020) ─────────
+  // Kept in state, so opening a song (/songs/<id>) leaves the list and its queue as they were.
+  const path = usePath();
+  const query = useSearch();
+  const [chartFilters, setChartFilters] = useState<ChartFilter[]>([]);
+
   // ── side panels (collapse both for a full-width results table) ───────────
   const [showPanels, togglePanels] = usePersistentFlag("filter.showPanels", true);
   // Phones get the filters as a full-screen overlay, closed by default.
@@ -197,6 +208,8 @@ export function SongsPage({ songs, active }: Props) {
         return false;
       }
 
+      if (!chartFilters.every((f) => matchesChartFilter(song, f))) return false;
+
       // mood radar
       if (moodEnabled) {
         for (const ax of MOOD_AXES) {
@@ -251,7 +264,7 @@ export function SongsPage({ songs, active }: Props) {
       return true;
     });
   }, [
-    songs, search,
+    songs, search, chartFilters,
     moodEnabled, moodThresh, moodStats,
     dspEnabled, dspThresh, dspStats,
     otherEnabled, otherThresh, otherStats,
@@ -310,12 +323,40 @@ export function SongsPage({ songs, active }: Props) {
 
   function clearFilters() {
     setSearch("");
+    showChartFilters([]);
+    clearThresholds();
+  }
+
+  function clearThresholds() {
     setMoodThresh(emptyThresholds(MOOD_AXES.map(a => a.key)));
     setDspThresh(emptyThresholds(DSP_AXES.map(a => a.key)));
     setOtherThresh(emptyThresholds(OTHER_AXES.map(a => a.key)));
     setGenreThresh({});
     setInstrThresh({});
   }
+
+  /** Sets the chart filters and keeps the address bar in step while the list is shown. */
+  function showChartFilters(next: ChartFilter[]) {
+    setChartFilters(next);
+    if (window.location.pathname === SONGS_PATH && window.location.search) {
+      appliedQueryRef.current = chartFilterQuery(next);
+      navigate(`${SONGS_PATH}${appliedQueryRef.current}`, { replace: true });
+    }
+  }
+
+  // A chart click shows just its songs: the other filters go. Coming back to the
+  // same address from a song keeps what was set since; leaving the Songs page forgets it.
+  const appliedQueryRef = useRef("");
+  useEffect(() => {
+    if (!path.startsWith(SONGS_PATH)) appliedQueryRef.current = "";
+    if (path !== SONGS_PATH || query === appliedQueryRef.current) return;
+    const next = parseChartFilters(query);
+    if (next.length === 0) return;
+    appliedQueryRef.current = query;
+    setSearch("");
+    clearThresholds();
+    setChartFilters(next);
+  }, [path, query]);
 
   /** Back to the page's initial state: no filters, all charts on, default sort, scrolled to the top. */
   function resetAll() {
@@ -333,6 +374,7 @@ export function SongsPage({ songs, active }: Props) {
 
   const hasActiveFilters =
     search !== "" ||
+    chartFilters.length > 0 ||
     Object.values(moodThresh).some(v => v > 0) ||
     Object.values(dspThresh).some(v => v > 0) ||
     Object.values(otherThresh).some(v => v > 0) ||
@@ -449,6 +491,24 @@ export function SongsPage({ songs, active }: Props) {
               Reset all
             </button>
           </div>
+
+          {chartFilters.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2" aria-label="Filters from the Analysis charts">
+              {chartFilters.map((f, i) => (
+                <span key={`${f.field}-${i}`} className="chip">
+                  {describeChartFilter(f)}
+                  <button
+                    onClick={() => showChartFilters(chartFilters.filter((_, j) => j !== i))}
+                    className="px-1 text-ink-3 hover:text-ink"
+                    aria-label={`Remove filter ${describeChartFilter(f)}`}
+                    title="Remove filter"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
 
           <ResultsTable
             key={resetKey}

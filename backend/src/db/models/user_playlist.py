@@ -23,7 +23,7 @@ class UserPlaylist(Base):
 
     snapshot_id is Spotify's version of the playlist (for the saved tracks our own
     "<total>:<newest track id>"), tracks the list it stood for as
-    ``[{"id", "title", "artists"}]``: a sync skips the Spotify read while the
+    ``[{"id", "title", "artists", "album_id", "album_name", "album_artists"}]``: a sync skips the Spotify read while the
     version is unchanged and matches the stored list with the library again.
     """
     __tablename__ = "user_playlists"
@@ -37,7 +37,7 @@ class UserPlaylist(Base):
     image: Mapped[str | None] = mapped_column(String(1024))
     track_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     collaborative: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
-    # An album's artists, comma separated; None for playlists.
+    # An album's artists, comma separated; also set on a playlist that is one album saved as a playlist.
     artists: Mapped[str | None] = mapped_column(String(1024))
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     snapshot_id: Mapped[str | None] = mapped_column(String(128))

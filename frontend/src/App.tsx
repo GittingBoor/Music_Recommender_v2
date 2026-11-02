@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { fetchNeighbors, fetchSongCount, fetchSongs } from "./services/api";
+import type { DownloadProgress } from "./services/api";
+import { LoadingBar } from "./components/LoadingBar";
 import type { Song } from "./types/song";
 import { SongsPage } from "./components/songs/SongsPage";
 import { SongDetailPage } from "./components/songs/SongDetailPage";
@@ -69,8 +71,8 @@ function matchRoute(path: string): Route {
 }
 
 const NAV: { page: Route["page"]; label: string; to: string }[] = [
-  { page: "spotify",     label: "Spotify",     to: "/spotify" },
   { page: "songs",       label: "Songs",       to: "/songs" },
+  { page: "spotify",     label: "Spotify",     to: "/spotify" },
   { page: "recommender", label: "Recommender", to: "/recommender" },
   { page: "analysis",    label: "Analysis",    to: "/analysis" },
   { page: "upload",      label: "Upload",      to: "/upload" },
@@ -134,6 +136,7 @@ function KeptPage({ active, children }: { active: boolean; children: ReactNode }
 export default function App() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadProgress, setLoadProgress] = useState<DownloadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const songsRef = useRef<Song[]>([]);
 
@@ -184,7 +187,7 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
-    fetchSongs()
+    fetchSongs(setLoadProgress)
       .then(applySongs)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -238,11 +241,7 @@ export default function App() {
       </header>
 
       <main className="relative flex-1 overflow-hidden">
-        {loading && (
-          <div className="h-full flex items-center justify-center font-mono text-xs text-ink-3">
-            Loading songs…
-          </div>
-        )}
+        {loading && <LoadingBar progress={loadProgress} />}
         {error && (
           <div className="h-full flex items-center justify-center font-mono text-xs text-bad">
             Error: {error}

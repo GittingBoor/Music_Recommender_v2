@@ -40,6 +40,7 @@ class FakeClient:
         self.playlist_list = _PLAYLISTS
         self.liked: list[SpotifyTrack] | int = []
         self.albums: list[SavedAlbum] | int = []
+        self.tracks = _TRACKS
         self.reads: list[str] = []
 
     def me(self) -> tuple[str, str | None]:
@@ -60,7 +61,7 @@ class FakeClient:
     def playlist_tracks(self, playlist_id: str) -> list[SpotifyTrack]:
         assert playlist_id == "pl1"
         self.reads.append(playlist_id)
-        return _TRACKS
+        return self.tracks
 
     def saved_albums(self) -> list[SavedAlbum]:
         if isinstance(self.albums, int):
@@ -592,3 +593,50 @@ def test_sync_one_album_and_album_gone(client: TestClient, env: Env) -> None:
 
     env.client.albums = []
     assert client.post(f"/api/spotify/library/{album_id}/sync").status_code == 404
+
+
+def _album_track(spotify_id: str, title: str, album_id: str, album_name: str) -> SpotifyTrack:
+    return SpotifyTrack(
+        spotify_id=spotify_id, title=title, artists=("Adele",), duration_ms=None, isrc=None,
+        album_id=album_id, album_name=album_name, album_artists=("Adele",),
+    )
+
+
+def test_sync_lists_an_album_saved_as_a_playlist_with_its_artists(client: TestClient, env: Env) -> None:
+    env.client.tracks = [_album_track("t1", "Hello", "a25", "mix"), _album_track("t2", "Send My Love", "a25", "mix")]
+    _login(client)
+    _connect(client)
+
+    body = client.post("/api/spotify/library/sync").json()
+    playlist = next(p for p in body["playlists"] if p["kind"] == "playlist")
+    assert (playlist["name"], playlist["artists"]) == ("Mix", "Adele")
+
+
+def test_sync_keeps_a_playlist_of_several_albums_or_another_name_a_playlist(client: TestClient, env: Env) -> None:
+    env.client.tracks = [_album_track("t1", "Hello", "a25", "Mix"), _album_track("t2", "Skyfall", "a21", "Mix")]
+    _login(client)
+    _connect(client)
+    body = client.post("/api/spotify/library/sync").json()
+    assert next(p for p in body["playlists"] if p["kind"] == "playlist")["artists"] is None
+
+    env.client.tracks = [_album_track("t1", "Hello", "a25", "25")]
+    env.client.playlist_list = [PlaylistSummary(
+        id="pl1", name="Mix", image=None, track_count=1, owner="benni", snapshot_id="s2",
+    )]
+    body = client.post("/api/spotify/library/sync").json()
+    assert next(p for p in body["playlists"] if p["kind"] == "playlist")["artists"] is None
+
+
+def test_sync_reads_a_playlist_stored_without_albums_once_more(client: TestClient, env: Env) -> None:
+    _login(client)
+    _connect(client)
+    client.post("/api/spotify/library/sync")
+    with env.factory() as db:
+        entry = db.query(UserPlaylist).filter(UserPlaylist.spotify_playlist_id == "pl1").one()
+        entry.tracks = [{"id": t["id"], "title": t["title"], "artists": t["artists"]} for t in entry.tracks]
+        db.commit()
+    env.client.reads.clear()
+
+    client.post("/api/spotify/library/sync")
+    client.post("/api/spotify/library/sync")
+    assert env.client.reads == ["pl1"]

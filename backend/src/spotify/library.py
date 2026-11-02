@@ -77,6 +77,8 @@ def store_playlist(
     artists: str | None = None,
 ) -> UserPlaylist:
     """Create or replace the user's copy of the playlist with the tracks Spotify lists now (no commit)."""
+    if kind == PLAYLIST and artists is None:
+        artists = album_copy_artists(name, tracks)
     entry = _playlist(db, user_id, spotify_playlist_id)
     if entry is None:
         entry = UserPlaylist(user_id=user_id, spotify_playlist_id=spotify_playlist_id, kind=kind)
@@ -88,7 +90,7 @@ def store_playlist(
     entry.snapshot_id = snapshot_id
     entry.collaborative = collaborative
     entry.artists = artists
-    entry.tracks = [{"id": t.spotify_id, "title": t.title, "artists": list(t.artists)} for t in tracks]
+    entry.tracks = [_stored_track(t) for t in tracks]
     db.flush()
     db.query(UserPlaylistSong).filter(UserPlaylistSong.playlist_id == entry.id).delete()
     found = resolve_song_ids(db, tracks)
@@ -101,6 +103,28 @@ def store_playlist(
     return entry
 
 
+def album_copy_artists(name: str, tracks: list[SpotifyTrack]) -> str | None:
+    """The album's artists when the playlist is one album saved as a playlist, else None.
+
+    Such a playlist holds only tracks of one album and carries its name; the
+    Spotify page lists it with the saved albums.
+    """
+    album_ids = {t.album_id for t in tracks}
+    if len(album_ids) != 1 or None in album_ids:
+        return None
+    first = tracks[0]
+    if name.strip().casefold() != (first.album_name or "").strip().casefold():
+        return None
+    return ", ".join(first.album_artists or first.artists)
+
+
+def _stored_track(track: SpotifyTrack) -> dict:
+    return {
+        "id": track.spotify_id, "title": track.title, "artists": list(track.artists),
+        "album_id": track.album_id, "album_name": track.album_name, "album_artists": list(track.album_artists),
+    }
+
+
 def store_liked(db: Session, user_id: int, tracks: list[SpotifyTrack], version: str | None = None) -> UserPlaylist:
     return store_playlist(db, user_id, LIKED_ID, LIKED_NAME, None, tracks, kind=LIKED, snapshot_id=version)
 
@@ -111,17 +135,28 @@ def store_album(db: Session, user_id: int, album: SavedAlbum) -> UserPlaylist:
     )
 
 
-def _stored_tracks(db: Session, user_id: int, spotify_playlist_id: str, version: str | None) -> list[SpotifyTrack] | None:
-    """The track list stored for this version of the playlist; None when it has to be read again."""
+def _stored_tracks(
+    db: Session, user_id: int, spotify_playlist_id: str, version: str | None, needs_album: bool = False,
+) -> list[SpotifyTrack] | None:
+    """The track list stored for this version of the playlist; None when it has to be read again.
+
+    ``needs_album``: a list stored before tracks kept their album is read again
+    once, so an album saved as a playlist is recognised.
+    """
     entry = _playlist(db, user_id, spotify_playlist_id)
     if version is None or entry is None or entry.snapshot_id != version or entry.tracks is None:
+        return None
+    if needs_album and any("album_id" not in t for t in entry.tracks):
         return None
     return _as_tracks(entry.tracks)
 
 
 def _as_tracks(stored: list) -> list[SpotifyTrack]:
     return [
-        SpotifyTrack(spotify_id=t["id"], title=t["title"], artists=tuple(t["artists"]), duration_ms=None, isrc=None)
+        SpotifyTrack(
+            spotify_id=t["id"], title=t["title"], artists=tuple(t["artists"]), duration_ms=None, isrc=None,
+            album_id=t.get("album_id"), album_name=t.get("album_name"), album_artists=tuple(t.get("album_artists") or ()),
+        )
         for t in stored
     ]
 
@@ -145,7 +180,7 @@ def sync(db: Session, user_id: int, client: SpotifyClient) -> SyncResult:
     read = unchanged = 0
     playlists = client.playlists()
     for playlist in playlists:
-        tracks = _stored_tracks(db, user_id, playlist.id, playlist.snapshot_id)
+        tracks = _stored_tracks(db, user_id, playlist.id, playlist.snapshot_id, needs_album=True)
         if tracks is None:
             tracks = client.playlist_tracks(playlist.id)
             read += 1
@@ -217,7 +252,7 @@ def sync_one(db: Session, entry: UserPlaylist, client: SpotifyClient) -> bool:
         changed = True
     else:
         playlist = client.playlist(entry.spotify_playlist_id)
-        tracks = _stored_tracks(db, entry.user_id, playlist.id, playlist.snapshot_id)
+        tracks = _stored_tracks(db, entry.user_id, playlist.id, playlist.snapshot_id, needs_album=True)
         changed = tracks is None
         if changed:
             tracks = client.playlist_tracks(playlist.id)

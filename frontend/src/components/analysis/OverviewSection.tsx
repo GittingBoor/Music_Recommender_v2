@@ -10,6 +10,12 @@ import {
   numericAxis, gridProps, tooltipProps,
 } from "../../theme";
 import { Figure, RankedBars, Section } from "./layout";
+import { Link, navigate } from "../../router";
+import {
+  artistName, dominantMood, rangeValue, releaseYear, songsPathFor,
+  topDetailedGenres, topInstruments, topParentGenres,
+} from "../songs/chartFilter";
+import type { RangeField } from "../songs/chartFilter";
 
 type InstrumentCategory =
   | "percussion" | "bass" | "guitar" | "piano"
@@ -40,8 +46,37 @@ function classifyInstrument(name: string): InstrumentCategory {
 }
 
 const BAR_RADIUS: [number, number, number, number] = [1, 1, 0, 0];
+const CLICKABLE = { cursor: "pointer" };
 
-function makeHistogram(values: number[], bins: number) {
+interface HistogramBin {
+  label: string;
+  count: number;
+  min: number;
+  max: number;
+}
+
+interface ChartClick<T> {
+  readonly activePayload?: readonly { readonly payload: T }[];
+}
+
+/** Chart click handler: opens the Songs page for the row under the pointer (null path = nothing to show). */
+function openSongsOf<T>(pathOf: (row: T) => string | null) {
+  return (state: ChartClick<T> | null) => {
+    const row = state?.activePayload?.[0]?.payload;
+    const path = row ? pathOf(row) : null;
+    if (path) navigate(path);
+  };
+}
+
+/** The songs of one histogram bin; the last bin is open-ended, as it holds the maximum. */
+function binPath(field: RangeField, bins: HistogramBin[]) {
+  return (bin: HistogramBin): string | null =>
+    bin.count === 0
+      ? null
+      : songsPathFor({ field, min: bin.min, max: bin === bins[bins.length - 1] ? null : bin.max });
+}
+
+function makeHistogram(values: number[], bins: number): HistogramBin[] {
   if (!values.length) return [];
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -67,9 +102,11 @@ function SplitBar({ data }: { data: { name: string; value: number }[] }) {
     <div>
       <div className="flex h-7 gap-[2px]">
         {sorted.map((d) => (
-          <div
+          <Link
             key={d.name}
-            title={`${d.name}: ${d.value} songs`}
+            to={songsPathFor({ field: "scale", value: d.name })}
+            title={`${d.name}: ${d.value} songs — show them`}
+            className="hover:opacity-80"
             style={{
               width: `${(d.value / total) * 100}%`,
               background: d.name === "minor" ? COLOR.ink4 : COLOR.data,
@@ -102,9 +139,7 @@ interface Props { songs: Song[]; }
 export function OverviewSection({ songs }: Props) {
   const data = useMemo(() => {
     const hasDsp     = songs.filter((s) => s.dsp_features);
-    const hasMoods   = songs.filter((s) => s.ml_moods);
     const hasMeta    = songs.filter((s) => s.file_metadata);
-    const hasTrack   = songs.filter((s) => s.track_metadata);
 
     // Total hours
     const totalSeconds = hasMeta.reduce(
@@ -113,15 +148,15 @@ export function OverviewSection({ songs }: Props) {
     const totalHours = totalSeconds / 3600;
 
     // BPM histogram
-    const bpms = hasDsp.map((s) => s.dsp_features!.bpm!).filter((v) => v != null);
+    const bpms = songs.map((s) => rangeValue(s, "bpm")).filter((v): v is number => v != null);
     const bpmHist = makeHistogram(bpms, 18);
 
     // Duration histogram
-    const durations = hasMeta.map((s) => s.file_metadata!.duration_seconds!).filter((v) => v != null);
+    const durations = songs.map((s) => rangeValue(s, "duration")).filter((v): v is number => v != null);
     const durHist = makeHistogram(durations, 14);
 
     // Danceability histogram
-    const danceVals = hasDsp.map((s) => s.dsp_features!.danceability!).filter((v) => v != null);
+    const danceVals = songs.map((s) => rangeValue(s, "danceability")).filter((v): v is number => v != null);
     const danceHist = makeHistogram(danceVals, 14);
 
     // Key distribution (radar)
@@ -143,12 +178,9 @@ export function OverviewSection({ songs }: Props) {
 
     // Dominant mood per song
     const dominantMoodCounts: Record<string, number> = {};
-    for (const s of hasMoods) {
-      const m = s.ml_moods!;
-      const entries = (Object.entries(m) as [string, number | null][]).filter(([, v]) => v != null) as [string, number][];
-      if (!entries.length) continue;
-      const dominant = entries.sort(([, a], [, b]) => b - a)[0][0];
-      dominantMoodCounts[dominant] = (dominantMoodCounts[dominant] ?? 0) + 1;
+    for (const s of songs) {
+      const dominant = dominantMood(s);
+      if (dominant) dominantMoodCounts[dominant] = (dominantMoodCounts[dominant] ?? 0) + 1;
     }
     const dominantMoodData = Object.entries(dominantMoodCounts)
       .sort(([, a], [, b]) => b - a)
@@ -156,11 +188,9 @@ export function OverviewSection({ songs }: Props) {
 
     // Release years — fill every year from min to max so axis is continuous
     const yearCounts: Record<number, number> = {};
-    for (const s of hasTrack) {
-      const rd = s.track_metadata?.release_date;
-      if (!rd) continue;
-      const y = parseInt(rd.slice(0, 4), 10);
-      if (!isNaN(y) && y > 1900 && y <= 2030) yearCounts[y] = (yearCounts[y] ?? 0) + 1;
+    for (const s of songs) {
+      const y = releaseYear(s);
+      if (y != null) yearCounts[y] = (yearCounts[y] ?? 0) + 1;
     }
     const yearKeys = Object.keys(yearCounts).map(Number);
     const releaseYears =
@@ -192,7 +222,7 @@ export function OverviewSection({ songs }: Props) {
     // Top artists by song count
     const artistCounts: Record<string, number> = {};
     for (const s of songs) {
-      const a = s.artist ?? "Unknown";
+      const a = artistName(s);
       artistCounts[a] = (artistCounts[a] ?? 0) + 1;
     }
     const topArtists = Object.entries(artistCounts)
@@ -203,11 +233,8 @@ export function OverviewSection({ songs }: Props) {
     // Parent genres: top 3 per song → count how many songs feature each genre
     const parentGenreCounts: Record<string, number> = {};
     for (const s of songs) {
-      const top3 = [...s.parent_genres]
-        .sort((a, b) => b.percentage - a.percentage)
-        .slice(0, 3);
-      for (const g of top3) {
-        parentGenreCounts[g.genre] = (parentGenreCounts[g.genre] ?? 0) + 1;
+      for (const genre of topParentGenres(s)) {
+        parentGenreCounts[genre] = (parentGenreCounts[genre] ?? 0) + 1;
       }
     }
     const parentGenres = Object.entries(parentGenreCounts)
@@ -217,11 +244,7 @@ export function OverviewSection({ songs }: Props) {
     // Detailed genres: top 5 per song → count how many songs feature each genre
     const detGenreCounts: Record<string, number> = {};
     for (const s of songs) {
-      const top5 = [...s.detailed_genres]
-        .sort((a, b) => b.probability - a.probability)
-        .slice(0, 5);
-      for (const g of top5) {
-        const label = g.genre.split("---").pop() ?? g.genre;
+      for (const label of topDetailedGenres(s)) {
         detGenreCounts[label] = (detGenreCounts[label] ?? 0) + 1;
       }
     }
@@ -232,11 +255,8 @@ export function OverviewSection({ songs }: Props) {
     // Instruments: top 10 per song → count occurrences across library
     const instrCounts: Record<string, number> = {};
     for (const s of songs) {
-      const top10 = [...s.instruments]
-        .sort((a, b) => b.probability - a.probability)
-        .slice(0, 10);
-      for (const i of top10) {
-        instrCounts[i.instrument] = (instrCounts[i.instrument] ?? 0) + 1;
+      for (const instrument of topInstruments(s)) {
+        instrCounts[instrument] = (instrCounts[instrument] ?? 0) + 1;
       }
     }
     const allInstruments = (() => {
@@ -299,7 +319,12 @@ export function OverviewSection({ songs }: Props) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-10">
           <Figure title="BPM Distribution">
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={data.bpmHist} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+              <BarChart
+                data={data.bpmHist}
+                margin={{ top: 4, right: 8, left: -16, bottom: 0 }}
+                onClick={openSongsOf(binPath("bpm", data.bpmHist))}
+                style={CLICKABLE}
+              >
                 <CartesianGrid {...gridProps} vertical={false} />
                 <XAxis dataKey="label" {...numericAxis} interval={2} />
                 <YAxis {...numericAxis} axisLine={false} />
@@ -311,7 +336,12 @@ export function OverviewSection({ songs }: Props) {
 
           <Figure title="Duration Distribution">
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={data.durHist} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+              <BarChart
+                data={data.durHist}
+                margin={{ top: 4, right: 8, left: -16, bottom: 0 }}
+                onClick={openSongsOf(binPath("duration", data.durHist))}
+                style={CLICKABLE}
+              >
                 <CartesianGrid {...gridProps} vertical={false} />
                 <XAxis
                   dataKey="min"
@@ -332,7 +362,13 @@ export function OverviewSection({ songs }: Props) {
 
           <Figure title="Key Distribution">
             <ResponsiveContainer width="100%" height={240}>
-              <RadarChart data={data.keyData} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
+              <RadarChart
+                data={data.keyData}
+                margin={{ top: 10, right: 20, bottom: 10, left: 20 }}
+                onClick={openSongsOf((d: { subject: string; value: number }) =>
+                  d.value > 0 ? songsPathFor({ field: "key", value: d.subject }) : null)}
+                style={CLICKABLE}
+              >
                 <PolarGrid stroke={COLOR.line} />
                 <PolarAngleAxis dataKey="subject" tick={{ fill: COLOR.ink2, fontSize: 11, fontFamily: FONT_MONO }} />
                 <PolarRadiusAxis tick={false} axisLine={false} />
@@ -351,7 +387,9 @@ export function OverviewSection({ songs }: Props) {
               <RankedBars
                 labelWidth={88}
                 valueWidth={72}
-                rows={data.dominantMoodData.map((d) => ({ label: d.mood, value: d.count }))}
+                rows={data.dominantMoodData.map((d) => ({
+                  label: d.mood, value: d.count, to: songsPathFor({ field: "mood", value: d.mood }),
+                }))}
                 format={(v) => {
                   const total = data.dominantMoodData.reduce((s, d) => s + d.count, 0) || 1;
                   return `${v} · ${Math.round((v / total) * 100)}%`;
@@ -362,7 +400,12 @@ export function OverviewSection({ songs }: Props) {
 
           <Figure title="Danceability Distribution" className="lg:col-span-2">
             <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={data.danceHist} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+              <BarChart
+                data={data.danceHist}
+                margin={{ top: 4, right: 8, left: -16, bottom: 0 }}
+                onClick={openSongsOf(binPath("danceability", data.danceHist))}
+                style={CLICKABLE}
+              >
                 <CartesianGrid {...gridProps} vertical={false} />
                 <XAxis
                   dataKey="min"
@@ -391,7 +434,13 @@ export function OverviewSection({ songs }: Props) {
       <Section title="Timeline">
         <Figure title="Songs by Release Year">
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={data.releaseYears} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+            <BarChart
+              data={data.releaseYears}
+              margin={{ top: 4, right: 8, left: -16, bottom: 0 }}
+              onClick={openSongsOf((d: { year: number; count: number }) =>
+                d.count > 0 ? songsPathFor({ field: "year", year: d.year }) : null)}
+              style={CLICKABLE}
+            >
               <CartesianGrid {...gridProps} vertical={false} />
               <XAxis
                 dataKey="year"
@@ -421,7 +470,9 @@ export function OverviewSection({ songs }: Props) {
           <RankedBars
             className="max-w-3xl"
             labelWidth={180}
-            rows={data.topArtists.map((a) => ({ label: a.name, value: a.count }))}
+            rows={data.topArtists.map((a) => ({
+              label: a.name, value: a.count, to: songsPathFor({ field: "artist", value: a.name }),
+            }))}
           />
         </Figure>
       </Section>
@@ -432,14 +483,18 @@ export function OverviewSection({ songs }: Props) {
           <Figure title="Parent Genres" note="songs featuring genre (top 3 per song)">
             <RankedBars
               labelWidth={120}
-              rows={data.parentGenres.map((g) => ({ label: g.genre, value: g.count }))}
+              rows={data.parentGenres.map((g) => ({
+                label: g.genre, value: g.count, to: songsPathFor({ field: "genre", value: g.genre }),
+              }))}
             />
           </Figure>
 
           <Figure title="Detailed Genres" note="songs featuring genre (top 5 per song)">
             <RankedBars
               labelWidth={140}
-              rows={data.detailedGenres.slice(0, 30).map((g) => ({ label: g.genre, value: g.count }))}
+              rows={data.detailedGenres.slice(0, 30).map((g) => ({
+                label: g.genre, value: g.count, to: songsPathFor({ field: "detailed_genre", value: g.genre }),
+              }))}
             />
           </Figure>
         </div>
@@ -460,7 +515,9 @@ export function OverviewSection({ songs }: Props) {
             className="xl:columns-2 gap-x-10"
             labelWidth={132}
             max={Math.max(1, ...data.allInstruments.map((d) => d.count))}
-            rows={data.allInstruments.map((d) => ({ label: d.name, value: d.count, color: d.color }))}
+            rows={data.allInstruments.map((d) => ({
+              label: d.name, value: d.count, color: d.color, to: songsPathFor({ field: "instrument", value: d.name }),
+            }))}
           />
         </Figure>
       </Section>

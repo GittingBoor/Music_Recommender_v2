@@ -149,6 +149,20 @@
     box-shadow: inset 0 -1px 0 rgb(var(--ink));
   }
 
+  /* A chart row that opens the songs behind it. */
+  .chart-link {
+    @apply -mx-1 rounded-sm px-1 hover:bg-raised focus-visible:bg-raised focus-visible:outline-none;
+  }
+  .chart-link:hover > span:first-child,
+  .chart-link:focus-visible > span:first-child {
+    @apply text-ink underline underline-offset-2;
+  }
+
+  /* Removable filter, e.g. one set by a click on an Analysis chart. */
+  .chip {
+    @apply inline-flex h-7 items-center gap-1.5 rounded-sm border border-signal pl-2.5 pr-1.5 text-xs text-ink;
+  }
+
   /* Visible range input: hairline track, square thumb. */
   .range {
     @apply h-4 cursor-pointer appearance-none bg-transparent disabled:cursor-default disabled:opacity-30;
@@ -273,4 +287,20 @@ input[type="range"] {
 /* Space for the home indicator on notched phones. */
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Loading bar while the size of the download is unknown. */
+@keyframes loading-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}
+.loading-sweep {
+  animation: loading-sweep 1.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-sweep {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
 }

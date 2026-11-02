@@ -2,10 +2,34 @@ import type { Song } from "../types/song";
 import type { UmapResponse, UmapStatus } from "../types/umap";
 import type { CorrelationResponse, TimeAxisMode, TimeseriesResponse, SongDetail } from "../types/analysis";
 
-export async function fetchSongs(): Promise<Song[]> {
+/** Bytes of the song list read so far; total is null when the server did not say. */
+export interface DownloadProgress {
+  readonly loaded: number;
+  readonly total: number | null;
+}
+
+// Sent by the backend because the compressed response has no Content-Length.
+const UNCOMPRESSED_LENGTH_HEADER = "X-Uncompressed-Length";
+
+export async function fetchSongs(onProgress?: (progress: DownloadProgress) => void): Promise<Song[]> {
   const res = await fetch("/api/songs");
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  if (!onProgress || !res.body) return res.json();
+  const total = Number(res.headers.get(UNCOMPRESSED_LENGTH_HEADER)) || null;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const parts: string[] = [];
+  let loaded = 0;
+  onProgress({ loaded, total });
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(decoder.decode(value, { stream: true }));
+    loaded += value.byteLength;
+    onProgress({ loaded, total });
+  }
+  parts.push(decoder.decode());
+  return JSON.parse(parts.join("")) as Song[];
 }
 
 export async function fetchSongCount(): Promise<number> {
@@ -496,7 +520,7 @@ export interface MyPlaylist {
   readonly spotify_playlist_id: string;
   readonly kind: "playlist" | "liked" | "album";
   readonly collaborative: boolean;
-  /** An album's artists, comma separated; null for playlists. */
+  /** An album's artists, comma separated; also set on a playlist that is one album saved as a playlist. */
   readonly artists: string | null;
   readonly name: string;
   readonly image: string | null;

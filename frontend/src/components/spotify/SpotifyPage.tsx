@@ -33,20 +33,25 @@ interface PlaylistSection {
   readonly matches: (playlist: MyPlaylist) => boolean;
 }
 
+/** A real playlist; one that only holds one album under its name (artists set) counts as an album. */
+function isPlaylist(playlist: MyPlaylist): boolean {
+  return playlist.kind === "playlist" && playlist.artists === null;
+}
+
 const SECTIONS: readonly PlaylistSection[] = [
   {
     id: "own",
     heading: "Eigene Playlists",
     filterLabel: "Eigene",
-    matches: (p) => p.kind === "liked" || (p.kind === "playlist" && !p.collaborative),
+    matches: (p) => p.kind === "liked" || (isPlaylist(p) && !p.collaborative),
   },
   {
     id: "shared",
     heading: "Gemeinsame Playlists",
     filterLabel: "Gemeinsam",
-    matches: (p) => p.kind === "playlist" && p.collaborative,
+    matches: (p) => isPlaylist(p) && p.collaborative,
   },
-  { id: "albums", heading: "Alben", filterLabel: "Alben", matches: (p) => p.kind === "album" },
+  { id: "albums", heading: "Alben", filterLabel: "Alben", matches: (p) => !isPlaylist(p) && p.kind !== "liked" },
 ];
 
 /** The API's order, except that the liked songs always lead. */

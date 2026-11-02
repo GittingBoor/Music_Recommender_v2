@@ -26,6 +26,15 @@ export function usePath(): string {
   return useSyncExternalStore(subscribe, getPath);
 }
 
+function getSearch(): string {
+  return window.location.search;
+}
+
+/** Current query string including the "?" ("" without one). */
+export function useSearch(): string {
+  return useSyncExternalStore(subscribe, getSearch);
+}
+
 export function navigate(to: string, { replace = false } = {}) {
   if (replace) {
     // Keep the entry's state: a replaced entry is still the one the user entered with.

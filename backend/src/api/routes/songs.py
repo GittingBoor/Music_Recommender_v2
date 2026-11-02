@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import TypeAdapter
 from sqlalchemy.orm import Session, selectinload
 
 from src.analysis.similarity import get_similarity_index
@@ -19,6 +20,11 @@ from src.db.models import (
 from src.schemas.songs import SongResponse
 
 router = APIRouter()
+
+# nginx compresses the list and drops Content-Length; the page shows its loading
+# progress against this one (bytes after decompression).
+UNCOMPRESSED_LENGTH_HEADER = "X-Uncompressed-Length"
+_SONG_LIST = TypeAdapter(list[SongResponse])
 
 
 @router.get("/songs/count")
@@ -78,4 +84,5 @@ def list_songs(db: Session = Depends(get_db)):
         filename = song.file_metadata.filename if song.file_metadata else None
         r.has_preview = bool(filename) and resolve_audio_file(filename) is not None
         result.append(r)
-    return result
+    body = _SONG_LIST.dump_json(result)
+    return Response(body, media_type="application/json", headers={UNCOMPRESSED_LENGTH_HEADER: str(len(body))})

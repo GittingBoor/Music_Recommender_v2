@@ -119,7 +119,7 @@ class LibraryPlaylistOut(BaseModel):
     name: str
     image: str | None
     collaborative: bool
-    # An album's artists; None for playlists.
+    # An album's artists, also of a playlist that is one album saved as a playlist; None for other playlists.
     artists: str | None
     # Distinct tracks on Spotify; song_ids are the ones in the library, in playlist order.
     track_count: int
